@@ -48,6 +48,8 @@ Read the task in full:
 
 Research the task. Identify the key unknowns — libraries to evaluate, APIs to understand, implementation patterns to compare. Produce a concise brief covering: recommended approaches with rationale, tradeoffs between options, gotchas, and exact API signatures for any external libraries the developer will call.
 
+SCOPE — you are ONLY researching, not building. Do not implement any acceptance criterion, do not create or edit source/test/config files, do not run builds, tests, installs, or code generators, and do not check off acceptance criteria or set the task to Done. The task's implementation plan and acceptance criteria are context to research, NOT a checklist to execute. Document API signatures from the docs — do not write code that calls them. Your single deliverable is the Research Brief written into the task notes (below); leave the status as In Progress for the architect and developer that follow.
+
 When done, write the brief directly into the task file — do NOT use backlog_task_edit notesAppend (it fails on large payloads). The task file path was shown by backlog_task_view on the "File:" line. Run this Python snippet via bash:
 
 ```python

@@ -4,7 +4,7 @@ description: Use this agent when reviewing code for production quality standards
 prompt_mode: append
 tools: read, bash, edit, write, grep, find, ls, mcp
 skills: production-quality
-thinking: low
+model: chat-27b:thinking
 ---
 
 # Reviewer Agent
