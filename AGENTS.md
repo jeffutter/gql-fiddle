@@ -9,9 +9,10 @@ multiple subgraph schemas, compose them into a supergraph, inspect the query
 plan, and run queries against deterministic **mock** data — entirely client-side.
 The GraphQL logic is Rust compiled to WASM; the UI is a TypeScript/React shell.
 
-Read `docs/plans/2026-06-06-graphql-playground-design.md` (the design) and
-`docs/plans/2026-06-06-graphql-playground-implementation-plan.md` (ordered tasks,
-milestones, acceptance criteria) before non-trivial work.
+Read `backlog/docs/doc-1 - GraphQL-Playground-Design.md` (the design) and
+`backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md` (ordered tasks,
+milestones, acceptance criteria) before non-trivial work. Work is tracked as
+Backlog.md tasks under `backlog/tasks/` — see CLAUDE.md for the workflow.
 
 ## Toolchain: everything runs inside the Nix flake
 

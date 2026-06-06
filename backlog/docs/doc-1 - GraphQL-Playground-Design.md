@@ -1,3 +1,11 @@
+---
+id: doc-1
+title: GraphQL Playground Design
+type: specification
+created_date: '2026-06-06 20:02'
+---
+
+
 # GraphQL Playground — Design
 
 **Date:** 2026-06-06

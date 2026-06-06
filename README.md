@@ -9,10 +9,11 @@ and `apollo-federation`); the UI is a TypeScript/React shell.
 
 ## Status
 
-Scaffold + Spike 0 pending. See:
+Scaffold complete; Spike 0 pending. Work is tracked in Backlog.md
+(`backlog/tasks/`). Design and plan docs:
 
-- [Design](docs/plans/2026-06-06-graphql-playground-design.md)
-- [Implementation plan](docs/plans/2026-06-06-graphql-playground-implementation-plan.md)
+- `backlog/docs/doc-1 - GraphQL-Playground-Design.md`
+- `backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md`
 
 ## Getting started
 
