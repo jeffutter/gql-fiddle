@@ -23,8 +23,8 @@ console_error_panic_hook = "0.1"
 # Spike 0 — uncomment, then prove they compile to wasm32 and that compose()
 # runs in a browser. Versions confirmed latest as of 2026-06-06.
 #
-# apollo-compiler = "=1.32.0"
-# apollo-federation = "=2.15.0"
+apollo-compiler = "=1.32.0"
+apollo-federation = "=2.15.0"
 #
 # The usual wasm fix when a transitive dep needs randomness: enable getrandom's
 # JS backend. Uncomment if Spike 0 surfaces a getrandom build error.
