@@ -6,6 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 description = "WASM GraphQL core: validate, compose, plan, mock-execute"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lib]
 # cdylib: the wasm artifact for the browser. rlib: so native `cargo test` can
 # unit-test the internal modules directly.
@@ -24,9 +27,10 @@ console_error_panic_hook = "0.1"
 # runs in a browser. Versions confirmed latest as of 2026-06-06.
 apollo-compiler = "=1.32.0"
 apollo-federation = "=2.15.0"
-# The usual wasm fix when a transitive dep needs randomness: enable getrandom's
-# JS backend. Uncomment if Spike 0 surfaces a getrandom build error.
-# getrandom = { version = "0.2", features = ["js"] }
+# The usual wasm fix when a transitive dep needs randomness:
+# enable getrandom's wasm_js backend. Required for apollo-
+# federation which pulls in getrandom v0.3.
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
