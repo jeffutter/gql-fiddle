@@ -23,3 +23,5 @@ web/node_modules/
 
 # overnight backlog loop logs
 loop-logs/
+
+tests/__pycache__/
