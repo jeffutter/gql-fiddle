@@ -28,8 +28,9 @@ console_error_panic_hook = "0.1"
 apollo-compiler = "=1.32.0"
 apollo-federation = "=2.15.0"
 # The usual wasm fix when a transitive dep needs randomness:
-# enable getrandom's wasm_js backend. Required for apollo-
-# federation which pulls in getrandom v0.3.
+# enable getrandom's wasm_js feature for wasm builds.
+# Required for apollo-federation which pulls in getrandom v0.3.
+[target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
