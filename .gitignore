@@ -20,3 +20,6 @@ web/node_modules/
 
 # local Claude settings
 .claude/settings.local.json
+
+# overnight backlog loop logs
+loop-logs/
