@@ -4,10 +4,11 @@ title: Add validate_subgraph() diagnostic tests
 status: To Do
 assignee: []
 created_date: '2026-06-06 20:20'
+updated_date: '2026-06-07 22:39'
 labels: []
 milestone: m-1
 dependencies:
-  - TASK-5
+  - TASK-28
 documentation:
   - backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md
 priority: low

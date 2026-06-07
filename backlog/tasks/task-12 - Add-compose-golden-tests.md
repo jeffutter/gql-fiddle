@@ -4,10 +4,12 @@ title: Add compose() golden tests
 status: To Do
 assignee: []
 created_date: '2026-06-06 20:20'
+updated_date: '2026-06-07 22:39'
 labels: []
 milestone: m-1
 dependencies:
   - TASK-2
+  - TASK-28
 documentation:
   - backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md
 priority: medium
