@@ -83,9 +83,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compose_reports_unimplemented_until_spike_0() {
+    fn compose_returns_envelope_for_empty_input() {
         let out = compose("[]");
-        assert!(out.contains("UNIMPLEMENTED"));
+        let val: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(val.get("ok").is_some());
     }
 
     #[test]

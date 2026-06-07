@@ -8,8 +8,6 @@ use serde::Deserialize;
 /// One subgraph as supplied by the editor.
 #[derive(Debug, Deserialize)]
 pub struct SubgraphInput {
-    #[allow(dead_code)] // consumed once compose() is wired up in Spike 0.
     pub name: String,
-    #[allow(dead_code)]
     pub sdl: String,
 }
