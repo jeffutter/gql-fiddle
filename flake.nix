@@ -8,7 +8,12 @@
   };
 
   outputs =
-    { nixpkgs, rust-overlay, flake-utils, ... }:
+    {
+      nixpkgs,
+      rust-overlay,
+      flake-utils,
+      ...
+    }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
@@ -47,7 +52,15 @@
 
             # Git hooks.
             pkgs.lefthook
+
+            # Browser + driver for headless wasm-pack tests (pre-built binaries
+            # from wasm-pack don't work on Nix — missing shared libs).
+            pkgs.chromium
+            pkgs.chromedriver
           ];
+
+          CHROME = "${pkgs.chromium}/bin/chromium";
+          CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
 
           shellHook = ''
             echo "graphql-playground dev shell"
