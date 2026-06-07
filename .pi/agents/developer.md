@@ -28,7 +28,7 @@ Work through acceptance criteria one by one. For each AC:
 2. Run it — confirm it fails (red)
 3. Write the minimum implementation to make it pass
 4. Run it — confirm all tests pass (green)
-5. Run quality tools (ruff, mypy)
+5. Run quality tools for the project's language (see the lint/typecheck tables below)
 6. Check off the AC immediately: `mcp({ tool: "backlog_task_edit", args: '{"id": "<task>", "acceptanceCriteriaCheck": [N]}' })`
 7. Then move to the next AC
 

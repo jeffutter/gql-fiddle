@@ -50,19 +50,20 @@ Research the task. Identify the key unknowns — libraries to evaluate, APIs to 
 
 SCOPE — you are ONLY researching, not building. Do not implement any acceptance criterion, do not create or edit source/test/config files, do not run builds, tests, installs, or code generators, and do not check off acceptance criteria or set the task to Done. The task's implementation plan and acceptance criteria are context to research, NOT a checklist to execute. Document API signatures from the docs — do not write code that calls them. Your single deliverable is the Research Brief written into the task notes (below); leave the status as In Progress for the architect and developer that follow.
 
-When done, write the brief directly into the task file — do NOT use backlog_task_edit notesAppend (it fails on large payloads). The task file path was shown by backlog_task_view on the "File:" line. Run this Python snippet via bash:
+When done, write the brief directly into the task file — do NOT use backlog_task_edit notesAppend (it fails on large payloads). The task file path was shown by backlog_task_view on the "File:" line. First use your `write` tool to save your full brief text to `/tmp/research-brief.md`, then splice it into the task's notes section with this Node snippet (Node ships in the Nix dev shell; Python does not):
 
-```python
-task_file = "<path from the 'File:' line>"
-brief = "## Research Brief\n\n<your full brief text here>"
-with open(task_file, 'r') as f:
-    content = f.read()
-if '<!-- SECTION:NOTES:END -->' in content:
-    content = content.replace('<!-- SECTION:NOTES:END -->', brief + '\n<!-- SECTION:NOTES:END -->')
-else:
-    content += '\n## Notes\n\n<!-- SECTION:NOTES:BEGIN -->\n' + brief + '\n<!-- SECTION:NOTES:END -->\n'
-with open(task_file, 'w') as f:
-    f.write(content)
+```bash
+nix develop -c node -e '
+const fs = require("fs");
+const taskFile = process.argv[1];
+const block = "## Research Brief\n\n" + fs.readFileSync("/tmp/research-brief.md", "utf8") + "\n";
+const END = "<!-- SECTION:NOTES:END -->";
+let content = fs.readFileSync(taskFile, "utf8");
+content = content.includes(END)
+  ? content.replace(END, block + END)
+  : content + "\n## Notes\n\n<!-- SECTION:NOTES:BEGIN -->\n" + block + END + "\n";
+fs.writeFileSync(taskFile, content);
+' "<path from the File: line>"
 ```
 </prompt>
 
@@ -158,20 +159,22 @@ Read the task and plan:
 Mark it in progress:
 - backlog_task_edit — id: "$ARGUMENTS", status: "In Progress", assignee: ["developer"]
 
-Work on ONLY this AC:
+Work on ONLY this AC. Every command runs in the Nix dev shell — prefix with `nix develop -c` (or rely on direnv). Choose the command set matching the files this AC touches:
+
+- Rust core (`crates/**`, `*.rs`):
+  - single test: `nix develop -c cargo test -p gql-core <test_name>`
+  - format + lint: `nix develop -c cargo fmt --check` and `nix develop -c cargo clippy --all-targets -- -D warnings`
+- Web shell (`web/**`, `*.ts`/`*.tsx`):
+  - single test: `nix develop -c pnpm -C web test run <test_file>`
+  - format + lint + typecheck: `nix develop -c pnpm -C web prettier --check <file>`, `nix develop -c pnpm -C web lint`, `nix develop -c pnpm -C web tsc --noEmit`
+
 1. Read the specific source files the plan names for this AC — **at most 3 files total**. Do not grep, glob, or read additional files beyond what the plan names.
-2. Write a test for this AC only
-3. Run it (never run the full suite — run only the specific test you just wrote):
-   ```bash
-   uv run python -m pytest <test_file>::<test_class>::<test_method> -x --tb=short
-   ```
-4. Implement the minimum code to make it pass
-5. Run tests again to confirm green
-6. Run quality tools:
-   ```bash
-   uv run ruff check <file> && uv run mypy <file>
-   ```
-   If mypy reports more than 5 errors, stop and report: "STUCK: mypy errors exceed threshold — <summary>". Do not iterate through type errors in a loop.
+2. Write a test for this AC only.
+3. Run just that test (never the full suite) with the "single test" command above.
+4. Implement the minimum code to make it pass.
+5. Run the test again to confirm green.
+6. Run the format, lint, and (web only) typecheck commands above on the files you changed.
+   If lint or typecheck errors persist after one fix attempt, stop and report: "STUCK: lint/typecheck errors — <summary>". Do not iterate in a loop.
 7. Check off this AC: backlog_task_edit — id: "$ARGUMENTS", acceptanceCriteriaCheck: [N]
 
 Stop after completing this AC. Do not proceed to other ACs.
@@ -193,7 +196,7 @@ The AC you must implement:
 Read the current task state:
 - backlog_task_view — id: "$ARGUMENTS"
 
-Do not rewrite tests or code that already exist on disk for this AC. Focus on what is missing or broken. Fix it, confirm tests pass (unit tests only — no integration tests), run ruff+mypy, then check off the AC:
+Do not rewrite tests or code that already exist on disk for this AC. Focus on what is missing or broken. Fix it, confirm the AC's test passes, then run the format/lint commands (plus `tsc --noEmit` for web) on the files you changed, then check off the AC:
 - backlog_task_edit — id: "$ARGUMENTS", acceptanceCriteriaCheck: [N]
 </prompt>
 
@@ -218,14 +221,17 @@ Review the implementation for task $ARGUMENTS.
 Read the current task state:
 - backlog_task_view — id: "$ARGUMENTS"
 
-Run quality tools (use a 300-second timeout on pytest and mypy — they can take several minutes):
+Run the full quality gate (use a 300-second timeout — the test suites can take several minutes):
 ```bash
-uv run pytest --tb=short -q
-uv run ruff check src/ tests/
-uv run mypy src/
+nix develop -c cargo test -p gql-core
+nix develop -c cargo fmt --check
+nix develop -c cargo clippy --all-targets -- -D warnings
+nix develop -c pnpm -C web test run
+nix develop -c pnpm -C web tsc --noEmit
+nix develop -c pnpm -C web lint
 ```
 
-Review for production quality: type annotations on public functions, error handling covers all failure cases, tests cover success/error/edge cases, all acceptance criteria checked, all Definition of Done items checked, code follows project conventions.
+Review for production quality: errors are returned as values across the WASM boundary (no `panic!`/`unwrap()`/`expect()` outside tests), error handling covers all failure cases, the JS↔Rust boundary returns our own DTOs (never apollo-federation internals), tests cover success/error/edge cases, all acceptance criteria checked, all Definition of Done items checked, code follows project conventions (see AGENTS.md).
 
 If everything passes:
   1. Check off every Definition of Done item (1-based index):
@@ -261,9 +267,12 @@ Fix each issue. For each fix: edit the file, run the relevant quality tool to co
 
 When all issues are resolved run the full suite:
 ```bash
-uv run pytest --tb=short -q
-uv run ruff check src/ tests/
-uv run mypy src/
+nix develop -c cargo test -p gql-core
+nix develop -c cargo fmt --check
+nix develop -c cargo clippy --all-targets -- -D warnings
+nix develop -c pnpm -C web test run
+nix develop -c pnpm -C web tsc --noEmit
+nix develop -c pnpm -C web lint
 ```
 
 All must pass before you finish.
