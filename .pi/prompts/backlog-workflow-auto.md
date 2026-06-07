@@ -68,11 +68,38 @@ with open(task_file, 'w') as f:
 
 ---
 
-## Step 2 — Architect (skip if HAS_PLAN is true)
+## Step 2 — Architect (always runs)
 
-If HAS_PLAN is true (from preamble), proceed directly to Step 3.
+The architect always runs so the plan is fresh: if the task already has a plan, the architect validates and refines it against the research brief and current codebase; otherwise it drafts one.
 
-Otherwise call the Agent tool with:
+**If HAS_PLAN is true (from preamble)** — call the Agent tool to REFINE the existing plan with:
+- `subagent_type`: `architect`
+- `description`: `Refine plan $ARGUMENTS`
+- `prompt`: the text between the `<refine-prompt>` tags below, passed verbatim
+
+<refine-prompt>
+Validate and refine the existing implementation plan for backlog task $ARGUMENTS.
+
+Read the task in full — it already has an implementation plan, and the Research Brief is in the notes section:
+- backlog_task_view — id: "$ARGUMENTS"
+
+The research brief already covers what's in the codebase — do not re-read source files the researcher summarised. Trust the brief.
+
+The existing plan was written earlier and may be stale. Bring it up to date — do NOT replace it wholesale:
+- Preserve the original author's intent, structure, and explicit step-by-step level of detail. Keep it executable by someone who follows directions literally.
+- Confirm every acceptance criterion is covered by a step; add steps for any that are not.
+- Correct anything that no longer matches reality: wrong or vague library API calls, file paths, commands, or assumptions the research brief or current codebase contradicts. Replace hand-waved "find the right API" steps with the exact calls from the brief.
+- Note any new risks or prerequisites that have emerged since the plan was written.
+- If the plan is already correct and complete, make only minimal edits and say so.
+
+Record the refined plan and update status:
+- backlog_task_edit — id: "$ARGUMENTS", planSet: "<full refined plan text>"
+- backlog_task_edit — id: "$ARGUMENTS", status: "To Do"
+
+Output the full refined plan text, then briefly list what you changed and why (or "no substantive changes" if it was already sound).
+</refine-prompt>
+
+**Otherwise (no existing plan)** — call the Agent tool to DRAFT a new plan with:
 - `subagent_type`: `architect`
 - `description`: `Plan $ARGUMENTS`
 - `prompt`: the text between the `<prompt>` tags below, passed verbatim
