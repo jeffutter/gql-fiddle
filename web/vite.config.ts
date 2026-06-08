@@ -8,8 +8,8 @@ import topLevelAwait from "vite-plugin-top-level-await";
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait()],
   test: {
-    // Default node env is enough for logic tests. Add jsdom + the dep when we
-    // start testing React components (milestone 1).
-    environment: "node",
+    // jsdom enables React component rendering in Vitest.
+    environment: "jsdom",
+    setupFiles: ["./src/setupTests.tsx", "@testing-library/jest-dom/vitest"],
   },
 });

@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
+import { loader } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
+import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import Editor from "@monaco-editor/react";
 import { useWorkspace } from "./store";
 import { loadCore } from "./core";
 import type { ComposeResult } from "./core/types";
+
+// Configure Monaco to load workers from node_modules (required for Vite).
+self.MonacoEnvironment = {
+  getWorker(_, label) {
+    if (label === "json") return new jsonWorker();
+    return new editorWorker();
+  },
+};
+loader.config({ monaco });
 
 // Placeholder three-pane shell. Editors (Monaco + monaco-graphql), the query
 // plan visualizer, and live recomposition are wired up across milestones 1-3.
@@ -39,10 +53,12 @@ export default function App() {
               </button>
             ))}
           </nav>
-          <textarea
-            style={{ width: "100%", height: "70%", fontFamily: "monospace" }}
+          <Editor
+            path={`sg-${activeSubgraph}`}
             value={subgraphs[activeSubgraph]?.sdl ?? ""}
-            onChange={(e) => setSubgraphSdl(activeSubgraph, e.target.value)}
+            language="plaintext"
+            height="70%"
+            onChange={(value) => setSubgraphSdl(activeSubgraph, value ?? "")}
           />
         </div>
         <div>
