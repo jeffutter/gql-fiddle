@@ -4,10 +4,12 @@ title: Add component-test setup (jsdom) and a Playwright e2e smoke test
 status: To Do
 assignee: []
 created_date: '2026-06-06 20:20'
+updated_date: '2026-06-08 18:39'
 labels: []
 milestone: m-4
 dependencies:
   - TASK-19
+  - TASK-32
 documentation:
   - backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md
 priority: medium
