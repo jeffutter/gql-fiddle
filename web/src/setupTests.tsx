@@ -18,15 +18,45 @@ document.queryCommandSupported = vi.fn(() => false);
 
 // Mock monaco-editor so the heavy WASM-adjacent module never loads in tests.
 vi.mock("monaco-editor", () => ({
-  editor: {},
+  editor: {
+    setModelMarkers: vi.fn(),
+  },
+  MarkerSeverity: {
+    Error: 8,
+    Warning: 4,
+  },
 }));
+
+declare global {
+  var __editorTestHarness: {
+    onMount: ((editor: unknown, monaco: unknown) => void) | null;
+  };
+}
+
+// Shared test harness so individual tests can supply their own editor/monaco mocks.
+globalThis.__editorTestHarness = {
+  onMount: null,
+};
 
 // Mock @monaco-editor/react — the Editor component renders a simple placeholder.
 vi.mock("@monaco-editor/react", () => ({
   loader: { config: vi.fn() },
-  default: vi.fn(({ value }: { value?: string }) => (
-    <div data-testid="monaco-editor" role="textbox">
-      {value}
-    </div>
-  )),
+  default: vi.fn(
+    ({
+      value,
+      onMount,
+    }: {
+      value?: string;
+      onMount?: (editor: unknown, monaco: unknown) => void;
+    }) => {
+      if (onMount) {
+        globalThis.__editorTestHarness.onMount = onMount;
+      }
+      return (
+        <div data-testid="monaco-editor" role="textbox">
+          {value}
+        </div>
+      );
+    },
+  ),
 }));

@@ -1,5 +1,5 @@
 # pnpm 10+ blocks dependency build scripts by default; allow the ones our
 # toolchain needs to produce their native binaries.
 allowBuilds:
-  '@swc/core': true
+  "@swc/core": true
   esbuild: true

@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import App from "./App";
 import { useWorkspace } from "./store";
+import * as monaco from "monaco-editor";
+import type { Diagnostic } from "./core/types";
+
+let validateSubgraphCallCount = 0;
 
 // Shared mock used by all tests in this file.
 let composeCallCount = 0;
@@ -10,11 +14,16 @@ const mockCompose = vi.fn((): { ok: true; supergraph_sdl: string; hints: never[]
   return { ok: true, supergraph_sdl: "# supergraph", hints: [] };
 });
 
+const validateSubgraphMock = vi.fn(() => {
+  validateSubgraphCallCount++;
+  return { diagnostics: [] as Diagnostic[] };
+});
+
 vi.mock("./core", () => ({
   loadCore: () =>
     Promise.resolve({
       compose: mockCompose,
-      validateSubgraph: vi.fn(() => ({ diagnostics: [] })),
+      validateSubgraph: validateSubgraphMock,
       validateQuery: vi.fn(() => ({ diagnostics: [] })),
       plan: vi.fn(() => ({})),
       executeMock: vi.fn(() => ({ data: {} })),
@@ -24,6 +33,8 @@ vi.mock("./core", () => ({
 describe("App", () => {
   beforeEach(() => {
     cleanup();
+    validateSubgraphCallCount = 0;
+    validateSubgraphMock.mockClear();
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       activeSubgraph: 0,
@@ -87,5 +98,146 @@ describe("App", () => {
     // Verify the store actually contains the new SDL.
     const state = useWorkspace.getState();
     expect(state.subgraphs[0].sdl).toBe("type Query { b: String }");
+  });
+
+  it("fixing the error clears the underline", async () => {
+    vi.useFakeTimers();
+    const invalidSdl = "type Query { hello: BogusType }";
+    const fixedSdl = "type Query { hello: String }";
+
+    // First validation returns an error.
+    validateSubgraphMock.mockReturnValueOnce({
+      diagnostics: [
+        {
+          severity: "error" as const,
+          message: "Cannot find type `BogusType`",
+          line: 1,
+          col: 20,
+          len: 9,
+        },
+      ],
+    });
+
+    // Second validation (after fix) returns no diagnostics.
+    validateSubgraphMock.mockReturnValueOnce({
+      diagnostics: [],
+    });
+
+    render(<App />);
+
+    await vi.waitFor(() => expect(composeCallCount).toBeGreaterThan(0));
+
+    const setModelMarkersSpy = vi.spyOn(monaco.editor, "setModelMarkers");
+    const mockModel = {};
+    const mockEditor = { getModel: vi.fn(() => mockModel) };
+
+    expect(globalThis.__editorTestHarness.onMount).not.toBeNull();
+    globalThis.__editorTestHarness.onMount!(mockEditor, monaco);
+
+    // Type invalid SDL.
+    useWorkspace.getState().setSubgraphSdl(0, invalidSdl);
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Should have a marker.
+    expect(setModelMarkersSpy).toHaveBeenCalledTimes(1);
+    const [, , markersFirst] = setModelMarkersSpy.mock.calls[0];
+    expect(markersFirst).toHaveLength(1);
+
+    // Now fix the SDL.
+    useWorkspace.getState().setSubgraphSdl(0, fixedSdl);
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Should be called again with an empty array to clear markers.
+    expect(setModelMarkersSpy).toHaveBeenCalledTimes(2);
+    const [, , markersSecond] = setModelMarkersSpy.mock.calls[1];
+    expect(markersSecond).toEqual([]);
+  });
+
+  it("debounces validation so rapid keystrokes trigger only one validateSubgraph call", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+
+    await vi.waitFor(() => expect(composeCallCount).toBeGreaterThan(0));
+
+    const setModelMarkersSpy = vi.spyOn(monaco.editor, "setModelMarkers");
+    const mockModel = {};
+    const mockEditor = { getModel: vi.fn(() => mockModel) };
+
+    expect(globalThis.__editorTestHarness.onMount).not.toBeNull();
+    globalThis.__editorTestHarness.onMount!(mockEditor, monaco);
+
+    // Simulate typing multiple characters rapidly.
+    useWorkspace.getState().setSubgraphSdl(0, "t");
+    useWorkspace.getState().setSubgraphSdl(0, "ty");
+    useWorkspace.getState().setSubgraphSdl(0, "typ");
+    useWorkspace.getState().setSubgraphSdl(0, "type");
+
+    // Wait for the debounce timeout to fire once.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // validateSubgraph should have been called exactly once (after the
+    // debounce settled), not once per keystroke.
+    expect(validateSubgraphCallCount).toBe(1);
+    expect(validateSubgraphMock).toHaveBeenCalledWith("type");
+
+    // Markers should also have been set exactly once.
+    expect(setModelMarkersSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("typing invalid SDL shows a red underline at the correct position within ~300ms", async () => {
+    vi.useFakeTimers();
+    const invalidSdl = "type Query { hello: BogusType }";
+
+    // Configure validateSubgraph to return a diagnostic for this SDL.
+    validateSubgraphMock.mockReturnValue({
+      diagnostics: [
+        {
+          severity: "error" as const,
+          message: "Cannot find type `BogusType`",
+          line: 1,
+          col: 20,
+          len: 9,
+        },
+      ],
+    });
+
+    render(<App />);
+
+    // Wait for the app to mount and composition to settle.
+    await vi.waitFor(() => expect(composeCallCount).toBeGreaterThan(0));
+
+    // Build a mock Monaco model and editor.
+    const setModelMarkersSpy = vi.spyOn(monaco.editor, "setModelMarkers");
+    const mockModel = {};
+    const mockEditor = {
+      getModel: vi.fn(() => mockModel),
+    };
+
+    // Trigger onMount so the component captures the editor & monaco instances.
+    expect(globalThis.__editorTestHarness.onMount).not.toBeNull();
+    globalThis.__editorTestHarness.onMount!(mockEditor, monaco);
+
+    // Simulate typing into the editor (via store update) with invalid SDL.
+    useWorkspace.getState().setSubgraphSdl(0, invalidSdl);
+
+    // Wait for the debounce timeout (300ms) + async boundary.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Validate that the core was called with the invalid SDL.
+    expect(validateSubgraphMock).toHaveBeenCalledWith(invalidSdl);
+
+    // Validate that markers were applied at the correct position.
+    expect(setModelMarkersSpy).toHaveBeenCalled();
+    const [, , markers] = setModelMarkersSpy.mock.calls[0];
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).toMatchObject({
+      startLineNumber: 1,
+      startColumn: 20,
+      endLineNumber: 1,
+      endColumn: 29,
+      message: "Cannot find type `BogusType`",
+      severity: monaco.MarkerSeverity.Error,
+    });
   });
 });
