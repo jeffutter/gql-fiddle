@@ -1,10 +1,11 @@
 ---
 id: TASK-32
 title: 'Fix: the web test suite is red (8 failures) — make pnpm test run green'
-status: Needs Plan
-assignee: []
+status: Done
+assignee:
+  - developer
 created_date: '2026-06-08 18:38'
-updated_date: '2026-06-08 18:43'
+updated_date: '2026-06-08 20:22'
 labels:
   - review-followup
 milestone: m-1
@@ -23,32 +24,42 @@ Found while reviewing TASK-8/9/29. The committed web suite fails: 'nix develop -
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 web/src/setupTests.tsx no longer globally mocks ./core (the global vi.mock('./core') block is removed); App.test.tsx keeps its own ./core mock
-- [ ] #2 src/core/index.test.ts passes (all 6 tests) — it exercises the real loadCore against the mocked ../wasm/gql_core.js
-- [ ] #3 The three App validation tests no longer throw 'editor.focus is not a function' (mock editors include focus)
-- [ ] #4 nix develop -c bash -c "cd web && pnpm test run" reports 0 failing tests and 0 unhandled errors
+- [x] #1 web/src/setupTests.tsx no longer globally mocks ./core (the global vi.mock('./core') block is removed); App.test.tsx keeps its own ./core mock
+- [x] #2 src/core/index.test.ts passes (all 6 tests) — it exercises the real loadCore against the mocked ../wasm/gql_core.js
+- [x] #3 The three App validation tests no longer throw 'editor.focus is not a function' (mock editors include focus)
+- [x] #4 nix develop -c bash -c "cd web && pnpm test run" reports 0 failing tests and 0 unhandled errors
 <!-- AC:END -->
 
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-SETUP (read first): This is a Rust+WebAssembly core (crates/gql-core) with a TypeScript/React web app (web/). ALL commands must run inside the Nix dev shell: either run 'direnv allow' once, or prefix every command with 'nix develop -c'. Work from the repository root unless told otherwise. Do not change pinned dependency versions.
+SETUP (read first): This is a Rust+WebAssembly core (`crates/gql-core`) with a TypeScript/React web app (`web/`). ALL commands must run inside the Nix dev shell: either run `direnv allow` once, or prefix every command with `nix develop -c`. Work from the repository root unless told otherwise. Do not change pinned dependency versions.
 
-ROOT CAUSE A — global ./core mock breaks core/index.test.ts:
-1. Open web/src/setupTests.tsx. Delete ONLY the block that reads:
-     // Mock the WASM core module so tests never attempt a fetch to localhost:3000.
-     vi.mock('./core', () => ({ loadCore: vi.fn(() => Promise.resolve({ compose: () => ({ ok: true, supergraph_sdl: '', hints: [] }) })) }));
-   Leave the monaco-editor and @monaco-editor/react mocks, the unhandledRejection handler, the queryCommandSupported polyfill, and the __editorTestHarness setup intact.
-2. Do NOT touch App.test.tsx — it already has its own complete vi.mock('./core') at the top (compose, validateSubgraph, validateQuery, plan, executeMock), which still overrides the module for that file.
-3. Run: nix develop -c bash -c 'cd web && pnpm test run src/core/index.test.ts' and confirm all 6 tests pass.
+ROOT CAUSE A — global `./core` mock breaks `core/index.test.ts`:
+1. Open `web/src/setupTests.tsx`. Delete ONLY the block on lines 7-12 that reads:
+    vi.mock("./core", () => ({
+      loadCore: vi.fn(() => Promise.resolve({ compose: () => ({ ok: true, supergraph_sdl: "", hints: [] }) })),
+    }));
+   Leave the monaco-editor mock, `@monaco-editor/react` mock, the `unhandledRejection` handler (line 5), the `queryCommandSupported` polyfill, and the `__editorTestHarness` setup intact.
+2. Do NOT touch `App.test.tsx` — it already has its own complete `vi.mock("./core")` at line 28-38 (providing `compose`, `validateSubgraph`, `validateQuery`, `plan`, `executeMock`), which will continue to override the module for that file.
+3. Run: `nix develop -c bash -c 'cd web && pnpm test run src/core/index.test.ts'` and confirm all 6 tests pass (currently 5 fail: `compose`-only stub makes `validateSubgraph` undefined, cached-instance check fails because only one method is present, and the real-composition test gets empty SDL from the stub).
 
-ROOT CAUSE B — editor.focus crashes validation tests:
-4. In web/src/App.test.tsx, find the three bare mock editors declared as 'const mockEditor = { getModel: vi.fn(() => mockModel) };' (in the tests: 'fixing the error clears the underline', 'debounces validation so rapid keystrokes trigger only one validateSubgraph call', and 'typing invalid SDL shows a red underline at the correct position within ~300ms'). Add 'focus: vi.fn(),' to each of these mock editor objects so the App focus effect (App.tsx:62-66) does not throw when onMount is invoked.
-5. Run: nix develop -c bash -c 'cd web && pnpm test run src/App.test.tsx' and confirm 0 failures and no 'editor.focus is not a function' uncaught exceptions.
+ROOT CAUSE B — `editor.focus()` crashes validation tests:
+4. In `web/src/App.test.tsx`, find the three bare mock editors that only have `getModel` and add `focus: vi.fn()` to each:
+   - Line 96 in test "fixing the error clears the underline": change `{ getModel: vi.fn(() => mockModel) }` to `{ getModel: vi.fn(() => mockModel), focus: vi.fn() }`
+   - Line 123 in test "debounces validation so rapid keystrokes trigger only one validateSubgraph call": change `{ getModel: vi.fn(() => mockModel) }` to `{ getModel: vi.fn(() => mockModel), focus: vi.fn() }`
+   - Line 240 in test "typing invalid SDL shows a red underline at the correct position within ~300ms": change `{ getModel: vi.fn(() => mockModel) }` to `{ getModel: vi.fn(() => mockModel), focus: vi.fn() }`
+5. Run: `nix develop -c bash -c 'cd web && pnpm test run src/App.test.tsx'` and confirm 0 failures and no "editor.focus is not a function" uncaught exceptions (currently 3 tests throw because `App.tsx` line 64 calls `editor.focus()` in the `useEffect([editor, activeSubgraph])` added by TASK-29).
 
 VERIFY EVERYTHING:
-6. Run: nix develop -c bash -c 'cd web && pnpm tsc --noEmit && pnpm lint && pnpm test run'. All must pass with 0 failing tests.
+6. Run: `nix develop -c bash -c 'cd web && pnpm tsc --noEmit && pnpm lint && pnpm test run'`. All must pass with 0 failing tests across all 3 test files (store.test.ts has 10 passing tests and is unaffected; core/index.test.ts has 6 tests; App.test.tsx has the remaining tests). Total: 33 tests, 0 failures, 0 errors.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed 8 web test failures caused by two root causes: (A) a global vi.mock('./core') in setupTests.tsx that stubbed compose-only and clobbered core/index.test.ts tests (validateSubgraph undefined, cached-instance check failed, empty SDL from stub — 5 failures); removed the global mock so App.test.tsx's own mock controls its file. (B) three App validation test mock editors missing focus() method, crashing on the useEffect added by TASK-29 that calls editor.focus() — 3 failures + uncaught exceptions; added focus: vi.fn() to all three mock editors. Full suite now reports 33 tests passing, 0 failures, 0 errors across all 3 test files.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Notes
 

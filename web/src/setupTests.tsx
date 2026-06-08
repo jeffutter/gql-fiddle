@@ -4,15 +4,6 @@ import { vi } from "vitest";
 // in jsdom where no server is running).  This keeps test output clean.
 process.on("unhandledRejection", () => {});
 
-// Mock the WASM core module so tests never attempt a fetch to localhost:3000.
-vi.mock("./core", () => ({
-  loadCore: vi.fn(() =>
-    Promise.resolve({
-      compose: () => ({ ok: true, supergraph_sdl: "", hints: [] }),
-    }),
-  ),
-}));
-
 // Polyfill browser APIs that Monaco depends on but jsdom does not provide.
 document.queryCommandSupported = vi.fn(() => false);
 

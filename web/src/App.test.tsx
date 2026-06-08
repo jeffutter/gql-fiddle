@@ -135,7 +135,7 @@ describe("App", () => {
 
     const setModelMarkersSpy = vi.spyOn(monaco.editor, "setModelMarkers");
     const mockModel = {};
-    const mockEditor = { getModel: vi.fn(() => mockModel) };
+    const mockEditor = { getModel: vi.fn(() => mockModel), focus: vi.fn() };
 
     expect(globalThis.__editorTestHarness.onMount).not.toBeNull();
     globalThis.__editorTestHarness.onMount!(mockEditor, monaco);
@@ -168,7 +168,7 @@ describe("App", () => {
 
     const setModelMarkersSpy = vi.spyOn(monaco.editor, "setModelMarkers");
     const mockModel = {};
-    const mockEditor = { getModel: vi.fn(() => mockModel) };
+    const mockEditor = { getModel: vi.fn(() => mockModel), focus: vi.fn() };
 
     expect(globalThis.__editorTestHarness.onMount).not.toBeNull();
     globalThis.__editorTestHarness.onMount!(mockEditor, monaco);
@@ -455,6 +455,7 @@ describe("App", () => {
     const mockModel = {};
     const mockEditor = {
       getModel: vi.fn(() => mockModel),
+      focus: vi.fn(),
     };
 
     // Trigger onMount so the component captures the editor & monaco instances.
