@@ -22,6 +22,49 @@ describe("workspace store", () => {
     expect(state.subgraphs[1].sdl).toBe("");
   });
 
+  describe("removeSubgraph (AC #2)", () => {
+    it("removes the subgraph at the given index", () => {
+      useWorkspace.getState().addSubgraph("reviews");
+      useWorkspace.getState().addSubgraph("orders");
+      const before = useWorkspace.getState();
+      expect(before.subgraphs).toHaveLength(3);
+
+      useWorkspace.getState().removeSubgraph(1); // remove "reviews"
+      const after = useWorkspace.getState();
+      expect(after.subgraphs).toHaveLength(2);
+      expect(after.subgraphs.map((s) => s.name)).toEqual(["products", "orders"]);
+    });
+
+    it("selects the nearest neighbor when removing the active tab", () => {
+      useWorkspace.getState().addSubgraph("reviews");
+      useWorkspace.getState().addSubgraph("orders");
+      // Activate index 1 ("reviews")
+      useWorkspace.getState().setActiveSubgraph(1);
+
+      useWorkspace.getState().removeSubgraph(1);
+      const after = useWorkspace.getState();
+      // Nearest neighbor is the one at index 1 now ("orders", which shifted down)
+      expect(after.activeSubgraph).toBe(1);
+    });
+
+    it("selects the previous tab when removing the last tab", () => {
+      useWorkspace.getState().addSubgraph("reviews");
+      // Active is already 1 (the only extra subgraph, i.e. last)
+      expect(useWorkspace.getState().activeSubgraph).toBe(1);
+
+      useWorkspace.getState().removeSubgraph(1);
+      const after = useWorkspace.getState();
+      expect(after.activeSubgraph).toBe(0);
+    });
+
+    it("prevents removing the last remaining subgraph", () => {
+      useWorkspace.getState().removeSubgraph(0);
+      const after = useWorkspace.getState();
+      expect(after.subgraphs).toHaveLength(1);
+      expect(after.subgraphs[0].name).toBe("products");
+    });
+  });
+
   describe("compose result persistence (AC #4)", () => {
     it("stores supergraphSdl on successful compose", () => {
       const state = useWorkspace.getState();

@@ -295,6 +295,139 @@ describe("App", () => {
     expect(screen.getByText("No valid composition yet")).toBeInTheDocument();
   });
 
+  // ---- AC#3: Tab switching shows correct SDL ----
+
+  it("editor displays the active subgraph's SDL after clicking a different tab (AC #3)", () => {
+    useWorkspace.setState({
+      subgraphs: [
+        { name: "products", sdl: "type Query { products }" },
+        { name: "reviews", sdl: "type Query { reviews }" },
+      ],
+      activeSubgraph: 0,
+    });
+
+    const { container } = render(<App />);
+
+    // Initially the first tab is active — editor should show its SDL.
+    expect(container.textContent).toContain("type Query { products }");
+
+    // Click the second tab button ("reviews", aria-pressed=false).
+    const reviewsBtn = container.querySelector("button[aria-pressed='false']")!;
+    fireEvent.click(reviewsBtn);
+
+    // The active index should now be 1.
+    expect(useWorkspace.getState().activeSubgraph).toBe(1);
+
+    // The editor should now display the second subgraph's SDL.
+    expect(container.textContent).toContain("type Query { reviews }");
+    expect(container.textContent).not.toContain("type Query { products }");
+  });
+
+  it("editor shows empty SDL for a newly added subgraph (AC #3)", () => {
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a }" }],
+      activeSubgraph: 0,
+    });
+
+    const { container } = render(<App />);
+
+    // Click the [+] button to add a new subgraph.
+    const nav = document.querySelector("nav")!;
+    const addBtn = nav.querySelector("button:last-child")!;
+    fireEvent.click(addBtn);
+
+    // The new subgraph is appended and becomes active (index 1).
+    expect(useWorkspace.getState().activeSubgraph).toBe(1);
+
+    // A newly added subgraph has an empty SDL, so the editor should not
+    // contain any old content — just be blank.
+    expect(container.textContent).not.toContain("type Query { a }");
+  });
+
+  it("editor shows correct SDL after removing a subgraph (AC #3)", () => {
+    useWorkspace.setState({
+      subgraphs: [
+        { name: "products", sdl: "type Query { products }" },
+        { name: "reviews", sdl: "type Query { reviews }" },
+        { name: "orders", sdl: "type Query { orders }" },
+      ],
+      activeSubgraph: 2, // orders is active
+    });
+
+    const { container } = render(<App />);
+
+    // Orders SDL should be visible.
+    expect(container.textContent).toContain("type Query { orders }");
+
+    // Remove the active tab (orders at index 2) — close button is the
+    // third span (products=0, reviews=1, orders=2).
+    const spans = container.querySelectorAll("span");
+    expect(spans[2].textContent).toBe("\u00d7");
+    fireEvent.click(spans[2]);
+
+    // removeSubgraph sets activeSubgraph to the nearest neighbor automatically.
+    expect(useWorkspace.getState().activeSubgraph).toBe(1);
+
+    // The editor should now display reviews' SDL, not orders'.
+    expect(container.textContent).toContain("type Query { reviews }");
+    expect(container.textContent).not.toContain("type Query { orders }");
+  });
+
+  // ---- AC#1: [+] button creates new subgraph ----
+
+  it("renders a [+] button at the end of the tab bar", () => {
+    render(<App />);
+    const nav = document.querySelector("nav");
+    expect(nav).toBeInTheDocument();
+    const addBtn = nav!.querySelector("button:last-child");
+    expect(addBtn).toBeInTheDocument();
+    expect(addBtn!.textContent).toBe("+");
+  });
+
+  it("clicking [+] creates a new subgraph with auto-generated name and selects it (AC#1)", () => {
+    const addSpy = vi.spyOn(useWorkspace.getState(), "addSubgraph");
+
+    render(<App />);
+
+    // Locate the [+] button (last child of nav).
+    const nav = document.querySelector("nav")!;
+    const addBtn = nav.querySelector("button:last-child")!;
+
+    fireEvent.click(addBtn);
+
+    // The store should have received a call with "subgraph-2".
+    expect(addSpy).toHaveBeenCalledWith("subgraph-2");
+
+    // The new subgraph is appended and becomes active.
+    const state = useWorkspace.getState();
+    expect(state.subgraphs).toHaveLength(2);
+    expect(state.subgraphs[1].name).toBe("subgraph-2");
+    expect(state.activeSubgraph).toBe(1);
+  });
+
+  it("clicking [+] focuses the Monaco editor (AC#1)", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+
+    const mockEditor = { getModel: vi.fn(() => ({}) as never), focus: vi.fn() };
+
+    expect(globalThis.__editorTestHarness.onMount).not.toBeNull();
+    globalThis.__editorTestHarness.onMount!(mockEditor, monaco);
+
+    // Locate and click the [+] button.
+    const nav = document.querySelector("nav")!;
+    const addBtn = nav.querySelector("button:last-child")!;
+    fireEvent.click(addBtn);
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    // The editor's focus() should have been called after adding.
+    expect(mockEditor.focus).toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
   it("typing invalid SDL shows a red underline at the correct position within ~300ms", async () => {
     vi.useFakeTimers();
     const invalidSdl = "type Query { hello: BogusType }";
