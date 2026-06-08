@@ -63,6 +63,11 @@
           CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
 
           shellHook = ''
+            # Unset RUSTFLAGS so it does not leak from the parent shell into
+            # the dev environment. The getrandom wasm_js cfg must only ever
+            # apply to wasm32 builds via .cargo/config.toml.
+            unset RUSTFLAGS
+
             echo "graphql-playground dev shell"
             echo "  rust:          $(rustc --version)"
             echo "  wasm-bindgen:  $(wasm-bindgen --version)"
