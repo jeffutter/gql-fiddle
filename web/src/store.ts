@@ -17,6 +17,7 @@ export interface WorkspaceState {
   composeHints: number;
 
   addSubgraph: (name: string) => void;
+  removeSubgraph: (index: number) => void;
   setSubgraphSdl: (index: number, sdl: string) => void;
   setActiveSubgraph: (index: number) => void;
   setQuery: (query: string) => void;
@@ -52,6 +53,13 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
       subgraphs: [...state.subgraphs, { name, sdl: "" }],
       activeSubgraph: state.subgraphs.length,
     })),
+  removeSubgraph: (index) =>
+    set((state) => {
+      const remaining = state.subgraphs.filter((_, i) => i !== index);
+      if (remaining.length === 0) return state; // keep at least 1
+      const newActive = Math.min(index, remaining.length - 1);
+      return { subgraphs: remaining, activeSubgraph: newActive };
+    }),
   setSubgraphSdl: (index, sdl) =>
     set((state) => ({
       subgraphs: state.subgraphs.map((sg, i) => (i === index ? { ...sg, sdl } : sg)),

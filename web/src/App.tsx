@@ -41,14 +41,29 @@ function diagnosticToMarker(
 }
 
 export default function App() {
-  const { subgraphs, activeSubgraph, setActiveSubgraph, setSubgraphSdl, query, supergraphSdl } =
-    useWorkspace();
+  const {
+    subgraphs,
+    activeSubgraph,
+    setActiveSubgraph,
+    setSubgraphSdl,
+    addSubgraph,
+    removeSubgraph,
+    query,
+    supergraphSdl,
+  } = useWorkspace();
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Focus the editor whenever the active subgraph changes (e.g. after adding).
+  useEffect(() => {
+    if (editor) {
+      editor.focus();
+    }
+  }, [editor, activeSubgraph]);
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced composition effect.
@@ -111,10 +126,32 @@ export default function App() {
                 key={sg.name}
                 onClick={() => setActiveSubgraph(i)}
                 aria-pressed={i === activeSubgraph}
+                style={{
+                  backgroundColor: i === activeSubgraph ? "#e5e7eb" : "transparent",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 4,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                }}
               >
                 {sg.name}
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeSubgraph(i);
+                  }}
+                  style={{
+                    marginLeft: 6,
+                    cursor: "pointer",
+                    color: i === activeSubgraph ? "#1f2937" : "#6b7280",
+                  }}
+                >
+                  ×
+                </span>
               </button>
             ))}
+            <button onClick={() => addSubgraph(`subgraph-${subgraphs.length + 1}`)}>+</button>
           </nav>
           <Editor
             path={`sg-${activeSubgraph}`}
