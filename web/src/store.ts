@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SubgraphInput } from "./core/types";
+import type { CompositionError, SubgraphInput } from "./core/types";
 
 // Single source of truth for the workspace. Composition output is *derived*
 // state (recomputed when subgraphs change), never hand-edited.
@@ -11,12 +11,22 @@ export interface WorkspaceState {
   variables: string;
   seed: number;
 
+  // Composition results (persisted so later panes can read them independently).
+  supergraphSdl: string | null;
+  composeErrors: CompositionError[] | null;
+  composeHints: number;
+
   addSubgraph: (name: string) => void;
   setSubgraphSdl: (index: number, sdl: string) => void;
   setActiveSubgraph: (index: number) => void;
   setQuery: (query: string) => void;
   setVariables: (variables: string) => void;
   setSeed: (seed: number) => void;
+  setComposeResult: (
+    sdl: string | null,
+    errors: CompositionError[] | null,
+    hintCount: number,
+  ) => void;
 }
 
 const initialSubgraphs: SubgraphInput[] = [
@@ -33,6 +43,10 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
   variables: "{}",
   seed: 42,
 
+  supergraphSdl: null,
+  composeErrors: null,
+  composeHints: 0,
+
   addSubgraph: (name) =>
     set((state) => ({
       subgraphs: [...state.subgraphs, { name, sdl: "" }],
@@ -46,4 +60,10 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
   setQuery: (query) => set({ query }),
   setVariables: (variables) => set({ variables }),
   setSeed: (seed) => set({ seed }),
+  setComposeResult: (sdl, errors, hintCount) =>
+    set((state) => ({
+      supergraphSdl: sdl ?? state.supergraphSdl,
+      composeErrors: errors,
+      composeHints: hintCount,
+    })),
 }));

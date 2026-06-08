@@ -9,10 +9,14 @@ let validateSubgraphCallCount = 0;
 
 // Shared mock used by all tests in this file.
 let composeCallCount = 0;
-const mockCompose = vi.fn((): { ok: true; supergraph_sdl: string; hints: never[] } => {
-  composeCallCount++;
-  return { ok: true, supergraph_sdl: "# supergraph", hints: [] };
-});
+const mockCompose = vi.fn(
+  ():
+    | { ok: true; supergraph_sdl: string; hints: never[] }
+    | { ok: false; errors: { code: string; message: string }[] } => {
+    composeCallCount++;
+    return { ok: true, supergraph_sdl: "# supergraph", hints: [] };
+  },
+);
 
 const validateSubgraphMock = vi.fn(() => {
   validateSubgraphCallCount++;
@@ -34,10 +38,12 @@ describe("App", () => {
   beforeEach(() => {
     cleanup();
     validateSubgraphCallCount = 0;
-    validateSubgraphMock.mockClear();
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       activeSubgraph: 0,
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
     });
   });
 
@@ -183,6 +189,110 @@ describe("App", () => {
 
     // Markers should also have been set exactly once.
     expect(setModelMarkersSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("debounces composition so rapid subgraph edits trigger at most one compose call per 300ms window", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+
+    // Wait for the initial composition to fire.
+    await vi.waitFor(() => expect(composeCallCount).toBeGreaterThan(0));
+    const countAfterRender = composeCallCount;
+
+    // Simulate rapid subgraph edits (like typing).
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { a }");
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { ab }");
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { abc }");
+
+    // Wait past the 300ms debounce window.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Compose should have been called exactly once after the debounce settled,
+    // not three times — confirming the ~300ms debounce on composition.
+    expect(composeCallCount).toBe(countAfterRender + 1);
+  });
+
+  it("successful compose shows supergraph SDL and errors/hints count status line", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+
+    // Advance past the debounce window so the composition effect fires.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // The Supergraph pane should show the composed SDL.
+    const supergraphHeading = screen.getByText("Supergraph");
+    expect(supergraphHeading).toBeInTheDocument();
+    expect(screen.getByText("# supergraph")).toBeInTheDocument();
+
+    // A status line showing error and hint count should be present.
+    expect(screen.getByText(/Composition:.*errors/)).toBeInTheDocument();
+  });
+
+  it("failing compose shows an error banner with each code and message", async () => {
+    vi.useFakeTimers();
+
+    // Make compose return a failure with two errors.
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [
+        { code: "ERR001", message: "Field `a` conflicts with field `b`" },
+        { code: "ERR002", message: "Type `Product` is inaccessible" },
+      ],
+    });
+
+    render(<App />);
+
+    // Advance past the debounce window.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // The error banner should be present — identified by its red left border.
+    const banner = screen.getByText(/ERR001.*Field `a` conflicts/);
+    expect(banner).toBeInTheDocument();
+
+    // Each error code:message pair appears on its own line.
+    expect(screen.getByText(/ERR002.*Type `Product` is inaccessible/)).toBeInTheDocument();
+  });
+
+  it("failing compose shows stale supergraph SDL from the store", async () => {
+    vi.useFakeTimers();
+
+    // Pre-populate the store with a previously successful SDL.
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      supergraphSdl: "# previous supergraph",
+      composeErrors: null,
+      composeHints: 0,
+    });
+
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [{ code: "ERR001", message: "Something went wrong" }],
+    });
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    // The stale supergraph SDL should still be visible below the banner.
+    expect(screen.getByText("# previous supergraph")).toBeInTheDocument();
+  });
+
+  it("failing compose shows 'No valid composition yet' when no prior success", async () => {
+    vi.useFakeTimers();
+
+    // Force the mock to always return a failure for this test.
+    mockCompose.mockReturnValue({
+      ok: false,
+      errors: [{ code: "ERR001", message: "Something went wrong" }],
+    } as never);
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(screen.getByText("No valid composition yet")).toBeInTheDocument();
   });
 
   it("typing invalid SDL shows a red underline at the correct position within ~300ms", async () => {

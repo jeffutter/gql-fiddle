@@ -8,6 +8,8 @@ import { useWorkspace } from "./store";
 import { loadCore } from "./core";
 import type { ComposeResult, Diagnostic } from "./core/types";
 
+const COMPOSE_DEBOUNCE_MS = 300;
+
 // Configure Monaco to load workers from node_modules (required for Vite).
 self.MonacoEnvironment = {
   getWorker(_, label) {
@@ -39,21 +41,31 @@ function diagnosticToMarker(
 }
 
 export default function App() {
-  const { subgraphs, activeSubgraph, setActiveSubgraph, setSubgraphSdl, query } = useWorkspace();
+  const { subgraphs, activeSubgraph, setActiveSubgraph, setSubgraphSdl, query, supergraphSdl } =
+    useWorkspace();
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Debounced composition effect.
   useEffect(() => {
-    let cancelled = false;
-    loadCore().then((core) => {
-      if (!cancelled) setCompose(core.compose(subgraphs));
-    });
+    if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
+    composeTimeoutRef.current = setTimeout(async () => {
+      const core = await loadCore();
+      const result = core.compose(subgraphs);
+      if (result.ok) {
+        useWorkspace.getState().setComposeResult(result.supergraph_sdl, null, result.hints.length);
+      } else {
+        useWorkspace.getState().setComposeResult(null, result.errors, 0);
+      }
+      setCompose(result);
+    }, COMPOSE_DEBOUNCE_MS);
     return () => {
-      cancelled = true;
+      if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
     };
   }, [subgraphs]);
 
@@ -118,13 +130,40 @@ export default function App() {
         </div>
         <div>
           <h2>Supergraph</h2>
-          <pre style={{ whiteSpace: "pre-wrap" }}>
-            {compose === null
-              ? "Loading core…"
-              : compose.ok
-                ? compose.supergraph_sdl
-                : compose.errors.map((e) => `${e.code}: ${e.message}`).join("\n")}
-          </pre>
+          {compose === null ? (
+            <pre style={{ whiteSpace: "pre-wrap" }}>Loading core…</pre>
+          ) : compose.ok ? (
+            <>
+              <pre style={{ whiteSpace: "pre-wrap" }}>{compose.supergraph_sdl}</pre>
+              <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>
+                Composition:{" "}
+                {compose.hints.length === 0
+                  ? "0 errors"
+                  : `0 errors, ${compose.hints.length} hints`}
+              </p>
+            </>
+          ) : (
+            <>
+              <div
+                style={{
+                  backgroundColor: "#fee2e2",
+                  borderLeft: "3px solid #dc2626",
+                  padding: 8,
+                  borderRadius: 4,
+                  marginBottom: 8,
+                }}
+              >
+                {compose.errors.map((e) => (
+                  <div key={e.code} style={{ fontFamily: "monospace", fontSize: 13 }}>
+                    {`${e.code}: ${e.message}`}
+                  </div>
+                ))}
+              </div>
+              <pre style={{ whiteSpace: "pre-wrap" }}>
+                {supergraphSdl ?? "No valid composition yet"}
+              </pre>
+            </>
+          )}
         </div>
       </section>
       <section>
