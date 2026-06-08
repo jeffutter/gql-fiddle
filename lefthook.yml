@@ -23,6 +23,11 @@ pre-commit:
       root: "web/"
       glob: "*.{ts,tsx}"
       run: pnpm tsc --noEmit
+    rust-test:
+      run: cargo test
+    web-test:
+      root: "web/"
+      run: pnpm test run
 
 pre-push:
   parallel: true
