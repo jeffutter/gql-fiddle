@@ -10,6 +10,7 @@
 //! that parse input and stringify output, so native `cargo test` can exercise
 //! the real logic without a browser.
 
+mod api_schema;
 mod compose;
 mod dto;
 mod mock;
