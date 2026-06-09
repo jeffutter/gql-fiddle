@@ -204,9 +204,29 @@ export default function App() {
                   </div>
                 ))}
               </div>
-              <pre style={{ whiteSpace: "pre-wrap" }}>
-                {supergraphSdl ?? "No valid composition yet"}
-              </pre>
+              {supergraphSdl !== null ? (
+                <>
+                  <span
+                    style={{
+                      backgroundColor: "#fef3c7",
+                      color: "#92400e",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #fcd34d",
+                      marginBottom: 4,
+                    }}
+                  >
+                    stale
+                  </span>
+                  <pre style={{ whiteSpace: "pre-wrap", opacity: 0.5, color: "#6b7280" }}>
+                    {supergraphSdl}
+                  </pre>
+                </>
+              ) : (
+                <pre style={{ whiteSpace: "pre-wrap" }}>No valid composition yet</pre>
+              )}
             </>
           )}
         </div>
