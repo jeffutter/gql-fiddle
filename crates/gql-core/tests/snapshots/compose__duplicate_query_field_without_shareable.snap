@@ -1,0 +1,6 @@
+---
+source: crates/gql-core/tests/compose.rs
+assertion_line: 317
+expression: result
+---
+{"ok":false,"errors":[{"code":"INVALID_FIELD_SHARING","message":"Non-shareable field \"Query.hello\" is resolved from multiple subgraphs: it is resolved from subgraphs \"service-a\" and \"service-b\" and defined as non-shareable in all of them","locations":[{"subgraph":"service-a","line":10,"col":21},{"subgraph":"service-b","line":10,"col":21}]}]}

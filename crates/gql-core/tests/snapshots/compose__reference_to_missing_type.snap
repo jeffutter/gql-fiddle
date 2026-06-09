@@ -1,0 +1,6 @@
+---
+source: crates/gql-core/tests/compose.rs
+assertion_line: 349
+expression: result
+---
+{"ok":false,"errors":[{"code":"SUBGRAPH_ERROR","message":"[users] Error: cannot find type `AddressType` in this document\n    ╭─[ users:16:34 ]\n    │\n 16 │                     homeAddress: AddressType\n    │                                  ─────┬─────  \n    │                                       ╰─────── not found in this scope\n────╯\n","locations":[]}]}
