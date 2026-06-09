@@ -264,7 +264,19 @@ fn entity_key_field_type_mismatch() {
     ]);
 
     let result = compose(&input.to_string());
-
+    let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert!(
+        !val["ok"].as_bool().unwrap_or(true),
+        "composition must fail (ok:false)"
+    );
+    let errors = val["errors"].as_array().expect("errors must be an array");
+    assert!(!errors.is_empty(), "errors must not be empty");
+    for err in errors {
+        assert!(
+            err.get("code").is_some() && err.get("message").is_some(),
+            "each error must have a stable code and message"
+        );
+    }
     assert_snapshot!(result);
 }
 
@@ -313,7 +325,19 @@ fn duplicate_query_field_without_shareable() {
     ]);
 
     let result = compose(&input.to_string());
-
+    let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert!(
+        !val["ok"].as_bool().unwrap_or(true),
+        "composition must fail (ok:false)"
+    );
+    let errors = val["errors"].as_array().expect("errors must be an array");
+    assert!(!errors.is_empty(), "errors must not be empty");
+    for err in errors {
+        assert!(
+            err.get("code").is_some() && err.get("message").is_some(),
+            "each error must have a stable code and message"
+        );
+    }
     assert_snapshot!(result);
 }
 
@@ -345,7 +369,19 @@ fn reference_to_missing_type() {
     ]);
 
     let result = compose(&input.to_string());
-
+    let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert!(
+        !val["ok"].as_bool().unwrap_or(true),
+        "composition must fail (ok:false)"
+    );
+    let errors = val["errors"].as_array().expect("errors must be an array");
+    assert!(!errors.is_empty(), "errors must not be empty");
+    for err in errors {
+        assert!(
+            err.get("code").is_some() && err.get("message").is_some(),
+            "each error must have a stable code and message"
+        );
+    }
     assert_snapshot!(result);
 }
 
@@ -394,6 +430,18 @@ fn invalid_federation_directive_on_query_root() {
     ]);
 
     let result = compose(&input.to_string());
-
+    let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert!(
+        !val["ok"].as_bool().unwrap_or(true),
+        "composition must fail (ok:false)"
+    );
+    let errors = val["errors"].as_array().expect("errors must be an array");
+    assert!(!errors.is_empty(), "errors must not be empty");
+    for err in errors {
+        assert!(
+            err.get("code").is_some() && err.get("message").is_some(),
+            "each error must have a stable code and message"
+        );
+    }
     assert_snapshot!(result);
 }
