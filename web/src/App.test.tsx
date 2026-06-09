@@ -230,6 +230,49 @@ describe("App", () => {
     expect(screen.getByText(/Composition:.*errors/)).toBeInTheDocument();
   });
 
+  // AC#2: dedicated test — two errors with the same code, each message asserted separately
+  it("returns two errors with the same code and asserts both messages appear (AC#2)", async () => {
+    vi.useFakeTimers();
+
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [
+        { code: "SATISFIABILITY_ERROR", message: "first" },
+        { code: "SATISFIABILITY_ERROR", message: "second" },
+      ],
+    });
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Both messages must appear independently — not just as part of a compound regex.
+    expect(screen.getByText(/first/)).toBeInTheDocument();
+    expect(screen.getByText(/second/)).toBeInTheDocument();
+  });
+
+  it("renders every error line when multiple errors share the same code (AC#1)", async () => {
+    vi.useFakeTimers();
+
+    // Two errors with the SAME code — React key collision would drop one.
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [
+        { code: "SATISFIABILITY_ERROR", message: "first" },
+        { code: "SATISFIABILITY_ERROR", message: "second" },
+      ],
+    });
+
+    render(<App />);
+
+    // Advance past the debounce window.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Both error messages must appear — index keys prevent React from dropping duplicates.
+    expect(screen.getByText(/SATISFIABILITY_ERROR.*first/)).toBeInTheDocument();
+    expect(screen.getByText(/SATISFIABILITY_ERROR.*second/)).toBeInTheDocument();
+  });
+
   it("failing compose shows an error banner with each code and message", async () => {
     vi.useFakeTimers();
 

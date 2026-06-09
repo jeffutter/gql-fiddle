@@ -198,8 +198,8 @@ export default function App() {
                   marginBottom: 8,
                 }}
               >
-                {compose.errors.map((e) => (
-                  <div key={e.code} style={{ fontFamily: "monospace", fontSize: 13 }}>
+                {compose.errors.map((e, i) => (
+                  <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
                     {`${e.code}: ${e.message}`}
                   </div>
                 ))}
