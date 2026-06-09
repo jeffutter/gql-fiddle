@@ -298,7 +298,7 @@ describe("App", () => {
     expect(screen.getByText(/ERR002.*Type `Product` is inaccessible/)).toBeInTheDocument();
   });
 
-  it("failing compose shows stale supergraph SDL from the store", async () => {
+  it("stale badge and gray styling appear when composition fails after prior success (AC#1)", async () => {
     vi.useFakeTimers();
 
     // Pre-populate the store with a previously successful SDL.
@@ -318,8 +318,72 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
-    // The stale supergraph SDL should still be visible below the banner.
+    // The stale badge text must appear.
+    expect(screen.getByText("stale")).toBeInTheDocument();
+
+    // The supergraph SDL should still be visible below the banner.
     expect(screen.getByText("# previous supergraph")).toBeInTheDocument();
+
+    // A <pre> element with opacity in its style attribute (grayed-out).
+    const pres = document.querySelectorAll("pre");
+    const grayPre = Array.from(pres).find((p) => p.textContent === "# previous supergraph");
+    expect(grayPre).toBeDefined();
+    expect(grayPre!.getAttribute("style")).toContain("opacity");
+  });
+
+  it("successful compose removes stale badge and styling (AC#2)", async () => {
+    vi.useFakeTimers();
+
+    // Pre-populate with a stale supergraph SDL.
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      supergraphSdl: "# previous supergraph",
+      composeErrors: null,
+      composeHints: 0,
+    });
+
+    mockCompose.mockReturnValueOnce({
+      ok: true,
+      supergraph_sdl: "# fresh supergraph",
+      hints: [],
+    });
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    // No stale badge should be present after a successful compose.
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+
+    // The fresh SDL should be shown.
+    expect(screen.getByText("# fresh supergraph")).toBeInTheDocument();
+  });
+
+  it("no stale badge on first-ever failure (AC#3)", async () => {
+    vi.useFakeTimers();
+
+    // Start with supergraphSdl: null (already the default in beforeEach).
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+    });
+
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [{ code: "ERR001", message: "Something went wrong" }],
+    });
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    // The placeholder text should be shown.
+    expect(screen.getByText("No valid composition yet")).toBeInTheDocument();
+
+    // No stale badge should appear.
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
   });
 
   it("failing compose shows 'No valid composition yet' when no prior success", async () => {
