@@ -1,0 +1,6 @@
+---
+source: crates/gql-core/tests/compose.rs
+assertion_line: 268
+expression: result
+---
+{"ok":false,"errors":[{"code":"FIELD_TYPE_MISMATCH","message":"Type of field \"Order.status\" is incompatible across subgraphs: it has type \"Int\" in subgraph \"fulfillment\" but type \"String\" in subgraph \"orders\"","locations":[]},{"code":"INVALID_FIELD_SHARING","message":"Non-shareable field \"Order.status\" is resolved from multiple subgraphs: it is resolved from subgraphs \"fulfillment\" and \"orders\" and defined as non-shareable in all of them","locations":[{"subgraph":"fulfillment","line":20,"col":21},{"subgraph":"orders","line":15,"col":21}]}]}
