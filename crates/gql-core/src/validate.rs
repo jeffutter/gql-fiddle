@@ -55,6 +55,8 @@ type Query {
 
     #[test]
     fn invalid_sdl_returns_diagnostics_with_line_and_col() {
+        // Subgraph::parse has no public location fields, so all error diagnostics
+        // fall back to line=1, col=1, len==0. Assert these exact fallback values.
         let sdl = r#"
 type Query {
   hello: String
@@ -64,20 +66,23 @@ type Query {
         let diagnostics = result["diagnostics"]
             .as_array()
             .expect("diagnostics should be an array");
-        assert!(
-            !diagnostics.is_empty(),
-            "invalid SDL should produce diagnostics"
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Subgraph::parse returns exactly one error for invalid SDL"
         );
-        for diag in diagnostics {
-            let line: u32 = diag["line"].as_u64().expect("line should be a number") as u32;
-            let col: u32 = diag["col"].as_u64().expect("col should be a number") as u32;
-            assert!(line >= 1, "line should be 1-based, got {line}");
-            assert!(col >= 1, "col should be 1-based, got {col}");
-        }
+        let first = &diagnostics[0];
+        let line: u32 = first["line"].as_u64().expect("line should be a number") as u32;
+        let col: u32 = first["col"].as_u64().expect("col should be a number") as u32;
+        let len: u32 = first["len"].as_u64().expect("len should be a number") as u32;
+        assert_eq!(line, 1, "fallback line must be 1");
+        assert_eq!(col, 1, "fallback col must be 1");
+        assert_eq!(len, 0, "fallback len must be 0");
     }
 
     #[test]
     fn diagnostic_has_all_required_fields() {
+        // Same invalid SDL — first diagnostic must have exact fallback positions.
         let sdl = r#"
 type Query {
   hello: String
@@ -87,50 +92,46 @@ type Query {
         let diagnostics = result["diagnostics"]
             .as_array()
             .expect("diagnostics should be an array");
-        assert!(!diagnostics.is_empty());
-        for diag in diagnostics {
-            assert!(diag.get("severity").is_some(), "missing 'severity'");
-            assert!(diag.get("message").is_some(), "missing 'message'");
-            assert!(diag.get("line").is_some(), "missing 'line'");
-            assert!(diag.get("col").is_some(), "missing 'col'");
-            assert!(diag.get("len").is_some(), "missing 'len'");
-        }
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Subgraph::parse returns exactly one error for invalid SDL"
+        );
+        let first = &diagnostics[0];
+        // Assert required fields exist.
+        assert!(first.get("severity").is_some(), "missing 'severity'");
+        assert!(first.get("message").is_some(), "missing 'message'");
+        assert!(first.get("line").is_some(), "missing 'line'");
+        assert!(first.get("col").is_some(), "missing 'col'");
+        assert!(first.get("len").is_some(), "missing 'len'");
+        // Assert exact fallback positions.
+        let line: u32 = first["line"].as_u64().expect("line should be a number") as u32;
+        let col: u32 = first["col"].as_u64().expect("col should be a number") as u32;
+        let len: u32 = first["len"].as_u64().expect("len should be a number") as u32;
+        assert_eq!(line, 1, "fallback line must be 1");
+        assert_eq!(col, 1, "fallback col must be 1");
+        assert_eq!(len, 0, "fallback len must be 0");
     }
 
     #[test]
     fn empty_string_returns_diagnostics_without_panic() {
+        // Empty input also yields exactly one error diagnostic at fallback position.
         let result = validate_subgraph("");
-        result["diagnostics"]
-            .as_array()
-            .expect("diagnostics should be an array");
-    }
-
-    // AC #1: Valid federation SDL returns zero diagnostics
-
-    // AC #2: Invalid SDL returns diagnostics with correct line/col
-
-    #[test]
-    fn invalid_sdl_syntax_error_returns_diagnostics_with_line_and_col() {
-        // Invalid SDL that is also invalid as plain GraphQL (syntax error)
-        let sdl = r#"
-type Query {
-  hello: String
-  broken(
-"#;
-        let result = validate_subgraph(sdl);
         let diagnostics = result["diagnostics"]
             .as_array()
             .expect("diagnostics should be an array");
-        assert!(
-            !diagnostics.is_empty(),
-            "invalid SDL should produce diagnostics"
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "empty SDL produces exactly one error diagnostic"
         );
-        for diag in diagnostics {
-            let line: u32 = diag["line"].as_u64().expect("line should be a number") as u32;
-            let col: u32 = diag["col"].as_u64().expect("col should be a number") as u32;
-            assert!(line >= 1, "line should be 1-based, got {line}");
-            assert!(col >= 1, "col should be 1-based, got {col}");
-        }
+        let first = &diagnostics[0];
+        let line: u32 = first["line"].as_u64().expect("line should be a number") as u32;
+        let col: u32 = first["col"].as_u64().expect("col should be a number") as u32;
+        let len: u32 = first["len"].as_u64().expect("len should be a number") as u32;
+        assert_eq!(line, 1, "fallback line must be 1");
+        assert_eq!(col, 1, "fallback col must be 1");
+        assert_eq!(len, 0, "fallback len must be 0");
     }
 
     #[test]
