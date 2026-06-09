@@ -395,14 +395,34 @@ describe("App", () => {
 
     fireEvent.click(addBtn);
 
-    // The store should have received a call with "subgraph-2".
-    expect(addSpy).toHaveBeenCalledWith("subgraph-2");
+    // The store should have received a call with "subgraph-1" (lowest unused).
+    expect(addSpy).toHaveBeenCalledWith("subgraph-1");
 
     // The new subgraph is appended and becomes active.
     const state = useWorkspace.getState();
     expect(state.subgraphs).toHaveLength(2);
-    expect(state.subgraphs[1].name).toBe("subgraph-2");
+    expect(state.subgraphs[1].name).toBe("subgraph-1");
     expect(state.activeSubgraph).toBe(1);
+  });
+
+  it("adding subgraphs with interleaved removals never produces duplicate names", () => {
+    // Start with [{name: "products"}]
+    render(<App />);
+    const nav = document.querySelector("nav")!;
+
+    // Add two subgraphs: should produce subgraph-1, subgraph-2
+    fireEvent.click(nav.querySelector("button:last-child")!);
+    fireEvent.click(nav.querySelector("button:last-child")!);
+
+    // Remove the middle one (subgraph-1 at index 1)
+    const spans = nav.querySelectorAll("span");
+    fireEvent.click(spans[1]);
+
+    // Add again: should produce subgraph-1 (the gap), not subgraph-3
+    fireEvent.click(nav.querySelector("button:last-child")!);
+
+    const names = useWorkspace.getState().subgraphs.map((s) => s.name);
+    expect(new Set(names).size).toBe(names.length); // all unique
   });
 
   it("clicking [+] focuses the Monaco editor (AC#1)", async () => {

@@ -151,7 +151,15 @@ export default function App() {
                 </span>
               </button>
             ))}
-            <button onClick={() => addSubgraph(`subgraph-${subgraphs.length + 1}`)}>+</button>
+            <button
+              onClick={() => {
+                let n = 1;
+                while (subgraphs.some((s) => s.name === `subgraph-${n}`)) n++;
+                addSubgraph(`subgraph-${n}`);
+              }}
+            >
+              +
+            </button>
           </nav>
           <Editor
             path={`sg-${activeSubgraph}`}
