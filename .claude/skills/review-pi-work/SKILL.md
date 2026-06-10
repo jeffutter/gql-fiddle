@@ -35,7 +35,7 @@ the reliable record of recency.
 
 ```bash
 # Most recent task commits, newest first.
-git log --oneline -n 40 --grep='^task-[0-9]' --extended-regexp
+git log --oneline -n 40 --grep='^task-[0-9]+' -i --extended-regexp
 ```
 
 Take the first `N` distinct `task-<id>` commits. Cross-check status:

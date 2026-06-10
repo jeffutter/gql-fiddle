@@ -1,0 +1,1 @@
+{"root":["./src/App.test.tsx","./src/App.tsx","./src/main.tsx","./src/setupTests.tsx","./src/store.test.ts","./src/store.ts","./src/vite-env.d.ts","./src/vitest-env.d.ts","./src/core/index.test.ts","./src/core/index.ts","./src/core/types.ts","./src/wasm/gql_core.d.ts","./src/wasm/gql_core_bg.wasm.d.ts"],"version":"5.9.3"}
