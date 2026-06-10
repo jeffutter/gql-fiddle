@@ -44,9 +44,11 @@ pub fn compose(subgraphs: &[SubgraphInput]) -> Value {
                     })
                 })
                 .collect();
+            let api_schema_sdl = crate::api_schema::derive_api_schema(&sdl).unwrap_or_default();
             json!({
                 "ok": true,
                 "supergraph_sdl": sdl,
+                "api_schema_sdl": api_schema_sdl,
                 "hints": hints,
             })
         }
@@ -361,6 +363,72 @@ mod tests {
     // ---- AC #3: Returned JSON keys exactly match the contract ----
 
     #[test]
+    fn success_result_includes_api_schema_sdl() {
+        let products = SubgraphInput {
+            name: "products".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                    @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+                {
+                    query: Query
+                }
+
+                type Query {
+                    me: User
+                }
+
+                type User @key(fields: "id") {
+                    id: ID!
+                }
+            "#
+            .to_string(),
+        };
+
+        let reviews = SubgraphInput {
+            name: "reviews".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+                    @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+                {
+                    query: Query
+                }
+
+                type Query {
+                    mostRecentReview: Review
+                }
+
+                type Review {
+                    id: ID!
+                    body: String
+                }
+
+                extend type User @key(fields: "id") {
+                    id: ID! @external
+                    reviews: [Review]
+                }
+            "#
+            .to_string(),
+        };
+
+        let result = compose(&[products, reviews]);
+
+        assert!(
+            result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+            "expected ok:true"
+        );
+        let api_schema_sdl = result
+            .get("api_schema_sdl")
+            .and_then(|v| v.as_str())
+            .expect("success result must contain api_schema_sdl key");
+        assert!(
+            !api_schema_sdl.is_empty(),
+            "api_schema_sdl must be non-empty on successful composition"
+        );
+    }
+
+    #[test]
     fn success_path_keys_match_contract() {
         let products = SubgraphInput {
             name: "products".to_string(),
@@ -427,8 +495,8 @@ mod tests {
 
         assert_eq!(
             keys,
-            vec!["ok", "supergraph_sdl", "hints"],
-            "success path must return exactly {{ok, supergraph_sdl, hints}}"
+            vec!["ok", "supergraph_sdl", "api_schema_sdl", "hints"],
+            "success path must return exactly {{ok, supergraph_sdl, api_schema_sdl, hints}}"
         );
     }
 

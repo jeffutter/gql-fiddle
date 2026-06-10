@@ -16,7 +16,7 @@ export interface SubgraphInput {
 }
 
 export type ComposeResult =
-  | { ok: true; supergraph_sdl: string; hints: CompositionHint[] }
+  | { ok: true; supergraph_sdl: string; api_schema_sdl: string; hints: CompositionHint[] }
   | { ok: false; errors: CompositionError[] };
 
 export interface CompositionHint {

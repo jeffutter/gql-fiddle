@@ -3,16 +3,23 @@ import { loader } from "@monaco-editor/react";
 import * as _monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import GraphQLWorker from "monaco-graphql/esm/graphql.worker?worker";
+import { initializeMode } from "monaco-graphql/initializeMode";
+import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
 import { useWorkspace } from "./store";
 import { loadCore } from "./core";
 import type { ComposeResult, Diagnostic } from "./core/types";
+
+// Singleton monaco-graphql API — initialized once on first successful compose.
+let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
 
 const COMPOSE_DEBOUNCE_MS = 300;
 
 // Configure Monaco to load workers from node_modules (required for Vite).
 self.MonacoEnvironment = {
   getWorker(_, label) {
+    if (label === "graphql") return new GraphQLWorker();
     if (label === "json") return new jsonWorker();
     return new editorWorker();
   },
@@ -49,6 +56,7 @@ export default function App() {
     addSubgraph,
     removeSubgraph,
     query,
+    setQuery,
     supergraphSdl,
   } = useWorkspace();
   const [compose, setCompose] = useState<ComposeResult | null>(null);
@@ -74,6 +82,16 @@ export default function App() {
       const result = core.compose(subgraphs);
       if (result.ok) {
         useWorkspace.getState().setComposeResult(result.supergraph_sdl, null, result.hints.length);
+        if (!monacoGraphQLAPI) {
+          monacoGraphQLAPI = initializeMode();
+        }
+        monacoGraphQLAPI.setSchemaConfig([
+          {
+            documentString: result.api_schema_sdl,
+            uri: "api-schema.graphql",
+            fileMatch: ["**/*.graphql"],
+          },
+        ]);
       } else {
         useWorkspace.getState().setComposeResult(null, result.errors, 0);
       }
@@ -233,7 +251,12 @@ export default function App() {
       </section>
       <section>
         <h2>Query</h2>
-        <pre style={{ fontFamily: "monospace" }}>{query}</pre>
+        <Editor
+          language="graphql"
+          path="query.graphql"
+          value={query}
+          onChange={(v) => setQuery(v ?? "")}
+        />
       </section>
     </main>
   );
