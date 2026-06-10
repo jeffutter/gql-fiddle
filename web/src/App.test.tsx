@@ -11,12 +11,24 @@ let validateSubgraphCallCount = 0;
 let composeCallCount = 0;
 const mockCompose = vi.fn(
   ():
-    | { ok: true; supergraph_sdl: string; hints: never[] }
+    | { ok: true; supergraph_sdl: string; api_schema_sdl: string; hints: never[] }
     | { ok: false; errors: { code: string; message: string }[] } => {
     composeCallCount++;
-    return { ok: true, supergraph_sdl: "# supergraph", hints: [] };
+    return {
+      ok: true,
+      supergraph_sdl: "# supergraph",
+      api_schema_sdl: "type Query { products: [Product] }\ntype Product { id: ID! }",
+      hints: [],
+    };
   },
 );
+
+// Mock for monaco-graphql initializeMode (AC#3).
+const mockSetSchemaConfig = vi.fn();
+const mockMonacoGraphQLAPI = { setSchemaConfig: mockSetSchemaConfig };
+vi.mock("monaco-graphql/initializeMode", () => ({
+  initializeMode: vi.fn(() => mockMonacoGraphQLAPI),
+}));
 
 const validateSubgraphMock = vi.fn(() => {
   validateSubgraphCallCount++;
@@ -56,8 +68,9 @@ describe("App", () => {
     expect(textareas).toHaveLength(0);
 
     // The Monaco editor mounts a div with class "monaco-editor".
-    const monacoEditor = screen.getByRole("textbox");
-    expect(monacoEditor).toBeInTheDocument();
+    // There are two Monaco editors: one for the subgraph SDL and one for the query.
+    const monacoEditors = screen.getAllByRole("textbox");
+    expect(monacoEditors.length).toBeGreaterThanOrEqual(1);
   });
 
   it("switching subgraph tabs shows that subgraph's SDL in the editor", () => {
@@ -345,6 +358,7 @@ describe("App", () => {
     mockCompose.mockReturnValueOnce({
       ok: true,
       supergraph_sdl: "# fresh supergraph",
+      api_schema_sdl: "type Query { products: [Product] }",
       hints: [],
     });
 
@@ -610,5 +624,160 @@ describe("App", () => {
       message: "Cannot find type `BogusType`",
       severity: monaco.MarkerSeverity.Error,
     });
+  });
+
+  // ---- AC#2: Query editor is a Monaco editor wired to the store query ----
+
+  it("AC#2: query editor renders a Monaco editor showing the store query value", () => {
+    const initialQuery = "query {\n  products {\n    id\n    name\n  }\n}\n";
+    useWorkspace.setState({ query: initialQuery });
+
+    const { container } = render(<App />);
+
+    // The query editor must be a Monaco editor (not a plain <pre> or <textarea>).
+    // It renders with path="query.graphql" so we can identify it.
+    const queryEditor = container.querySelector('[data-path="query.graphql"]');
+    expect(queryEditor).not.toBeNull();
+    expect(queryEditor!.textContent).toContain("products");
+  });
+
+  it("AC#2: onChange on the query editor calls setQuery in the store", () => {
+    const initialQuery = "query { products { id } }";
+    useWorkspace.setState({ query: initialQuery });
+
+    render(<App />);
+
+    // The mock harness captures onChange by path.
+    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query.graphql"];
+    expect(onChangeQuery).toBeDefined();
+
+    // Simulate the user typing a new query.
+    const newQuery = "query { products { name } }";
+    onChangeQuery!(newQuery);
+
+    expect(useWorkspace.getState().query).toBe(newQuery);
+  });
+
+  it("AC#2: onChange on the query editor with undefined falls back to empty string", () => {
+    useWorkspace.setState({ query: "query { x }" });
+
+    render(<App />);
+
+    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query.graphql"];
+    expect(onChangeQuery).toBeDefined();
+
+    onChangeQuery!(undefined);
+
+    expect(useWorkspace.getState().query).toBe("");
+  });
+
+  // ---- AC#3: setSchemaConfig is called with the api_schema_sdl after successful compose ----
+
+  it("AC#3: calls setSchemaConfig with api_schema_sdl from the composed result", async () => {
+    vi.useFakeTimers();
+
+    const apiSchemaSdl = "type Query { products: [Product] }\ntype Product { id: ID! }";
+    mockCompose.mockReturnValueOnce({
+      ok: true,
+      supergraph_sdl: "# supergraph",
+      api_schema_sdl: apiSchemaSdl,
+      hints: [],
+    });
+
+    render(<App />);
+
+    // Advance past the 300ms debounce window so composition fires.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // setSchemaConfig must have been called with the api_schema_sdl.
+    expect(mockSetSchemaConfig).toHaveBeenCalledWith([
+      {
+        documentString: apiSchemaSdl,
+        uri: "api-schema.graphql",
+        fileMatch: ["**/*.graphql"],
+      },
+    ]);
+
+    vi.useRealTimers();
+  });
+
+  it("AC#3: does not call setSchemaConfig when compose fails", async () => {
+    vi.useFakeTimers();
+    mockSetSchemaConfig.mockClear();
+
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [{ code: "ERR001", message: "bad" }],
+    });
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(mockSetSchemaConfig).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  // ---- AC#4: Editing subgraphs updates the autocomplete schema to match ----
+
+  it("AC#4: editing a subgraph triggers re-composition and calls setSchemaConfig with the new api_schema_sdl", async () => {
+    vi.useFakeTimers();
+    mockSetSchemaConfig.mockClear();
+
+    const firstSchemaSdl = "type Query { products: [Product] }\ntype Product { id: ID! }";
+    const secondSchemaSdl = "type Query { orders: [Order] }\ntype Order { orderId: ID! }";
+
+    // First compose: initial schema
+    mockCompose.mockReturnValueOnce({
+      ok: true,
+      supergraph_sdl: "# supergraph v1",
+      api_schema_sdl: firstSchemaSdl,
+      hints: [],
+    });
+
+    // Second compose: new schema after subgraph edit
+    mockCompose.mockReturnValueOnce({
+      ok: true,
+      supergraph_sdl: "# supergraph v2",
+      api_schema_sdl: secondSchemaSdl,
+      hints: [],
+    });
+
+    render(<App />);
+
+    // Wait for initial composition to fire.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // setSchemaConfig should have been called once with the first schema.
+    expect(mockSetSchemaConfig).toHaveBeenCalledTimes(1);
+    expect(mockSetSchemaConfig).toHaveBeenCalledWith([
+      {
+        documentString: firstSchemaSdl,
+        uri: "api-schema.graphql",
+        fileMatch: ["**/*.graphql"],
+      },
+    ]);
+
+    // Simulate editing a subgraph — this changes the subgraphs array reference
+    // and triggers the debounced compose useEffect to re-run.
+    useWorkspace
+      .getState()
+      .setSubgraphSdl(0, "type Query { orders: [Order] }\ntype Order { orderId: ID! }");
+
+    // Wait for the debounce to settle on the second composition.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // setSchemaConfig should now have been called a second time with the updated schema.
+    expect(mockSetSchemaConfig).toHaveBeenCalledTimes(2);
+    expect(mockSetSchemaConfig).toHaveBeenLastCalledWith([
+      {
+        documentString: secondSchemaSdl,
+        uri: "api-schema.graphql",
+        fileMatch: ["**/*.graphql"],
+      },
+    ]);
+
+    vi.useRealTimers();
   });
 });
