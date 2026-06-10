@@ -28,7 +28,7 @@ set -uo pipefail
 # Always operate from the repo root so the `backlog` CLI finds the project.
 cd "$(dirname "$0")/.." || exit 1
 
-PI_CMD="${PI_CMD:-pi}"
+PI_CMD="${PI_CMD:-pi -p}"
 PROMPT="${PROMPT:-/backlog-workflow-loop}"
 MAX_ITERS="${MAX_ITERS:-50}"
 SLEEP_SECS="${SLEEP_SECS:-5}"
