@@ -14,31 +14,36 @@
 #   ./scripts/backlog-loop.sh
 #
 # Configuration (environment variables):
-#   PI_CMD      How to invoke a pi prompt non-interactively. The prompt name is
-#               appended as the final argument. Default: "pi run".
-#               Example: PI_CMD='pi run' ./scripts/backlog-loop.sh
-#   PROMPT      Prompt name to run. Default: "backlog-workflow-loop".
-#   MAX_ITERS   Safety cap on number of tickets per run. Default: 50.
-#   SLEEP_SECS  Pause between tickets, in seconds. Default: 5.
-#   LOG_DIR     Where to write run logs. Default: "loop-logs".
+#   PI_CMD        How to invoke a pi prompt non-interactively. The prompt name is
+#                 appended as the final argument. Default: "pi run".
+#                 Example: PI_CMD='pi run' ./scripts/backlog-loop.sh
+#   PROMPT        Prompt name to run. Default: "backlog-workflow-loop".
+#   MAX_ITERS     Safety cap on number of tickets per run. Default: 50.
+#   SLEEP_SECS    Pause between tickets, in seconds. Default: 5.
+#   LOG_DIR       Where to write run logs. Default: "loop-logs".
+#   REVIEW_EVERY  Run review-pi-work every N successful iterations. Default: 5.
 #
 set -uo pipefail
 
 # Always operate from the repo root so the `backlog` CLI finds the project.
 cd "$(dirname "$0")/.." || exit 1
 
-PI_CMD="${PI_CMD:-pi run}"
-PROMPT="${PROMPT:-backlog-workflow-loop}"
+PI_CMD="${PI_CMD:-pi}"
+PROMPT="${PROMPT:-/backlog-workflow-loop}"
 MAX_ITERS="${MAX_ITERS:-50}"
 SLEEP_SECS="${SLEEP_SECS:-5}"
 LOG_DIR="${LOG_DIR:-loop-logs}"
+REVIEW_EVERY="${REVIEW_EVERY:-5}"
+
+SKILL_FILE=".claude/skills/review-pi-work/SKILL.md"
 
 mkdir -p "$LOG_DIR"
 run_log="$LOG_DIR/loop-$(date +%Y%m%d-%H%M%S).log"
 echo "backlog loop starting — logging to $run_log"
-echo "  command: $PI_CMD $PROMPT   (cap: $MAX_ITERS tickets)"
+echo "  command: $PI_CMD $PROMPT   (cap: $MAX_ITERS tickets, review every $REVIEW_EVERY)"
 
 iter=0
+completed=0
 while (( iter < MAX_ITERS )); do
   iter=$((iter + 1))
   ts="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -61,6 +66,17 @@ while (( iter < MAX_ITERS )); do
   if ! grep -q "BACKLOG LOOP: completed" <<<"$out"; then
     echo "Unrecognized outcome (no completed/stopped/nothing marker) — stopping to be safe." | tee -a "$run_log"
     exit 2
+  fi
+
+  completed=$((completed + 1))
+
+  if (( completed % REVIEW_EVERY == 0 )); then
+    echo "==== review after $completed completions ($ts) ====" | tee -a "$run_log"
+    if [[ -f "$SKILL_FILE" ]]; then
+      claude --model opus -p "$(cat "$SKILL_FILE")" 2>&1 | tee -a "$run_log"
+    else
+      echo "WARNING: review skill not found at $SKILL_FILE — skipping review." | tee -a "$run_log"
+    fi
   fi
 
   sleep "$SLEEP_SECS"
