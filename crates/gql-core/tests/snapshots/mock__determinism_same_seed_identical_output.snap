@@ -1,0 +1,6 @@
+---
+source: crates/gql-core/tests/mock.rs
+assertion_line: 89
+expression: output_a
+---
+{"data":{"user":{"id":"id-d65ab5be","name":"b82acf62_2"}},"errors":[]}
