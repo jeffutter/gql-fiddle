@@ -35,6 +35,8 @@ const validateSubgraphMock = vi.fn(() => {
   return { diagnostics: [] as Diagnostic[] };
 });
 
+const mockExecuteMock = vi.fn(() => ({ data: {} }));
+
 vi.mock("./core", () => ({
   loadCore: () =>
     Promise.resolve({
@@ -42,7 +44,7 @@ vi.mock("./core", () => ({
       validateSubgraph: validateSubgraphMock,
       validateQuery: vi.fn(() => ({ diagnostics: [] })),
       plan: vi.fn(() => ({})),
-      executeMock: vi.fn(() => ({ data: {} })),
+      executeMock: mockExecuteMock,
     }),
 }));
 
@@ -62,10 +64,10 @@ describe("App", () => {
   it("renders a Monaco editor for the active subgraph instead of a textarea", () => {
     const { container } = render(<App />);
 
-    // A plain <textarea> must NOT be present — the Monaco Editor component
-    // does not render an HTML textarea element.
+    // The subgraph and query editors must use Monaco (no plain textarea for them).
+    // The variables editor uses a plain <textarea> — exactly 1 should be present.
     const textareas = container.querySelectorAll("textarea");
-    expect(textareas).toHaveLength(0);
+    expect(textareas).toHaveLength(1);
 
     // The Monaco editor mounts a div with class "monaco-editor".
     // There are two Monaco editors: one for the subgraph SDL and one for the query.
@@ -624,6 +626,169 @@ describe("App", () => {
       message: "Cannot find type `BogusType`",
       severity: monaco.MarkerSeverity.Error,
     });
+  });
+
+  // ---- TASK-19 AC#1: Invalid variables JSON shows a visible message and blocks Run ----
+
+  it("TASK-19 AC#1: invalid JSON in variables textarea shows error message and does not call executeMock", () => {
+    mockExecuteMock.mockClear();
+
+    // Pre-set the store so supergraphSdl is non-null (Run button is enabled).
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      supergraphSdl: "# supergraph",
+      composeErrors: null,
+      composeHints: 0,
+      variables: "{invalid json",
+    });
+
+    render(<App />);
+
+    // Find the variables textarea and set its value to invalid JSON.
+    const variablesTextarea = screen.getByRole("textbox", { name: /variables/i });
+    fireEvent.change(variablesTextarea, { target: { value: "{invalid json" } });
+
+    // Click the Run button.
+    const runButton = screen.getByRole("button", { name: /run/i });
+    fireEvent.click(runButton);
+
+    // The error message must be visible.
+    expect(screen.getByText(/invalid variables json/i)).toBeInTheDocument();
+
+    // executeMock must NOT have been called.
+    expect(mockExecuteMock).not.toHaveBeenCalled();
+  });
+
+  // ---- TASK-19 AC#2: Run calls executeMock with correct args and shows pretty-printed results ----
+
+  it("TASK-19 AC#2: clicking Run calls executeMock with schema, query, variables, and seed; shows pretty-printed data", async () => {
+    const mockData = { products: [{ id: "1", name: "Widget" }] };
+    mockExecuteMock.mockClear();
+    mockExecuteMock.mockReturnValueOnce({ data: mockData, errors: [] } as never);
+
+    const testQuery = "query { products { id name } }";
+    const testVariables = '{"limit":5}';
+    const testSeed = 99;
+
+    // Pre-set the store so supergraphSdl is non-null (Run button enabled).
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      supergraphSdl: "# supergraph",
+      composeErrors: null,
+      composeHints: 0,
+      query: testQuery,
+      variables: testVariables,
+      seed: testSeed,
+    });
+
+    render(<App />);
+
+    // Set the variables textarea to valid JSON.
+    const variablesTextarea = screen.getByRole("textbox", { name: /variables/i });
+    fireEvent.change(variablesTextarea, { target: { value: testVariables } });
+
+    // Click Run.
+    const runButton = screen.getByRole("button", { name: /run/i });
+    fireEvent.click(runButton);
+
+    // Wait for the async executeMock call to complete and the DOM to update.
+    await vi.waitFor(() => {
+      expect(mockExecuteMock).toHaveBeenCalledTimes(1);
+    });
+
+    // executeMock must have been called with the correct arguments.
+    expect(mockExecuteMock).toHaveBeenCalledWith("# supergraph", testQuery, { limit: 5 }, testSeed);
+
+    // The pretty-printed data must appear in the Results panel.
+    await vi.waitFor(() => {
+      expect(screen.getByText(/"Widget"/)).toBeInTheDocument();
+    });
+
+    // The full JSON.stringify output must be present in a <pre> element.
+    const pres = document.querySelectorAll("pre");
+    const resultPre = Array.from(pres).find((p) => p.textContent?.includes('"Widget"'));
+    expect(resultPre).toBeDefined();
+    expect(resultPre!.textContent).toContain('"products"');
+    expect(resultPre!.textContent).toContain('"id"');
+    expect(resultPre!.textContent).toContain('"1"');
+  });
+
+  // ---- TASK-19 AC#3: Same query+seed yields identical results; changing seed changes them ----
+
+  it("TASK-19 AC#3: clicking Run twice with the same seed calls executeMock both times with the same seed", async () => {
+    mockExecuteMock.mockClear();
+    mockExecuteMock.mockReturnValue({ data: { hello: "world" }, errors: [] } as never);
+
+    const testSeed = 42;
+
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      supergraphSdl: "# supergraph",
+      composeErrors: null,
+      composeHints: 0,
+      query: "query { hello }",
+      variables: "{}",
+      seed: testSeed,
+    });
+
+    render(<App />);
+
+    const runButton = screen.getByRole("button", { name: /run/i });
+
+    // Click Run the first time.
+    fireEvent.click(runButton);
+    await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(1));
+
+    // Click Run the second time without changing anything.
+    fireEvent.click(runButton);
+    await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(2));
+
+    // Both calls must have been made with the same seed value.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const firstCallSeed = (mockExecuteMock.mock.calls[0] as any[])[3];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const secondCallSeed = (mockExecuteMock.mock.calls[1] as any[])[3];
+    expect(firstCallSeed).toBe(testSeed);
+    expect(secondCallSeed).toBe(testSeed);
+    expect(firstCallSeed).toBe(secondCallSeed);
+  });
+
+  it("TASK-19 AC#3: changing the seed input before Run passes the new seed to executeMock", async () => {
+    mockExecuteMock.mockClear();
+    mockExecuteMock.mockReturnValue({ data: { hello: "world" }, errors: [] } as never);
+
+    const initialSeed = 42;
+    const changedSeed = 99;
+
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      supergraphSdl: "# supergraph",
+      composeErrors: null,
+      composeHints: 0,
+      query: "query { hello }",
+      variables: "{}",
+      seed: initialSeed,
+    });
+
+    render(<App />);
+
+    const runButton = screen.getByRole("button", { name: /run/i });
+
+    // First Run with seed=42.
+    fireEvent.click(runButton);
+    await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(1));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((mockExecuteMock.mock.calls[0] as any[])[3]).toBe(initialSeed);
+
+    // Change the seed input to 99.
+    const seedInput = screen.getByRole("spinbutton");
+    fireEvent.change(seedInput, { target: { value: String(changedSeed) } });
+
+    // Second Run with seed=99.
+    fireEvent.click(runButton);
+    await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(2));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((mockExecuteMock.mock.calls[1] as any[])[3]).toBe(changedSeed);
   });
 
   // ---- AC#2: Query editor is a Monaco editor wired to the store query ----

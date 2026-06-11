@@ -9,7 +9,7 @@ import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
 import { useWorkspace } from "./store";
 import { loadCore } from "./core";
-import type { ComposeResult, Diagnostic } from "./core/types";
+import type { ComposeResult, Diagnostic, MockResult } from "./core/types";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -58,8 +58,14 @@ export default function App() {
     query,
     setQuery,
     supergraphSdl,
+    variables,
+    setVariables,
+    seed,
+    setSeed,
   } = useWorkspace();
   const [compose, setCompose] = useState<ComposeResult | null>(null);
+  const [mockResult, setMockResult] = useState<MockResult | null>(null);
+  const [varError, setVarError] = useState<string | null>(null);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
@@ -249,14 +255,148 @@ export default function App() {
           )}
         </div>
       </section>
-      <section>
-        <h2>Query</h2>
-        <Editor
-          language="graphql"
-          path="query.graphql"
-          value={query}
-          onChange={(v) => setQuery(v ?? "")}
-        />
+      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <h2>Query</h2>
+          <div style={{ flex: 1 }}>
+            <Editor
+              language="graphql"
+              path="query.graphql"
+              value={query}
+              onChange={(v) => setQuery(v ?? "")}
+              height="300px"
+            />
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <h2>Variables</h2>
+          <label htmlFor="variables-textarea" style={{ fontSize: 12, color: "#6b7280" }}>
+            Variables (JSON)
+          </label>
+          <textarea
+            id="variables-textarea"
+            aria-label="variables"
+            value={variables}
+            onChange={(e) => setVariables(e.target.value)}
+            style={{
+              flex: 1,
+              fontFamily: "monospace",
+              fontSize: 13,
+              padding: 8,
+              border: "1px solid #d1d5db",
+              borderRadius: 4,
+              resize: "none",
+              minHeight: 120,
+            }}
+          />
+          {varError !== null && (
+            <div
+              role="alert"
+              style={{
+                backgroundColor: "#fee2e2",
+                borderLeft: "3px solid #dc2626",
+                color: "#991b1b",
+                padding: "6px 10px",
+                borderRadius: 4,
+                fontSize: 13,
+              }}
+            >
+              {varError}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <label htmlFor="seed-input" style={{ fontSize: 13 }}>
+              Seed:
+            </label>
+            <input
+              id="seed-input"
+              type="number"
+              value={seed}
+              onChange={(e) => setSeed(Number(e.target.value))}
+              style={{
+                width: 80,
+                padding: "4px 6px",
+                border: "1px solid #d1d5db",
+                borderRadius: 4,
+                fontSize: 13,
+              }}
+            />
+            <button
+              onClick={() => {
+                let parsedVariables: Record<string, unknown>;
+                try {
+                  parsedVariables = JSON.parse(variables) as Record<string, unknown>;
+                } catch {
+                  setVarError("Invalid variables JSON");
+                  return;
+                }
+                setVarError(null);
+                if (supergraphSdl === null) return;
+                void (async () => {
+                  const core = await loadCore();
+                  const result = core.executeMock(supergraphSdl, query, parsedVariables, seed);
+                  setMockResult(result);
+                })();
+              }}
+              disabled={supergraphSdl === null}
+              style={{
+                padding: "4px 12px",
+                backgroundColor: supergraphSdl === null ? "#d1d5db" : "#2563eb",
+                color: supergraphSdl === null ? "#6b7280" : "white",
+                border: "none",
+                borderRadius: 4,
+                cursor: supergraphSdl === null ? "not-allowed" : "pointer",
+                fontSize: 13,
+              }}
+            >
+              Run
+            </button>
+          </div>
+          {supergraphSdl === null && (
+            <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>
+              Run is disabled until composition succeeds.
+            </p>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <h2>Results</h2>
+          {mockResult === null ? (
+            <p style={{ fontSize: 13, color: "#6b7280" }}>No results yet. Click Run.</p>
+          ) : (
+            <>
+              <pre
+                style={{
+                  whiteSpace: "pre-wrap",
+                  backgroundColor: "#f9fafb",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 4,
+                  padding: 8,
+                  fontSize: 13,
+                  overflow: "auto",
+                }}
+              >
+                {JSON.stringify(mockResult.data, null, 2)}
+              </pre>
+              {(mockResult.errors?.length ?? 0) > 0 && (
+                <div
+                  style={{
+                    backgroundColor: "#fee2e2",
+                    borderLeft: "3px solid #dc2626",
+                    padding: 8,
+                    borderRadius: 4,
+                    marginTop: 8,
+                  }}
+                >
+                  {mockResult.errors!.map((e, i) => (
+                    <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
+                      {e.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </section>
     </main>
   );
