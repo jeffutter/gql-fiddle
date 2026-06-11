@@ -33,14 +33,14 @@ cargo test -p gql-core                              # native unit tests
 cargo test -p gql-core <name>                       # single test by name
 cargo fmt --check                                   # pre-commit enforces this
 cargo clippy --all-targets -- -D warnings           # pre-commit enforces this
-wasm-pack build crates/gql-core --target web        # build the wasm artifact
 wasm-pack test --headless --chrome crates/gql-core  # browser tests (CI only; needs Chrome)
 ```
 
 Web shell (run from `web/`):
 ```sh
 pnpm install
-pnpm dev                  # vite dev server
+pnpm build:wasm           # build the wasm artifact into web/src/wasm/
+pnpm dev                  # initial wasm build + vite dev server + cargo-watch for rust changes
 pnpm tsc --noEmit         # typecheck (pre-commit enforces)
 pnpm lint                 # eslint (pre-commit enforces)
 pnpm test run             # vitest once

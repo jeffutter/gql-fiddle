@@ -53,6 +53,10 @@
             # Git hooks.
             pkgs.lefthook
 
+            # Dev workflow.
+            pkgs.cargo-watch
+            pkgs.concurrently
+
             # Browser + driver for headless wasm-pack tests (pre-built binaries
             # from wasm-pack don't work on Nix — missing shared libs).
             pkgs.chromium

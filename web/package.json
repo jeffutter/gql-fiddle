@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:wasm": "wasm-pack build ../crates/gql-core --target web --out-dir ../../web/src/wasm",
-    "dev": "vite",
+    "dev": "pnpm build:wasm && concurrently --kill-others-on-fail \"cargo watch --watch $(pwd)/../crates/gql-core/src -s 'pnpm --dir $(pwd) build:wasm'\" \"vite\"",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest",
