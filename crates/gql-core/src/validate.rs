@@ -48,10 +48,19 @@ pub fn validate_subgraph(sdl: &str) -> Value {
     }
 
     // Phase 2 — federation semantic check (only reached when Phase 1 is clean).
-    match Subgraph::parse("<subgraph>", "", sdl) {
+    // Run the full single-subgraph pipeline: parse → expand_links → assume_upgraded → validate.
+    // expand_links validates @key field-sets and unknown type references.
+    // assume_upgraded is infallible (Expanded → Upgraded, no Result).
+    // validate re-runs post-upgrade checks; benign on valid Fed v2 SDL.
+    // SubgraphError location fields are pub(crate), so all semantic errors fall back to (1,1,0).
+    let result = Subgraph::parse("<subgraph>", "", sdl)
+        .and_then(|s| s.expand_links())
+        .map(|s| s.assume_upgraded())
+        .and_then(|s| s.validate());
+
+    match result {
         Ok(_) => json!({ "diagnostics": [] }),
         Err(err) => {
-            // SubgraphError location fields are pub(crate); fall back to (1,1,0).
             json!({ "diagnostics": [json!({
                 "severity": "error",
                 "message": err.to_string().trim().to_string(),
@@ -430,6 +439,89 @@ type Query {
         assert!(
             msg.contains("nonexistentField"),
             "diagnostic message should mention the unknown field, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn key_with_nonexistent_field_returns_diagnostic() {
+        // AC#1: A subgraph with a @key pointing to a non-existent field shows an error marker.
+        // The @link header is required to pass Phase 1 (syntax) so Phase 2 (semantic) is reached.
+        let sdl = r#"
+extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) {
+    query: Query
+}
+type Query { hello: String }
+type User @key(fields: "nonExistent") { id: ID! }
+"#;
+        let result = validate_subgraph(sdl);
+        let diagnostics = result["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        assert!(
+            !diagnostics.is_empty(),
+            "SDL with @key pointing to non-existent field should produce diagnostics"
+        );
+        let first = &diagnostics[0];
+        assert_eq!(
+            first["severity"]
+                .as_str()
+                .expect("severity should be a string"),
+            "error",
+            "diagnostic severity should be 'error'"
+        );
+    }
+
+    #[test]
+    fn field_referencing_undefined_type_returns_diagnostic() {
+        // AC#2: A subgraph with a field referencing an undefined type shows an error marker.
+        // The @link header is required to pass Phase 1 (syntax) so Phase 2 (semantic) is reached.
+        let sdl = r#"
+extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) {
+    query: Query
+}
+type Query { hello: NonExistentType }
+"#;
+        let result = validate_subgraph(sdl);
+        let diagnostics = result["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        assert!(
+            !diagnostics.is_empty(),
+            "SDL with field referencing undefined type should produce diagnostics"
+        );
+    }
+
+    #[test]
+    fn cross_subgraph_concern_not_flagged_for_single_subgraph() {
+        // AC#4: Cross-subgraph errors (e.g. @shareable conflicts between two subgraphs)
+        // are structurally impossible to detect in a single validate_subgraph call.
+        // A @shareable field that is valid standalone but would conflict when composed
+        // with a second subgraph must NOT produce diagnostics here — that is the
+        // composition error banner's responsibility.
+        //
+        // This test documents the scope limit: validate_subgraph only sees one subgraph,
+        // so multi-subgraph conflicts can never be surfaced here.
+        let sdl = r#"
+extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"]) {
+    query: Query
+}
+type Query {
+    hello: String
+}
+type Product @key(fields: "id") {
+    id: ID!
+    name: String @shareable
+    price: Float @shareable
+}
+"#;
+        let result = validate_subgraph(sdl);
+        let diagnostics = result["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        assert!(
+            diagnostics.is_empty(),
+            "A valid single-subgraph SDL with @shareable fields should produce zero diagnostics; \
+             cross-subgraph conflicts are out of scope for validate_subgraph. Got: {diagnostics:?}"
         );
     }
 
