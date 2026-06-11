@@ -84,7 +84,15 @@ fn extract_executable_diagnostics(with_errors: &WithErrors<ExecutableDocument>) 
             "message": diag.to_string(),
             "line": lc_range.start.line,
             "col": lc_range.start.column,
-            "len": (lc_range.end.column - lc_range.start.column),
+            // The editor collapses a diagnostic to one line (endLineNumber == startLineNumber
+            // in web/src/App.tsx:40-41), so len is a same-line column count. Multi-line spans
+            // clamp to 0 to avoid unsigned underflow; saturating_sub guards any end<start case.
+            // Mirrors the safe pattern already used in validate_subgraph (validate.rs:43).
+            "len": if lc_range.end.line == lc_range.start.line {
+                lc_range.end.column.saturating_sub(lc_range.start.column)
+            } else {
+                0
+            },
         }));
     }
     json!({ "diagnostics": diagnostics })
@@ -523,6 +531,28 @@ type Product @key(fields: "id") {
             "A valid single-subgraph SDL with @shareable fields should produce zero diagnostics; \
              cross-subgraph conflicts are out of scope for validate_subgraph. Got: {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn multiline_diagnostic_span_does_not_underflow() {
+        let supergraph_sdl = _compose_test_supergraph();
+        let operation = "{\n  me {\n    id {\n      x\n    }\n  }\n}";
+        let result = validate_query(&supergraph_sdl, operation);
+        let diags = result["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        assert!(
+            !diags.is_empty(),
+            "invalid selection should produce diagnostics"
+        );
+        for d in diags {
+            let len = d["len"].as_u64().expect("len should be a number");
+            assert!(
+                len <= operation.len() as u64,
+                "len {len} must not exceed operation length {} (underflow/wrap regression)",
+                operation.len()
+            );
+        }
     }
 
     #[test]
