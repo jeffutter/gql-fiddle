@@ -22,6 +22,9 @@
 #   SLEEP_SECS    Pause between tickets, in seconds. Default: 5.
 #   LOG_DIR       Where to write run logs. Default: "loop-logs".
 #   REVIEW_EVERY  Run review-pi-work every N successful iterations. Default: 5.
+#   PI_TIMEOUT    Per-ticket timeout in seconds. Default: 7200 (2 hours).
+#                 pi sometimes doesn't exit cleanly in non-interactive mode after
+#                 finishing a task; this ensures the loop is never stuck forever.
 #
 set -uo pipefail
 
@@ -34,6 +37,7 @@ MAX_ITERS="${MAX_ITERS:-50}"
 SLEEP_SECS="${SLEEP_SECS:-5}"
 LOG_DIR="${LOG_DIR:-loop-logs}"
 REVIEW_EVERY="${REVIEW_EVERY:-5}"
+PI_TIMEOUT="${PI_TIMEOUT:-7200}"
 
 SKILL_FILE=".claude/skills/review-pi-work/SKILL.md"
 
@@ -51,7 +55,19 @@ while (( iter < MAX_ITERS )); do
 
   # Run one ticket. Stream output to console and append to the log; capture it
   # so we can inspect the final status marker.
-  out="$($PI_CMD "$PROMPT" 2>&1 | tee -a "$run_log")"
+  # pi sometimes doesn't exit after completing a task in non-interactive mode,
+  # so we wrap in timeout. tee with two output files lets us stream to the
+  # terminal, write the log, and still capture the text for grep checks below.
+  tmp="$(mktemp)"
+  timeout "$PI_TIMEOUT" $PI_CMD "$PROMPT" 2>&1 | tee -a "$run_log" "$tmp"
+  pi_exit=${PIPESTATUS[0]}
+  out="$(cat "$tmp")"
+  rm -f "$tmp"
+
+  if [[ $pi_exit -eq 124 ]]; then
+    echo "pi timed out after ${PI_TIMEOUT}s — stopping." | tee -a "$run_log"
+    exit 3
+  fi
 
   if grep -q "BACKLOG LOOP: NOTHING TO DO" <<<"$out"; then
     echo "Nothing ready to work on — backlog drained. Stopping." | tee -a "$run_log"
