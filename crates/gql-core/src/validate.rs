@@ -9,21 +9,56 @@ use apollo_federation::subgraph::typestate::Subgraph;
 use serde_json::{json, Value};
 
 /// Validate one subgraph SDL. Returns `{ diagnostics: [...] }`.
+///
+/// Uses a two-phase approach to expose real line/col for syntax errors:
+///
+/// - **Phase 1 (syntax):** Parse with `apollo_compiler` using the same builder
+///   flags as `Subgraph::parse` internally. `apollo_compiler` diagnostics carry
+///   public location data, so real positions are reported and we return early.
+/// - **Phase 2 (federation semantics):** Only reached when Phase 1 is clean.
+///   `Subgraph::parse` location fields are `pub(crate)`, so federation semantic
+///   errors still fall back to `(1, 1, 0)` — acceptable since they are rare and
+///   not syntactic.
 pub fn validate_subgraph(sdl: &str) -> Value {
+    // Phase 1 — syntax check via apollo_compiler with federation-compatible flags.
+    let build_result = Schema::builder()
+        .adopt_orphan_extensions() // accept `extend schema @link(...)` without base def
+        .ignore_builtin_redefinitions() // accept redefined built-in scalars
+        .parse(sdl, "<subgraph>")
+        .build();
+
+    if let Err(with_errors) = build_result {
+        let diagnostics: Vec<Value> = with_errors
+            .errors
+            .iter()
+            .map(|diag| {
+                let lc_range = diag.line_column_range().unwrap_or(
+                    LineColumn { line: 1, column: 1 }..LineColumn { line: 1, column: 1 },
+                );
+                json!({
+                    "severity": "error",
+                    "message": diag.to_string(),
+                    "line": lc_range.start.line,
+                    "col": lc_range.start.column,
+                    "len": lc_range.end.column.saturating_sub(lc_range.start.column),
+                })
+            })
+            .collect();
+        return json!({ "diagnostics": diagnostics });
+    }
+
+    // Phase 2 — federation semantic check (only reached when Phase 1 is clean).
     match Subgraph::parse("<subgraph>", "", sdl) {
         Ok(_) => json!({ "diagnostics": [] }),
         Err(err) => {
-            // SubgraphError has no public location data (pub(crate) fields).
-            // Fall back to a single diagnostic at line 1, col 1 with the
-            // formatted error message — still better than false positives.
-            let diagnostics = vec![json!({
+            // SubgraphError location fields are pub(crate); fall back to (1,1,0).
+            json!({ "diagnostics": [json!({
                 "severity": "error",
                 "message": err.to_string().trim().to_string(),
                 "line": 1,
                 "col": 1,
                 "len": 0,
-            })];
-            json!({ "diagnostics": diagnostics })
+            })] })
         }
     }
 }
@@ -112,8 +147,7 @@ type Query {
 
     #[test]
     fn invalid_sdl_returns_diagnostics_with_line_and_col() {
-        // Subgraph::parse has no public location fields, so all error diagnostics
-        // fall back to line=1, col=1, len==0. Assert these exact fallback values.
+        // Phase 1 (apollo_compiler) reports real positions for syntax errors.
         let sdl = r#"
 type Query {
   hello: String
@@ -123,23 +157,22 @@ type Query {
         let diagnostics = result["diagnostics"]
             .as_array()
             .expect("diagnostics should be an array");
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "Subgraph::parse returns exactly one error for invalid SDL"
+        assert!(
+            !diagnostics.is_empty(),
+            "invalid SDL should produce at least one diagnostic"
         );
         let first = &diagnostics[0];
         let line: u32 = first["line"].as_u64().expect("line should be a number") as u32;
         let col: u32 = first["col"].as_u64().expect("col should be a number") as u32;
-        let len: u32 = first["len"].as_u64().expect("len should be a number") as u32;
-        assert_eq!(line, 1, "fallback line must be 1");
-        assert_eq!(col, 1, "fallback col must be 1");
-        assert_eq!(len, 0, "fallback len must be 0");
+        assert!(
+            line > 1 || col > 1,
+            "should report real position, not (1,1), got line={line} col={col}"
+        );
     }
 
     #[test]
     fn diagnostic_has_all_required_fields() {
-        // Same invalid SDL — first diagnostic must have exact fallback positions.
+        // Same invalid SDL — first diagnostic must carry all required fields.
         let sdl = r#"
 type Query {
   hello: String
@@ -149,46 +182,41 @@ type Query {
         let diagnostics = result["diagnostics"]
             .as_array()
             .expect("diagnostics should be an array");
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "Subgraph::parse returns exactly one error for invalid SDL"
+        assert!(
+            !diagnostics.is_empty(),
+            "invalid SDL should produce at least one diagnostic"
         );
         let first = &diagnostics[0];
-        // Assert required fields exist.
+        // Assert required fields exist and are correctly typed.
         assert!(first.get("severity").is_some(), "missing 'severity'");
         assert!(first.get("message").is_some(), "missing 'message'");
         assert!(first.get("line").is_some(), "missing 'line'");
         assert!(first.get("col").is_some(), "missing 'col'");
         assert!(first.get("len").is_some(), "missing 'len'");
-        // Assert exact fallback positions.
-        let line: u32 = first["line"].as_u64().expect("line should be a number") as u32;
-        let col: u32 = first["col"].as_u64().expect("col should be a number") as u32;
-        let len: u32 = first["len"].as_u64().expect("len should be a number") as u32;
-        assert_eq!(line, 1, "fallback line must be 1");
-        assert_eq!(col, 1, "fallback col must be 1");
-        assert_eq!(len, 0, "fallback len must be 0");
+        assert!(
+            first["severity"].is_string(),
+            "'severity' should be a string"
+        );
+        assert!(first["message"].is_string(), "'message' should be a string");
+        assert!(first["line"].is_u64(), "'line' should be a number");
+        assert!(first["col"].is_u64(), "'col' should be a number");
+        assert!(
+            first["len"].is_u64() || first["len"].is_i64(),
+            "'len' should be a number"
+        );
     }
 
     #[test]
     fn empty_string_returns_diagnostics_without_panic() {
-        // Empty input also yields exactly one error diagnostic at fallback position.
+        // Empty input must not panic and must produce at least one error diagnostic.
         let result = validate_subgraph("");
         let diagnostics = result["diagnostics"]
             .as_array()
             .expect("diagnostics should be an array");
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "empty SDL produces exactly one error diagnostic"
+        assert!(
+            !diagnostics.is_empty(),
+            "empty SDL should produce at least one error diagnostic"
         );
-        let first = &diagnostics[0];
-        let line: u32 = first["line"].as_u64().expect("line should be a number") as u32;
-        let col: u32 = first["col"].as_u64().expect("col should be a number") as u32;
-        let len: u32 = first["len"].as_u64().expect("len should be a number") as u32;
-        assert_eq!(line, 1, "fallback line must be 1");
-        assert_eq!(col, 1, "fallback col must be 1");
-        assert_eq!(len, 0, "fallback len must be 0");
     }
 
     // ---------------------------------------------------------------------------
