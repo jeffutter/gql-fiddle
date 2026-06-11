@@ -236,9 +236,11 @@ describe("App", () => {
     // Advance past the debounce window so the composition effect fires.
     await vi.advanceTimersByTimeAsync(350);
 
-    // The Supergraph pane should show the composed SDL.
+    // The Supergraph pane should be present; expand it to see the SDL.
     const supergraphHeading = screen.getByText("Supergraph");
     expect(supergraphHeading).toBeInTheDocument();
+    fireEvent.click(screen.getByText("▶ Show"));
+
     expect(screen.getByText("# supergraph")).toBeInTheDocument();
 
     // A status line showing error and hint count should be present.
@@ -333,6 +335,9 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
+    // Expand the supergraph panel to see the stale content.
+    fireEvent.click(screen.getByText("▶ Show"));
+
     // The stale badge text must appear.
     expect(screen.getByText("stale")).toBeInTheDocument();
 
@@ -368,6 +373,9 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
+    // Expand the supergraph panel to check its contents.
+    fireEvent.click(screen.getByText("▶ Show"));
+
     // No stale badge should be present after a successful compose.
     expect(screen.queryByText("stale")).not.toBeInTheDocument();
 
@@ -395,6 +403,9 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
+    // Expand the supergraph panel to check its contents.
+    fireEvent.click(screen.getByText("▶ Show"));
+
     // The placeholder text should be shown.
     expect(screen.getByText("No valid composition yet")).toBeInTheDocument();
 
@@ -414,6 +425,9 @@ describe("App", () => {
     render(<App />);
 
     await vi.advanceTimersByTimeAsync(350);
+
+    // Expand the supergraph panel to check its contents.
+    fireEvent.click(screen.getByText("▶ Show"));
 
     expect(screen.getByText("No valid composition yet")).toBeInTheDocument();
   });
@@ -482,11 +496,12 @@ describe("App", () => {
     // Orders SDL should be visible.
     expect(container.textContent).toContain("type Query { orders }");
 
-    // Remove the active tab (orders at index 2) — close button is the
-    // third span (products=0, reviews=1, orders=2).
-    const spans = container.querySelectorAll("span");
-    expect(spans[2].textContent).toBe("\u00d7");
-    fireEvent.click(spans[2]);
+    // Remove the active tab (orders at index 2) - find close spans by content.
+    const closeSpans = Array.from(container.querySelectorAll("span")).filter(
+      (s) => s.textContent === "×",
+    );
+    expect(closeSpans).toHaveLength(3);
+    fireEvent.click(closeSpans[2]);
 
     // removeSubgraph sets activeSubgraph to the nearest neighbor automatically.
     expect(useWorkspace.getState().activeSubgraph).toBe(1);
@@ -538,8 +553,10 @@ describe("App", () => {
     fireEvent.click(nav.querySelector("button:last-child")!);
 
     // Remove the middle one (subgraph-1 at index 1)
-    const spans = nav.querySelectorAll("span");
-    fireEvent.click(spans[1]);
+    const closeSpans = Array.from(nav.querySelectorAll("span")).filter(
+      (s) => s.textContent === "×",
+    );
+    fireEvent.click(closeSpans[1]);
 
     // Add again: should produce subgraph-1 (the gap), not subgraph-3
     fireEvent.click(nav.querySelector("button:last-child")!);

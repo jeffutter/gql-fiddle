@@ -26,10 +26,6 @@ self.MonacoEnvironment = {
 };
 loader.config({ monaco: _monaco });
 
-// Placeholder three-pane shell. Editors (Monaco + monaco-graphql), the query
-// plan visualizer, and live recomposition are wired up across milestones 1-3.
-// For now it exercises the store and the (stubbed) core end-to-end.
-
 function diagnosticToMarker(
   diagnostic: Diagnostic,
   monacoInstance: typeof _monaco,
@@ -62,10 +58,15 @@ export default function App() {
     setVariables,
     seed,
     setSeed,
+    resetToDefaults,
+    renameSubgraph,
   } = useWorkspace();
   const [compose, setCompose] = useState<ComposeResult | null>(null);
+  const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [varError, setVarError] = useState<string | null>(null);
+  const [supergraphCollapsed, setSupergraphCollapsed] = useState(true);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
@@ -141,13 +142,45 @@ export default function App() {
     <main
       style={{ display: "grid", gridTemplateRows: "1fr 1fr", height: "100vh", gap: 8, padding: 8 }}
     >
-      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div>
-          <h2>Subgraphs</h2>
-          <nav style={{ display: "flex", gap: 4 }}>
+      {/* Top row: subgraph editor + supergraph schema */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 8,
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <h2 style={{ margin: 0 }}>Subgraphs</h2>
+            <button
+              onClick={() => {
+                if (
+                  window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")
+                ) {
+                  resetToDefaults();
+                }
+              }}
+              style={{
+                marginLeft: "auto",
+                padding: "2px 8px",
+                fontSize: 12,
+                border: "1px solid #d1d5db",
+                borderRadius: 4,
+                cursor: "pointer",
+                background: "transparent",
+                color: "#6b7280",
+              }}
+            >
+              Reset to defaults
+            </button>
+          </div>
+          <nav style={{ display: "flex", gap: 4, flexShrink: 0, margin: "4px 0" }}>
             {subgraphs.map((sg, i) => (
               <button
-                key={sg.name}
+                key={i}
                 onClick={() => setActiveSubgraph(i)}
                 aria-pressed={i === activeSubgraph}
                 style={{
@@ -157,16 +190,60 @@ export default function App() {
                   padding: "4px 8px",
                   cursor: "pointer",
                   fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
                 }}
               >
-                {sg.name}
+                {renamingIndex === i ? (
+                  <input
+                    value={renameValue}
+                    autoFocus
+                    size={Math.max(renameValue.length, 3)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => {
+                      const trimmed = renameValue.trim();
+                      if (trimmed) renameSubgraph(i, trimmed);
+                      setRenamingIndex(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const trimmed = renameValue.trim();
+                        if (trimmed) renameSubgraph(i, trimmed);
+                        setRenamingIndex(null);
+                      } else if (e.key === "Escape") {
+                        setRenamingIndex(null);
+                      }
+                      e.stopPropagation();
+                    }}
+                    style={{
+                      fontSize: 13,
+                      border: "none",
+                      outline: "1px solid #2563eb",
+                      borderRadius: 2,
+                      padding: "0 2px",
+                      background: "white",
+                    }}
+                  />
+                ) : (
+                  <span
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingIndex(i);
+                      setRenameValue(sg.name);
+                    }}
+                    title="Double-click to rename"
+                  >
+                    {sg.name}
+                  </span>
+                )}
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
                     removeSubgraph(i);
                   }}
                   style={{
-                    marginLeft: 6,
                     cursor: "pointer",
                     color: i === activeSubgraph ? "#1f2937" : "#6b7280",
                   }}
@@ -185,92 +262,148 @@ export default function App() {
               +
             </button>
           </nav>
-          <Editor
-            path={`sg-${activeSubgraph}`}
-            value={subgraphs[activeSubgraph]?.sdl ?? ""}
-            language="plaintext"
-            height="70%"
-            onChange={(value) => setSubgraphSdl(activeSubgraph, value ?? "")}
-            onMount={(ed, m) => {
-              setEditor(ed);
-              setMonacoInstance(m);
-            }}
-          />
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <Editor
+              path={`sg-${activeSubgraph}`}
+              value={subgraphs[activeSubgraph]?.sdl ?? ""}
+              language="plaintext"
+              height="100%"
+              onChange={(value) => setSubgraphSdl(activeSubgraph, value ?? "")}
+              onMount={(ed, m) => {
+                setEditor(ed);
+                setMonacoInstance(m);
+              }}
+            />
+          </div>
         </div>
-        <div>
-          <h2>Supergraph</h2>
-          {compose === null ? (
-            <pre style={{ whiteSpace: "pre-wrap" }}>Loading core…</pre>
-          ) : compose.ok ? (
-            <>
-              <pre style={{ whiteSpace: "pre-wrap" }}>{compose.supergraph_sdl}</pre>
-              <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>
-                Composition:{" "}
-                {compose.hints.length === 0
-                  ? "0 errors"
-                  : `0 errors, ${compose.hints.length} hints`}
-              </p>
-            </>
-          ) : (
-            <>
-              <div
-                style={{
-                  backgroundColor: "#fee2e2",
-                  borderLeft: "3px solid #dc2626",
-                  padding: 8,
-                  borderRadius: 4,
-                  marginBottom: 8,
-                }}
-              >
-                {compose.errors.map((e, i) => (
-                  <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
-                    {`${e.code}: ${e.message}`}
-                  </div>
-                ))}
-              </div>
-              {supergraphSdl !== null ? (
+
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <h2 style={{ margin: 0 }}>Supergraph</h2>
+            <button
+              onClick={() => setSupergraphCollapsed((c) => !c)}
+              style={{
+                fontSize: 11,
+                padding: "2px 6px",
+                border: "1px solid #d1d5db",
+                borderRadius: 4,
+                cursor: "pointer",
+                background: "transparent",
+                color: "#6b7280",
+              }}
+              aria-expanded={!supergraphCollapsed}
+            >
+              {supergraphCollapsed ? "▶ Show" : "▼ Hide"}
+            </button>
+          </div>
+          {!supergraphCollapsed && (
+            <div style={{ flex: 1, overflow: "auto", marginTop: 4 }}>
+              {compose === null ? (
+                <pre style={{ whiteSpace: "pre-wrap" }}>Loading core…</pre>
+              ) : compose.ok ? (
                 <>
-                  <span
-                    style={{
-                      backgroundColor: "#fef3c7",
-                      color: "#92400e",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                      border: "1px solid #fcd34d",
-                      marginBottom: 4,
-                    }}
-                  >
-                    stale
-                  </span>
-                  <pre style={{ whiteSpace: "pre-wrap", opacity: 0.5, color: "#6b7280" }}>
-                    {supergraphSdl}
-                  </pre>
+                  <pre style={{ whiteSpace: "pre-wrap" }}>{compose.supergraph_sdl}</pre>
+                  <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>
+                    Composition:{" "}
+                    {compose.hints.length === 0
+                      ? "0 errors"
+                      : `0 errors, ${compose.hints.length} hints`}
+                  </p>
                 </>
               ) : (
-                <pre style={{ whiteSpace: "pre-wrap" }}>No valid composition yet</pre>
+                <>
+                  <div
+                    style={{
+                      backgroundColor: "#fee2e2",
+                      borderLeft: "3px solid #dc2626",
+                      padding: 8,
+                      borderRadius: 4,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {compose.errors.map((e, i) => (
+                      <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
+                        {`${e.code}: ${e.message}`}
+                      </div>
+                    ))}
+                  </div>
+                  {supergraphSdl !== null ? (
+                    <>
+                      <span
+                        style={{
+                          backgroundColor: "#fef3c7",
+                          color: "#92400e",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #fcd34d",
+                          marginBottom: 4,
+                        }}
+                      >
+                        stale
+                      </span>
+                      <pre style={{ whiteSpace: "pre-wrap", opacity: 0.5, color: "#6b7280" }}>
+                        {supergraphSdl}
+                      </pre>
+                    </>
+                  ) : (
+                    <pre style={{ whiteSpace: "pre-wrap" }}>No valid composition yet</pre>
+                  )}
+                </>
               )}
-            </>
+            </div>
+          )}
+          {supergraphCollapsed && compose !== null && !compose.ok && (
+            <div
+              style={{
+                backgroundColor: "#fee2e2",
+                borderLeft: "3px solid #dc2626",
+                padding: "4px 8px",
+                borderRadius: 4,
+                marginTop: 4,
+                flexShrink: 0,
+              }}
+            >
+              {compose.errors.map((e, i) => (
+                <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
+                  {`${e.code}: ${e.message}`}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </section>
-      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-          <h2>Query</h2>
-          <div style={{ flex: 1 }}>
+
+      {/* Bottom row: query editor + variables + results */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: 8,
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Query</h2>
+          <div style={{ flex: 1, minHeight: 0 }}>
             <Editor
               language="graphql"
               path="query.graphql"
               value={query}
               onChange={(v) => setQuery(v ?? "")}
-              height="300px"
+              height="100%"
             />
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <h2>Variables</h2>
-          <label htmlFor="variables-textarea" style={{ fontSize: 12, color: "#6b7280" }}>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
+          <h2 style={{ margin: 0, flexShrink: 0 }}>Variables</h2>
+          <label
+            htmlFor="variables-textarea"
+            style={{ fontSize: 12, color: "#6b7280", flexShrink: 0 }}
+          >
             Variables (JSON)
           </label>
           <textarea
@@ -286,7 +419,7 @@ export default function App() {
               border: "1px solid #d1d5db",
               borderRadius: 4,
               resize: "none",
-              minHeight: 120,
+              minHeight: 0,
             }}
           />
           {varError !== null && (
@@ -299,12 +432,13 @@ export default function App() {
                 padding: "6px 10px",
                 borderRadius: 4,
                 fontSize: 13,
+                flexShrink: 0,
               }}
             >
               {varError}
             </div>
           )}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
             <label htmlFor="seed-input" style={{ fontSize: 13 }}>
               Seed:
             </label>
@@ -353,17 +487,18 @@ export default function App() {
             </button>
           </div>
           {supergraphSdl === null && (
-            <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>
+            <p style={{ fontSize: 12, color: "#6b7280", margin: 0, flexShrink: 0 }}>
               Run is disabled until composition succeeds.
             </p>
           )}
         </div>
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <h2>Results</h2>
+
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Results</h2>
           {mockResult === null ? (
             <p style={{ fontSize: 13, color: "#6b7280" }}>No results yet. Click Run.</p>
           ) : (
-            <>
+            <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
               <pre
                 style={{
                   whiteSpace: "pre-wrap",
@@ -372,7 +507,7 @@ export default function App() {
                   borderRadius: 4,
                   padding: 8,
                   fontSize: 13,
-                  overflow: "auto",
+                  margin: 0,
                 }}
               >
                 {JSON.stringify(mockResult.data, null, 2)}
@@ -394,7 +529,7 @@ export default function App() {
                   ))}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </section>
