@@ -98,14 +98,13 @@ pub fn select_operation(doc: &ECExecDoc) -> Option<&exe::Operation> {
 }
 
 /// Try to get the operation count from an OperationMap.
-#[expect(dead_code)]
 pub fn op_count(map: &exe::OperationMap) -> usize {
     map.iter().count()
 }
 
 /// Walk a selection set and produce JSON values matching the shape.
 #[expect(clippy::too_many_arguments)]
-fn walk_selection_set(
+pub fn walk_selection_set(
     schema: &Schema,
     doc: &ECExecDoc,
     selection_set: &SelectionSet,
