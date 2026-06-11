@@ -16,6 +16,27 @@ let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
 
 const COMPOSE_DEBOUNCE_MS = 300;
 
+const isBoxDrawingLine = (line: string) => /[─-╿]/.test(line);
+
+function ErrorMessage({ text }: { text: string }) {
+  return (
+    <pre style={{ fontFamily: "monospace", fontSize: 13, margin: 0 }}>
+      {text.split("\n").map((line, i) => (
+        <span
+          key={i}
+          style={{
+            display: "block",
+            whiteSpace: isBoxDrawingLine(line) ? "pre" : "pre-wrap",
+            overflowX: isBoxDrawingLine(line) ? "auto" : "visible",
+          }}
+        >
+          {line}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
 // Configure Monaco to load workers from node_modules (required for Vite).
 self.MonacoEnvironment = {
   getWorker(_, label) {
@@ -66,6 +87,7 @@ export default function App() {
   const [renameValue, setRenameValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [varError, setVarError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [supergraphCollapsed, setSupergraphCollapsed] = useState(true);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
@@ -138,6 +160,59 @@ export default function App() {
     };
   }, [editor, monacoInstance, activeSubgraph, subgraphs]);
 
+  function copyForLLM() {
+    const parts: string[] = [];
+
+    parts.push("## Subgraphs");
+    for (const sg of subgraphs) {
+      parts.push(`\n### Subgraph: ${sg.name}\n\`\`\`graphql\n${sg.sdl}\n\`\`\``);
+    }
+
+    if (compose !== null && !compose.ok && compose.errors.length > 0) {
+      parts.push("\n## Composition Errors");
+      for (const e of compose.errors) {
+        parts.push(`- ${e.code}: ${e.message}`);
+      }
+    }
+
+    parts.push(`\n## Query\n\`\`\`graphql\n${query}\n\`\`\``);
+
+    const trimmedVars = variables.trim();
+    if (trimmedVars && trimmedVars !== "{}") {
+      parts.push(`\n## Variables\n\`\`\`json\n${trimmedVars}\n\`\`\``);
+    }
+
+    if (mockResult !== null) {
+      parts.push(
+        `\n## Query Results\n\`\`\`json\n${JSON.stringify(mockResult.data, null, 2)}\n\`\`\``,
+      );
+      if ((mockResult.errors?.length ?? 0) > 0) {
+        parts.push("\n## Query Errors");
+        for (const e of mockResult.errors!) {
+          parts.push(`- ${e.message}`);
+        }
+      }
+    }
+
+    const text = parts.join("\n");
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
   return (
     <main
       style={{ display: "grid", gridTemplateRows: "1fr 1fr", height: "100vh", gap: 8, padding: 8 }}
@@ -155,27 +230,43 @@ export default function App() {
         <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <h2 style={{ margin: 0 }}>Subgraphs</h2>
-            <button
-              onClick={() => {
-                if (
-                  window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")
-                ) {
-                  resetToDefaults();
-                }
-              }}
-              style={{
-                marginLeft: "auto",
-                padding: "2px 8px",
-                fontSize: 12,
-                border: "1px solid #d1d5db",
-                borderRadius: 4,
-                cursor: "pointer",
-                background: "transparent",
-                color: "#6b7280",
-              }}
-            >
-              Reset to defaults
-            </button>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button
+                onClick={copyForLLM}
+                style={{
+                  padding: "2px 8px",
+                  fontSize: 12,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  background: "transparent",
+                  color: copied ? "#16a34a" : "#6b7280",
+                  borderColor: copied ? "#86efac" : "#d1d5db",
+                }}
+              >
+                {copied ? "Copied!" : "Copy for LLM"}
+              </button>
+              <button
+                onClick={() => {
+                  if (
+                    window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")
+                  ) {
+                    resetToDefaults();
+                  }
+                }}
+                style={{
+                  padding: "2px 8px",
+                  fontSize: 12,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  background: "transparent",
+                  color: "#6b7280",
+                }}
+              >
+                Reset to defaults
+              </button>
+            </div>
           </div>
           <nav style={{ display: "flex", gap: 4, flexShrink: 0, margin: "4px 0" }}>
             {subgraphs.map((sg, i) => (
@@ -322,9 +413,7 @@ export default function App() {
                     }}
                   >
                     {compose.errors.map((e, i) => (
-                      <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
-                        {`${e.code}: ${e.message}`}
-                      </div>
+                      <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
                     ))}
                   </div>
                   {supergraphSdl !== null ? (
@@ -366,9 +455,7 @@ export default function App() {
               }}
             >
               {compose.errors.map((e, i) => (
-                <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
-                  {`${e.code}: ${e.message}`}
-                </div>
+                <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
               ))}
             </div>
           )}
@@ -523,9 +610,7 @@ export default function App() {
                   }}
                 >
                   {mockResult.errors!.map((e, i) => (
-                    <div key={i} style={{ fontFamily: "monospace", fontSize: 13 }}>
-                      {e.message}
-                    </div>
+                    <ErrorMessage key={i} text={e.message} />
                   ))}
                 </div>
               )}
