@@ -8,46 +8,95 @@ use apollo_compiler::{ExecutableDocument, Schema};
 use apollo_federation::subgraph::typestate::Subgraph;
 use serde_json::{json, Value};
 
+/// Convert a `line_column_range` result to a `(line, col, len)` JSON triple.
+///
+/// `len` is clamped to 0 for multi-line spans to avoid unsigned underflow.
+fn lc_to_json(lc_range: std::ops::Range<LineColumn>) -> (usize, usize, usize) {
+    let line = lc_range.start.line;
+    let col = lc_range.start.column;
+    let len = if lc_range.end.line == lc_range.start.line {
+        lc_range.end.column.saturating_sub(lc_range.start.column)
+    } else {
+        0
+    };
+    (line, col, len)
+}
+
 /// Validate one subgraph SDL. Returns `{ diagnostics: [...] }`.
 ///
-/// Uses a two-phase approach to expose real line/col for syntax errors:
+/// Uses a three-phase approach:
 ///
-/// - **Phase 1 (syntax):** Parse with `apollo_compiler` using the same builder
-///   flags as `Subgraph::parse` internally. `apollo_compiler` diagnostics carry
-///   public location data, so real positions are reported and we return early.
-/// - **Phase 2 (federation semantics):** Only reached when Phase 1 is clean.
-///   `Subgraph::parse` location fields are `pub(crate)`, so federation semantic
-///   errors still fall back to `(1, 1, 0)` — acceptable since they are rare and
-///   not syntactic.
+/// - **Phase 1 (syntax):** Build the schema with federation-compatible flags.
+///   Syntax errors have real line/col from apollo_compiler; returned immediately.
+/// - **Phase 1.5 (undefined types):** Run `Schema::validate()` on the built schema
+///   and surface only `UndefinedDefinition` errors (unknown type references) with
+///   real positions. Federation directives (@key, @link, …) are not defined in the
+///   schema itself, so their `UndefinedDirective` errors are false positives here
+///   and are intentionally skipped — they fall through to Phase 2.
+/// - **Phase 2 (federation semantics):** `Subgraph` validation for @key field-sets
+///   and other federation-specific rules. Position data is unavailable here
+///   (`SubgraphError` location fields are `pub(crate)`), so errors fall back to
+///   `(1, 1, 0)`.
 pub fn validate_subgraph(sdl: &str) -> Value {
     // Phase 1 — syntax check via apollo_compiler with federation-compatible flags.
-    let build_result = Schema::builder()
+    let schema = match Schema::builder()
         .adopt_orphan_extensions() // accept `extend schema @link(...)` without base def
         .ignore_builtin_redefinitions() // accept redefined built-in scalars
         .parse(sdl, "<subgraph>")
-        .build();
+        .build()
+    {
+        Err(with_errors) => {
+            let diagnostics: Vec<Value> = with_errors
+                .errors
+                .iter()
+                .map(|diag| {
+                    let lc_range = diag.line_column_range().unwrap_or(
+                        LineColumn { line: 1, column: 1 }..LineColumn { line: 1, column: 1 },
+                    );
+                    let (line, col, len) = lc_to_json(lc_range);
+                    json!({
+                        "severity": "error",
+                        "message": diag.to_string(),
+                        "line": line,
+                        "col": col,
+                        "len": len,
+                    })
+                })
+                .collect();
+            return json!({ "diagnostics": diagnostics });
+        }
+        Ok(schema) => schema,
+    };
 
-    if let Err(with_errors) = build_result {
+    // Phase 1.5 — undefined-type check with real positions.
+    // schema.validate() runs full apollo_compiler validation including type-reference checks.
+    // We only surface UndefinedDefinition errors; UndefinedDirective errors are federation
+    // false-positives (@key, @link, etc. are imported via @link, not defined in the SDL).
+    if let Err(with_errors) = schema.validate() {
         let diagnostics: Vec<Value> = with_errors
             .errors
             .iter()
+            .filter(|diag| diag.error.unstable_error_name() == Some("UndefinedDefinition"))
             .map(|diag| {
                 let lc_range = diag.line_column_range().unwrap_or(
                     LineColumn { line: 1, column: 1 }..LineColumn { line: 1, column: 1 },
                 );
+                let (line, col, len) = lc_to_json(lc_range);
                 json!({
                     "severity": "error",
                     "message": diag.to_string(),
-                    "line": lc_range.start.line,
-                    "col": lc_range.start.column,
-                    "len": lc_range.end.column.saturating_sub(lc_range.start.column),
+                    "line": line,
+                    "col": col,
+                    "len": len,
                 })
             })
             .collect();
-        return json!({ "diagnostics": diagnostics });
+        if !diagnostics.is_empty() {
+            return json!({ "diagnostics": diagnostics });
+        }
     }
 
-    // Phase 2 — federation semantic check (only reached when Phase 1 is clean).
+    // Phase 2 — federation semantic check (only reached when Phases 1 and 1.5 are clean).
     // Run the full single-subgraph pipeline: parse → expand_links → assume_upgraded → validate.
     // expand_links validates @key field-sets and unknown type references.
     // assume_upgraded is infallible (Expanded → Upgraded, no Result).
@@ -496,6 +545,32 @@ type Query { hello: NonExistentType }
         assert!(
             !diagnostics.is_empty(),
             "SDL with field referencing undefined type should produce diagnostics"
+        );
+    }
+
+    #[test]
+    fn undefined_type_ref_has_real_position() {
+        // The default products subgraph (no @link header) with a typo like `name: Stringz`
+        // should report the error at the position of `Stringz`, not at (1, 1).
+        // Phase 1.5 (schema.validate()) surfaces UndefinedDefinition with real line/col.
+        let sdl = "type Query {\n  products: [Product]\n}\n\ntype Product {\n  id: ID!\n  name: Stringz\n}\n";
+        // Line 7: "  name: Stringz"   — `Stringz` starts at col 9 (1-based).
+        let result = validate_subgraph(sdl);
+        let diagnostics = result["diagnostics"].as_array().expect("array");
+        assert!(
+            !diagnostics.is_empty(),
+            "should produce diagnostics for undefined type"
+        );
+        let first = &diagnostics[0];
+        let line = first["line"].as_u64().expect("line") as u32;
+        let col = first["col"].as_u64().expect("col") as u32;
+        assert_eq!(
+            line, 7,
+            "diagnostic should point to line 7 where `Stringz` appears"
+        );
+        assert_eq!(
+            col, 9,
+            "diagnostic should point to col 9 where `Stringz` starts"
         );
     }
 
