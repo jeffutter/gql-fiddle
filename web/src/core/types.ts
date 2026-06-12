@@ -41,8 +41,18 @@ export interface MockResult {
   errors?: { message: string }[];
 }
 
+export type RequiresSelection =
+  | { kind: "Field"; name: string; alias?: string; selections?: RequiresSelection[] }
+  | { kind: "InlineFragment"; typeCondition?: string; selections: RequiresSelection[] };
+
 export type PlanNode =
-  | { kind: "Fetch"; service: string; operation: string; operation_kind: string }
+  | {
+      kind: "Fetch";
+      service: string;
+      operation: string;
+      operation_kind: string;
+      requires?: RequiresSelection[];
+    }
   | { kind: "Sequence"; nodes: PlanNode[] }
   | { kind: "Parallel"; nodes: PlanNode[] }
   | { kind: "Flatten"; path: string[]; node: PlanNode }

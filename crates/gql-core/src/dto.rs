@@ -12,6 +12,24 @@ pub struct SubgraphInput {
     pub sdl: String,
 }
 
+/// A field or inline fragment in a `@requires` selection set.
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "kind")]
+pub enum RequiresSelection {
+    Field {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alias: Option<String>,
+        name: String,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        selections: Vec<RequiresSelection>,
+    },
+    InlineFragment {
+        #[serde(rename = "typeCondition", skip_serializing_if = "Option::is_none")]
+        type_condition: Option<String>,
+        selections: Vec<RequiresSelection>,
+    },
+}
+
 /// A single node in a query plan tree.  Serializes with a `kind` discriminant
 /// so the visualizer can render each variant differently.
 ///
@@ -25,6 +43,8 @@ pub enum PlanNode {
         #[serde(rename = "operation")]
         operation_str: String,
         operation_kind: String,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        requires: Vec<RequiresSelection>,
     },
     Sequence {
         nodes: Vec<PlanNode>,
