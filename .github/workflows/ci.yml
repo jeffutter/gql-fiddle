@@ -35,3 +35,5 @@ jobs:
         run: nix develop -c bash -c "cd web && pnpm tsc --noEmit"
       - name: Web tests
         run: nix develop -c bash -c "cd web && pnpm test run"
+      - name: Web e2e tests
+        run: nix develop -c bash -c "cd web && pnpm e2e"

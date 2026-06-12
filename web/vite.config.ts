@@ -15,5 +15,6 @@ export default defineConfig({
     // jsdom enables React component rendering in Vitest.
     environment: "jsdom",
     setupFiles: ["./src/setupTests.tsx", "@testing-library/jest-dom/vitest"],
+    exclude: ["e2e/**", "node_modules/**"],
   },
 });

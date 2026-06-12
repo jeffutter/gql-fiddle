@@ -49,6 +49,10 @@ self.MonacoEnvironment = {
   },
 };
 loader.config({ monaco: _monaco });
+// Expose Monaco for Playwright e2e tests (dev server only).
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__monaco = _monaco;
+}
 
 function diagnosticToMarker(
   diagnostic: Diagnostic,
@@ -395,7 +399,7 @@ export default function App() {
               +
             </button>
           </nav>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div data-testid="subgraph-editor" style={{ flex: 1, minHeight: 0 }}>
             <Editor
               path={`sg-${activeSubgraph}`}
               value={subgraphs[activeSubgraph]?.sdl ?? ""}
@@ -573,7 +577,7 @@ export default function App() {
       >
         <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
           <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Query</h2>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div data-testid="query-editor" style={{ flex: 1, minHeight: 0 }}>
             <Editor
               language="graphql"
               path="query.graphql"
