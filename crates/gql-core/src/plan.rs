@@ -3,6 +3,8 @@
 use apollo_compiler::Name;
 use serde_json::{json, Value};
 
+use crate::dto::{DeferredBranch, PlanNode};
+
 /// Produce a slim, stable query-plan DTO for an operation.
 ///
 /// Returns `{ ok: true, query_plan: <tree> }` on success or
@@ -45,7 +47,7 @@ pub fn plan(supergraph_sdl: &str, operation: &str, op_name: Option<&str>) -> Val
         Err(err) => return error_envelope(err.to_string()),
     };
 
-    // 6. Map into our DTO
+    // 6. Map into our DTO and serialize
     let node = match query_plan.node {
         Some(n) => match n {
             apollo_federation::query_plan::TopLevelPlanNode::Subscription(sub) => {
@@ -60,10 +62,11 @@ pub fn plan(supergraph_sdl: &str, operation: &str, op_name: Option<&str>) -> Val
                 map_condition(*cond)
             }
         },
-        None => serde_json::from_value(json!({ "kind": "Sequence", "nodes": [] })).unwrap(),
+        None => PlanNode::Sequence { nodes: vec![] },
     };
 
-    json!({ "ok": true, "query_plan": node })
+    let query_plan_value = serde_json::to_value(node).unwrap_or(Value::Null);
+    json!({ "ok": true, "query_plan": query_plan_value })
 }
 
 fn error_envelope(msg: String) -> Value {
@@ -73,19 +76,14 @@ fn error_envelope(msg: String) -> Value {
     })
 }
 
-/// Map a SubscriptionNode (the only TopLevelPlanNode variant with unique shape).
-fn map_subscription_node(sub: apollo_federation::query_plan::SubscriptionNode) -> Value {
-    let fetch = *sub.primary;
-    let primary = map_fetch(fetch);
-    let rest = match sub.rest {
-        Some(n) => json!({ "rest": map_inner_node(*n) }),
-        None => json!({}),
-    };
-    json!({ "kind": "Subscription", "primary": primary, "rest": rest })
+fn map_subscription_node(sub: apollo_federation::query_plan::SubscriptionNode) -> PlanNode {
+    let primary = Box::new(map_fetch(*sub.primary));
+    let rest = sub.rest.map(|n| Box::new(map_inner_node(*n)));
+    PlanNode::Subscription { primary, rest }
 }
 
 /// Map an inner PlanNode (no Subscription variant). Used by Flatten, Defer, Condition.
-fn map_inner_node(node: apollo_federation::query_plan::PlanNode) -> Value {
+fn map_inner_node(node: apollo_federation::query_plan::PlanNode) -> PlanNode {
     match node {
         apollo_federation::query_plan::PlanNode::Fetch(fetch) => map_fetch(*fetch),
         apollo_federation::query_plan::PlanNode::Sequence(seq) => map_sequence(seq),
@@ -96,29 +94,30 @@ fn map_inner_node(node: apollo_federation::query_plan::PlanNode) -> Value {
     }
 }
 
-fn map_fetch(fetch: apollo_federation::query_plan::FetchNode) -> Value {
+fn map_fetch(fetch: apollo_federation::query_plan::FetchNode) -> PlanNode {
     let service = fetch.subgraph_name.to_string();
     let op_str = serde_json::to_string(&fetch.operation_document).unwrap_or_default();
     let op_kind = format!("{}", fetch.operation_kind);
-    json!({
-        "kind": "Fetch",
-        "service": service,
-        "operation": op_str,
-        "operation_kind": op_kind,
-    })
+    PlanNode::Fetch {
+        service,
+        operation_str: op_str,
+        operation_kind: op_kind,
+    }
 }
 
-fn map_sequence(seq: apollo_federation::query_plan::SequenceNode) -> Value {
-    let children: Vec<Value> = seq.nodes.into_iter().map(map_inner_node).collect();
-    json!({ "kind": "Sequence", "nodes": children })
+fn map_sequence(seq: apollo_federation::query_plan::SequenceNode) -> PlanNode {
+    PlanNode::Sequence {
+        nodes: seq.nodes.into_iter().map(map_inner_node).collect(),
+    }
 }
 
-fn map_parallel(par: apollo_federation::query_plan::ParallelNode) -> Value {
-    let children: Vec<Value> = par.nodes.into_iter().map(map_inner_node).collect();
-    json!({ "kind": "Parallel", "nodes": children })
+fn map_parallel(par: apollo_federation::query_plan::ParallelNode) -> PlanNode {
+    PlanNode::Parallel {
+        nodes: par.nodes.into_iter().map(map_inner_node).collect(),
+    }
 }
 
-fn map_flatten(flatt: apollo_federation::query_plan::FlattenNode) -> Value {
+fn map_flatten(flatt: apollo_federation::query_plan::FlattenNode) -> PlanNode {
     let path: Vec<String> = flatt
         .path
         .into_iter()
@@ -131,52 +130,31 @@ fn map_flatten(flatt: apollo_federation::query_plan::FlattenNode) -> Value {
             apollo_federation::query_plan::FetchDataPathElement::Parent => "..".to_string(),
         })
         .collect();
-    let child = map_inner_node(*flatt.node);
-    json!({ "kind": "Flatten", "path": path, "node": child })
+    PlanNode::Flatten {
+        path,
+        node: Box::new(map_inner_node(*flatt.node)),
+    }
 }
 
-fn map_defer(defer: apollo_federation::query_plan::DeferNode) -> Value {
-    let primary = match defer.primary.node {
-        Some(n) => map_inner_node(*n),
-        None => json!({}),
-    };
-    let deferred_nodes: Vec<Value> = defer
+fn map_defer(defer: apollo_federation::query_plan::DeferNode) -> PlanNode {
+    let primary = defer.primary.node.map(|n| Box::new(map_inner_node(*n)));
+    let deferred = defer
         .deferred
         .into_iter()
-        .map(|d| {
-            let child = match d.node {
-                Some(n) => map_inner_node(*n),
-                None => json!({}),
-            };
-            json!({
-                "kind": "DeferNode",
-                "label": d.label,
-                "node": child,
-            })
+        .map(|d| DeferredBranch {
+            label: d.label.map(|l| l.to_string()),
+            node: d.node.map(|n| Box::new(map_inner_node(*n))),
         })
         .collect();
-    json!({
-        "kind": "Defer",
-        "primary": primary,
-        "deferred": deferred_nodes,
-    })
+    PlanNode::Defer { primary, deferred }
 }
 
-fn map_condition(cond: apollo_federation::query_plan::ConditionNode) -> Value {
-    let if_branch = match cond.if_clause {
-        Some(n) => map_inner_node(*n),
-        None => json!({}),
-    };
-    let else_branch = match cond.else_clause {
-        Some(n) => map_inner_node(*n),
-        None => json!({}),
-    };
-    json!({
-        "kind": "Condition",
-        "conditionVariable": cond.condition_variable.to_string(),
-        "ifBranch": if_branch,
-        "elseBranch": else_branch,
-    })
+fn map_condition(cond: apollo_federation::query_plan::ConditionNode) -> PlanNode {
+    PlanNode::Condition {
+        condition_variable: cond.condition_variable.to_string(),
+        if_branch: cond.if_clause.map(|n| Box::new(map_inner_node(*n))),
+        else_branch: cond.else_clause.map(|n| Box::new(map_inner_node(*n))),
+    }
 }
 
 #[cfg(test)]

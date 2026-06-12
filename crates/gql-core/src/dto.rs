@@ -14,7 +14,9 @@ pub struct SubgraphInput {
 
 /// A single node in a query plan tree.  Serializes with a `kind` discriminant
 /// so the visualizer can render each variant differently.
-#[expect(dead_code)]
+///
+/// Covers every variant Apollo's query planner can produce:
+/// Fetch, Sequence, Parallel, Flatten, Subscription, Defer, Condition.
 #[derive(Debug, serde::Serialize)]
 #[serde(tag = "kind")]
 pub enum PlanNode {
@@ -34,4 +36,31 @@ pub enum PlanNode {
         path: Vec<String>,
         node: Box<PlanNode>,
     },
+    Subscription {
+        primary: Box<PlanNode>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rest: Option<Box<PlanNode>>,
+    },
+    Defer {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        primary: Option<Box<PlanNode>>,
+        deferred: Vec<DeferredBranch>,
+    },
+    Condition {
+        #[serde(rename = "conditionVariable")]
+        condition_variable: String,
+        #[serde(rename = "ifBranch", skip_serializing_if = "Option::is_none")]
+        if_branch: Option<Box<PlanNode>>,
+        #[serde(rename = "elseBranch", skip_serializing_if = "Option::is_none")]
+        else_branch: Option<Box<PlanNode>>,
+    },
+}
+
+/// One deferred branch inside a Defer node.
+#[derive(Debug, serde::Serialize)]
+pub struct DeferredBranch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node: Option<Box<PlanNode>>,
 }
