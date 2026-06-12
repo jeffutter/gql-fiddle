@@ -1,6 +1,0 @@
----
-source: crates/gql-core/tests/compose.rs
-assertion_line: 398
-expression: result
----
-{"ok":false,"errors":[{"code":"SUBGRAPH_ERROR","message":"[pricing] An internal error has occurred, please report this bug to Apollo.\n\nDetails: Schema has no type `Query`","locations":[]}]}

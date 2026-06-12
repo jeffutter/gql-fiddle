@@ -386,9 +386,12 @@ fn reference_to_missing_type() {
 }
 
 #[test]
-fn invalid_federation_directive_on_query_root() {
-    // Use @override pointing to a non-existent subgraph — this is an invalid
-    // federation directive usage that should cause composition to fail.
+fn field_sharing_violation_with_invalid_override() {
+    // Both subgraphs define their own `type Query` so composition reaches
+    // the @override directive validation.  The @override(from: "nonexistent_subgraph")
+    // on Product.price causes Apollo to skip override resolution and instead
+    // report an INVALID_FIELD_SHARING error — price is resolved from both
+    // subgraphs as a non-shareable field.
     let input = serde_json::json!([
         {
             "name": "inventory",
@@ -415,13 +418,23 @@ fn invalid_federation_directive_on_query_root() {
             "name": "pricing",
             "sdl": r#"
                 extend schema
-                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@override"])
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@override"])
                     @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
                 {
                     query: Query
                 }
 
-                type Product @key(fields: "sku") {
+                type Query {
+                    productPrice(sku: String!): Price
+                }
+
+                type Price {
+                    sku: String!
+                    amount: Float!
+                    currency: String!
+                }
+
+                extend type Product @key(fields: "sku") {
                     sku: String! @external
                     price: Float @override(from: "nonexistent_subgraph")
                 }
@@ -441,6 +454,14 @@ fn invalid_federation_directive_on_query_root() {
         assert!(
             err.get("code").is_some() && err.get("message").is_some(),
             "each error must have a stable code and message"
+        );
+    }
+    // Guard against Apollo internal-error sentinels.
+    for err in errors {
+        let msg = err["message"].as_str().unwrap();
+        assert!(
+            !msg.contains("report this bug to Apollo"),
+            "composition error must be a real, stable error, not an Apollo internal sentinel: {result}"
         );
     }
     assert_snapshot!(result);

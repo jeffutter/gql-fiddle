@@ -1,0 +1,6 @@
+---
+source: crates/gql-core/tests/compose.rs
+assertion_line: 467
+expression: result
+---
+{"ok":false,"errors":[{"code":"INVALID_FIELD_SHARING","message":"Non-shareable field \"Product.price\" is resolved from multiple subgraphs: it is resolved from subgraphs \"inventory\" and \"pricing\" and defined as non-shareable in all of them (please note that \"Product.price\" has an @override directive in \"pricing\" that targets an unknown subgraph so this could be due to misspelling the @override(from:) argument)","locations":[{"subgraph":"inventory","line":16,"col":21},{"subgraph":"pricing","line":21,"col":21}]}]}
