@@ -241,9 +241,9 @@ describe("App", () => {
     // Advance past the debounce window so the composition effect fires.
     await vi.advanceTimersByTimeAsync(350);
 
-    // The Supergraph pane should be present; expand it to see the SDL.
-    const supergraphHeading = screen.getByText("Supergraph");
-    expect(supergraphHeading).toBeInTheDocument();
+    // The Supergraph SDL tab should be present; expand it to see the SDL.
+    const supergraphTab = screen.getByText("Supergraph SDL");
+    expect(supergraphTab).toBeInTheDocument();
     fireEvent.click(screen.getByText("▶ Show"));
 
     expect(screen.getByText("# supergraph")).toBeInTheDocument();

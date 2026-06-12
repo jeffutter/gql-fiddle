@@ -35,12 +35,30 @@ export interface MockResult {
   errors?: { message: string }[];
 }
 
+export type PlanNode =
+  | { kind: "Fetch"; service: string; operation: string; operation_kind: string }
+  | { kind: "Sequence"; nodes: PlanNode[] }
+  | { kind: "Parallel"; nodes: PlanNode[] }
+  | { kind: "Flatten"; path: string[]; node: PlanNode }
+  | { kind: "Subscription"; primary: PlanNode; rest?: PlanNode }
+  | { kind: "Defer"; primary?: PlanNode; deferred: DeferredBranch[] }
+  | { kind: "Condition"; conditionVariable: string; ifBranch?: PlanNode; elseBranch?: PlanNode };
+
+export interface DeferredBranch {
+  label?: string;
+  node?: PlanNode;
+}
+
+export type PlanResult =
+  | { ok: true; query_plan: PlanNode }
+  | { ok: false; errors: { code: string; message: string }[] };
+
 /** Functions exported by the WASM module, wrapped with typed I/O. */
 export interface GqlCore {
   validateSubgraph(sdl: string): { diagnostics: Diagnostic[] };
   compose(subgraphs: SubgraphInput[]): ComposeResult;
   validateQuery(supergraphSdl: string, operation: string): { diagnostics: Diagnostic[] };
-  plan(supergraphSdl: string, operation: string, opName?: string): unknown;
+  plan(supergraphSdl: string, operation: string, opName?: string): PlanResult;
   executeMock(
     supergraphSdl: string,
     operation: string,

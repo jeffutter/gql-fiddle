@@ -11,7 +11,8 @@ import { useWorkspace } from "./store";
 import { loadCore } from "./core";
 import { decode, encode } from "./share";
 import type { WorkspacePayload } from "./share";
-import type { ComposeResult, Diagnostic, MockResult } from "./core/types";
+import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
+import { PlanTree } from "./PlanTree";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -88,6 +89,8 @@ export default function App() {
   const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
+  const [planResult, setPlanResult] = useState<PlanResult | null>(null);
+  const [rightTab, setRightTab] = useState<"sdl" | "plan">("sdl");
   const [varError, setVarError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [supergraphCollapsed, setSupergraphCollapsed] = useState(true);
@@ -408,94 +411,151 @@ export default function App() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <h2 style={{ margin: 0 }}>Supergraph</h2>
+          <nav style={{ display: "flex", gap: 4, flexShrink: 0, margin: "0 0 4px" }}>
             <button
-              onClick={() => setSupergraphCollapsed((c) => !c)}
+              onClick={() => setRightTab("sdl")}
+              aria-pressed={rightTab === "sdl"}
               style={{
-                fontSize: 11,
-                padding: "2px 6px",
+                backgroundColor: rightTab === "sdl" ? "#e5e7eb" : "transparent",
                 border: "1px solid #d1d5db",
                 borderRadius: 4,
+                padding: "4px 8px",
                 cursor: "pointer",
-                background: "transparent",
-                color: "#6b7280",
+                fontSize: 13,
               }}
-              aria-expanded={!supergraphCollapsed}
             >
-              {supergraphCollapsed ? "▶ Show" : "▼ Hide"}
+              Supergraph SDL
             </button>
-          </div>
-          {!supergraphCollapsed && (
-            <div style={{ flex: 1, overflow: "auto", marginTop: 4 }}>
-              {compose === null ? (
-                <pre style={{ whiteSpace: "pre-wrap" }}>Loading core…</pre>
-              ) : compose.ok ? (
-                <>
-                  <pre style={{ whiteSpace: "pre-wrap" }}>{compose.supergraph_sdl}</pre>
-                  <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>
-                    Composition:{" "}
-                    {compose.hints.length === 0
-                      ? "0 errors"
-                      : `0 errors, ${compose.hints.length} hints`}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div
-                    style={{
-                      backgroundColor: "#fee2e2",
-                      borderLeft: "3px solid #dc2626",
-                      padding: 8,
-                      borderRadius: 4,
-                      marginBottom: 8,
-                    }}
-                  >
-                    {compose.errors.map((e, i) => (
-                      <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
-                    ))}
-                  </div>
-                  {supergraphSdl !== null ? (
+            <button
+              onClick={() => setRightTab("plan")}
+              aria-pressed={rightTab === "plan"}
+              style={{
+                backgroundColor: rightTab === "plan" ? "#e5e7eb" : "transparent",
+                border: "1px solid #d1d5db",
+                borderRadius: 4,
+                padding: "4px 8px",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              Query Plan
+            </button>
+          </nav>
+
+          {rightTab === "sdl" && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => setSupergraphCollapsed((c) => !c)}
+                  style={{
+                    fontSize: 11,
+                    padding: "2px 6px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    background: "transparent",
+                    color: "#6b7280",
+                  }}
+                  aria-expanded={!supergraphCollapsed}
+                >
+                  {supergraphCollapsed ? "▶ Show" : "▼ Hide"}
+                </button>
+              </div>
+              {!supergraphCollapsed && (
+                <div style={{ flex: 1, overflow: "auto", marginTop: 4 }}>
+                  {compose === null ? (
+                    <pre style={{ whiteSpace: "pre-wrap" }}>Loading core…</pre>
+                  ) : compose.ok ? (
                     <>
-                      <span
-                        style={{
-                          backgroundColor: "#fef3c7",
-                          color: "#92400e",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          border: "1px solid #fcd34d",
-                          marginBottom: 4,
-                        }}
-                      >
-                        stale
-                      </span>
-                      <pre style={{ whiteSpace: "pre-wrap", opacity: 0.5, color: "#6b7280" }}>
-                        {supergraphSdl}
-                      </pre>
+                      <pre style={{ whiteSpace: "pre-wrap" }}>{compose.supergraph_sdl}</pre>
+                      <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>
+                        Composition:{" "}
+                        {compose.hints.length === 0
+                          ? "0 errors"
+                          : `0 errors, ${compose.hints.length} hints`}
+                      </p>
                     </>
                   ) : (
-                    <pre style={{ whiteSpace: "pre-wrap" }}>No valid composition yet</pre>
+                    <>
+                      <div
+                        style={{
+                          backgroundColor: "#fee2e2",
+                          borderLeft: "3px solid #dc2626",
+                          padding: 8,
+                          borderRadius: 4,
+                          marginBottom: 8,
+                        }}
+                      >
+                        {compose.errors.map((e, i) => (
+                          <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
+                        ))}
+                      </div>
+                      {supergraphSdl !== null ? (
+                        <>
+                          <span
+                            style={{
+                              backgroundColor: "#fef3c7",
+                              color: "#92400e",
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              border: "1px solid #fcd34d",
+                              marginBottom: 4,
+                            }}
+                          >
+                            stale
+                          </span>
+                          <pre style={{ whiteSpace: "pre-wrap", opacity: 0.5, color: "#6b7280" }}>
+                            {supergraphSdl}
+                          </pre>
+                        </>
+                      ) : (
+                        <pre style={{ whiteSpace: "pre-wrap" }}>No valid composition yet</pre>
+                      )}
+                    </>
                   )}
-                </>
+                </div>
               )}
-            </div>
+              {supergraphCollapsed && compose !== null && !compose.ok && (
+                <div
+                  style={{
+                    backgroundColor: "#fee2e2",
+                    borderLeft: "3px solid #dc2626",
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    marginTop: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  {compose.errors.map((e, i) => (
+                    <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
-          {supergraphCollapsed && compose !== null && !compose.ok && (
-            <div
-              style={{
-                backgroundColor: "#fee2e2",
-                borderLeft: "3px solid #dc2626",
-                padding: "4px 8px",
-                borderRadius: 4,
-                marginTop: 4,
-                flexShrink: 0,
-              }}
-            >
-              {compose.errors.map((e, i) => (
-                <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
-              ))}
+
+          {rightTab === "plan" && (
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {planResult === null ? (
+                <p style={{ fontSize: 13, color: "#6b7280" }}>Run a query to see the plan.</p>
+              ) : planResult.ok ? (
+                <PlanTree node={planResult.query_plan} />
+              ) : (
+                <div
+                  style={{
+                    backgroundColor: "#fee2e2",
+                    borderLeft: "3px solid #dc2626",
+                    padding: 8,
+                    borderRadius: 4,
+                  }}
+                >
+                  {planResult.errors.map((e, i) => (
+                    <ErrorMessage key={i} text={e.message} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -594,8 +654,12 @@ export default function App() {
                 if (supergraphSdl === null) return;
                 void (async () => {
                   const core = await loadCore();
-                  const result = core.executeMock(supergraphSdl, query, parsedVariables, seed);
-                  setMockResult(result);
+                  const [execResult, plan] = await Promise.all([
+                    Promise.resolve(core.executeMock(supergraphSdl, query, parsedVariables, seed)),
+                    Promise.resolve(core.plan(supergraphSdl, query)),
+                  ]);
+                  setMockResult(execResult);
+                  setPlanResult(plan);
                 })();
               }}
               disabled={supergraphSdl === null}

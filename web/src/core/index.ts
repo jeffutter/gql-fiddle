@@ -1,7 +1,14 @@
 // Loader and typed wrapper around the Rust/WASM core.
 
 import init, * as wasm from "../wasm/gql_core.js";
-import type { ComposeResult, Diagnostic, GqlCore, MockResult, SubgraphInput } from "./types";
+import type {
+  ComposeResult,
+  Diagnostic,
+  GqlCore,
+  MockResult,
+  PlanResult,
+  SubgraphInput,
+} from "./types";
 
 let corePromise: Promise<GqlCore> | null = null;
 
@@ -26,7 +33,7 @@ function wrap(ns: typeof wasm): GqlCore {
     validateQuery(supergraphSdl: string, operation: string): { diagnostics: Diagnostic[] } {
       return json(ns.validate_query(supergraphSdl, operation));
     },
-    plan(supergraphSdl: string, operation: string, opName?: string): unknown {
+    plan(supergraphSdl: string, operation: string, opName?: string): PlanResult {
       return json(ns.plan(supergraphSdl, operation, opName ?? ""));
     },
     executeMock(
