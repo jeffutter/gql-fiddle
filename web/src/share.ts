@@ -45,5 +45,20 @@ export function decode(hash: string): WorkspacePayload {
   }
   const bytes = base64urlToUint8(b64url);
   const json = pako.inflate(bytes, { to: "string" });
-  return JSON.parse(json) as WorkspacePayload;
+  const parsed = JSON.parse(json) as Record<string, unknown>;
+
+  // Backward compat: URLs encoded before TASK-30 had flat `query`/`variables`
+  // fields instead of `queryTabs`. Convert them on the fly.
+  if (!Array.isArray(parsed.queryTabs)) {
+    const q = typeof parsed.query === "string" ? parsed.query : "";
+    const v = typeof parsed.variables === "string" ? parsed.variables : "{}";
+    return {
+      subgraphs: parsed.subgraphs as WorkspacePayload["subgraphs"],
+      queryTabs: [{ name: "Query 1", query: q, variables: v }],
+      activeQueryTab: 0,
+      seed: typeof parsed.seed === "number" ? parsed.seed : 42,
+    };
+  }
+
+  return parsed as unknown as WorkspacePayload;
 }

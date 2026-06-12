@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as pako from "pako";
 import { decode, encode, WorkspacePayload } from "./share";
 
 const SAMPLE_PAYLOAD: WorkspacePayload = {
@@ -74,6 +75,27 @@ describe("share.ts encode/decode", () => {
 
   it("throws on empty payload after prefix", () => {
     expect(() => decode("#w=")).toThrow();
+  });
+
+  it("backward compat: decodes a pre-TASK-30 URL with flat query/variables into a single queryTab", () => {
+    // Encode an old-format payload (query/variables at top level, no queryTabs).
+    const oldPayload = {
+      subgraphs: [{ name: "products", sdl: "type Query { products: [Product] }" }],
+      query: "query { products { id } }",
+      variables: '{"limit":3}',
+      seed: 55,
+    };
+    const compressed = pako.gzip(JSON.stringify(oldPayload));
+    let bin = "";
+    for (const b of compressed) bin += String.fromCharCode(b);
+    const oldHash = "#w=" + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+
+    const decoded = decode(oldHash);
+    expect(decoded.queryTabs).toHaveLength(1);
+    expect(decoded.queryTabs[0].query).toBe("query { products { id } }");
+    expect(decoded.queryTabs[0].variables).toBe('{"limit":3}');
+    expect(decoded.activeQueryTab).toBe(0);
+    expect(decoded.seed).toBe(55);
   });
 
   it("encoded payload contains only URL-safe characters (no +, /, or =)", () => {
