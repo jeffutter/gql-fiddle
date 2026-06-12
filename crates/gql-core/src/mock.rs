@@ -12,7 +12,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// Mock-execute an operation. Deterministic in `seed`.
-pub fn execute_mock(supergraph_sdl: &str, operation: &str, variables: &Value, seed: u64) -> Value {
+pub(crate) fn execute_mock(
+    supergraph_sdl: &str,
+    operation: &str,
+    variables: &Value,
+    seed: u64,
+) -> Value {
     // Derive the API schema from the supergraph SDL.
     let api_sdl = match crate::api_schema::derive_api_schema(supergraph_sdl) {
         Ok(sdl) => sdl,
@@ -75,7 +80,7 @@ pub fn execute_mock(supergraph_sdl: &str, operation: &str, variables: &Value, se
 }
 
 /// Select the operation to execute from a parsed document.
-pub fn select_operation(doc: &ECExecDoc) -> Option<&exe::Operation> {
+fn select_operation(doc: &ECExecDoc) -> Option<&exe::Operation> {
     // Prefer anonymous (unnamed) operation if it exists and there are others.
     if let Some(anonymous) = &doc.operations.anonymous {
         if doc.operations.named.is_empty() {
@@ -97,14 +102,9 @@ pub fn select_operation(doc: &ECExecDoc) -> Option<&exe::Operation> {
     doc.operations.anonymous.as_deref()
 }
 
-/// Try to get the operation count from an OperationMap.
-pub fn op_count(map: &exe::OperationMap) -> usize {
-    map.iter().count()
-}
-
 /// Walk a selection set and produce JSON values matching the shape.
 #[expect(clippy::too_many_arguments)]
-pub fn walk_selection_set(
+fn walk_selection_set(
     schema: &Schema,
     doc: &ECExecDoc,
     selection_set: &SelectionSet,
@@ -137,7 +137,7 @@ pub fn walk_selection_set(
 
 /// Walk fields at a given object type.
 #[expect(clippy::too_many_arguments)]
-pub fn walk_fields(
+fn walk_fields(
     schema: &Schema,
     doc: &ECExecDoc,
     selection_set: &SelectionSet,
@@ -254,7 +254,7 @@ pub fn walk_fields(
 /// Resolve a single field value based on its type.
 #[expect(clippy::too_many_arguments)]
 #[allow(clippy::only_used_in_recursion)]
-pub fn resolve_field(
+fn resolve_field(
     schema: &Schema,
     doc: &ECExecDoc,
     field_type: &Type,
@@ -353,7 +353,7 @@ pub fn resolve_field(
 
 /// Unwrap Type wrappers (NonNull, List) to get the base NamedType.
 /// Returns (base_type_name, is_list_flag, unwrapped_inner_type).
-pub fn unwrap_type(field_type: &Type) -> (NamedType, bool, Type) {
+fn unwrap_type(field_type: &Type) -> (NamedType, bool, Type) {
     let mut current = field_type;
     let mut is_list = false;
 
@@ -384,12 +384,12 @@ pub fn unwrap_type(field_type: &Type) -> (NamedType, bool, Type) {
 }
 
 /// Check if a type name refers to an enum type in the schema.
-pub fn is_enum_type(schema: &Schema, name: &str) -> bool {
+fn is_enum_type(schema: &Schema, name: &str) -> bool {
     schema.get_enum(name).is_some()
 }
 
 /// Evaluate @skip/@include directives for a field node.
-pub fn should_skip_field(
+fn should_skip_field(
     directives: &exe::DirectiveList,
     variable_definitions: &[exe::VariableDefinition],
     variables: &Value,
@@ -410,7 +410,7 @@ pub fn should_skip_field(
 }
 
 /// Evaluate @skip/@include directives from a generic directive list.
-pub fn should_skip_field_from_directives(
+fn should_skip_field_from_directives(
     directives: &exe::DirectiveList,
     variable_definitions: &[exe::VariableDefinition],
     variables: &Value,
@@ -429,7 +429,7 @@ pub fn should_skip_field_from_directives(
 }
 
 /// Look up a directive's `if` argument and resolve it to a boolean.
-pub fn directive_bool(
+fn directive_bool(
     directives: &exe::DirectiveList,
     name: &str,
     variable_definitions: &[exe::VariableDefinition],
@@ -441,7 +441,7 @@ pub fn directive_bool(
 }
 
 /// Resolve an argument Value to a boolean.
-pub fn resolve_value_to_bool(
+fn resolve_value_to_bool(
     value: &exe::Value,
     variable_definitions: &[exe::VariableDefinition],
     variables: &Value,
@@ -472,41 +472,41 @@ pub fn resolve_value_to_bool(
 }
 
 /// Generate a deterministic Int value for a path.
-pub fn gen_int(path: &[String], seed: u64) -> Value {
+fn gen_int(path: &[String], seed: u64) -> Value {
     let hash = hash_path(seed, path);
     let val = ((hash % 100) as i64) - 50; // range [-50, 49]
     json!(val)
 }
 
 /// Generate a deterministic Float value for a path.
-pub fn gen_float(path: &[String], seed: u64) -> Value {
+fn gen_float(path: &[String], seed: u64) -> Value {
     let hash = hash_path(seed, path);
     let val = (hash as f64) / (u64::MAX as f64);
     json!(val)
 }
 
 /// Generate a deterministic String value for a path.
-pub fn gen_string(path: &[String], seed: u64) -> Value {
+fn gen_string(path: &[String], seed: u64) -> Value {
     let hash = hash_path(seed, path);
     let hex = format!("{hash:016x}");
     json!(format!("{}_{}", &hex[..8], path.len()))
 }
 
 /// Generate a deterministic Boolean value for a path.
-pub fn gen_bool(path: &[String], seed: u64) -> Value {
+fn gen_bool(path: &[String], seed: u64) -> Value {
     let hash = hash_path(seed, path);
     json!(hash % 2 == 0)
 }
 
 /// Generate a deterministic ID value for a path.
-pub fn gen_id(path: &[String], seed: u64) -> Value {
+fn gen_id(path: &[String], seed: u64) -> Value {
     let hash = hash_path(seed, path);
     let hex = format!("{hash:016x}");
     json!(format!("id-{}", &hex[..8]))
 }
 
 /// Generate a deterministic enum value for a path.
-pub fn gen_enum(schema: &Schema, type_name: &str, path: &[String], seed: u64) -> Value {
+fn gen_enum(schema: &Schema, type_name: &str, path: &[String], seed: u64) -> Value {
     let hash = hash_path(seed, path);
     if let Some(enum_type) = schema.get_enum(type_name) {
         let idx = (hash as usize) % enum_type.values.len();
@@ -518,7 +518,7 @@ pub fn gen_enum(schema: &Schema, type_name: &str, path: &[String], seed: u64) ->
 }
 
 /// Hash a (seed, path_segments) tuple using DefaultHasher.
-pub fn hash_path(seed: u64, path: &[String]) -> u64 {
+fn hash_path(seed: u64, path: &[String]) -> u64 {
     let mut hasher = DefaultHasher::new();
     seed.hash(&mut hasher);
     for segment in path {

@@ -13,7 +13,7 @@
 mod api_schema;
 mod compose;
 mod dto;
-pub mod mock;
+mod mock;
 mod plan;
 mod validate;
 
