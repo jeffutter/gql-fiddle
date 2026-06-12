@@ -1044,6 +1044,38 @@ describe("App", () => {
     expect(state.subgraphs.length).toBeGreaterThan(0);
   });
 
+  it("TASK-25 AC#3: seed restored from URL hash is passed to executeMock on Run", async () => {
+    const { encode: encodeShare } = await import("./share");
+    const urlSeed = 55;
+    const payload = {
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      query: "query { a }",
+      variables: "{}",
+      seed: urlSeed,
+    };
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: encodeShare(payload) },
+      writable: true,
+      configurable: true,
+    });
+    useWorkspace.setState({ supergraphSdl: "# supergraph" });
+    mockExecuteMock.mockClear();
+    mockExecuteMock.mockReturnValueOnce({ data: {}, errors: [] } as never);
+
+    render(<App />);
+
+    expect(useWorkspace.getState().seed).toBe(urlSeed);
+
+    const runButton = screen.getByRole("button", { name: /run/i });
+    fireEvent.click(runButton);
+
+    await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(1));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const calledSeed = (mockExecuteMock.mock.calls[0] as any[])[3];
+    expect(calledSeed).toBe(urlSeed);
+  });
+
   it("TASK-23 AC#2: rapid workspace edits only produce one hash update (debounce coalescing)", async () => {
     vi.useFakeTimers();
     Object.defineProperty(globalThis, "location", {
