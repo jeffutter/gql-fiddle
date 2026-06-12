@@ -3,9 +3,10 @@ id: TASK-41
 title: >-
   Fix: restore mock module privacy; test abstract types without widening the
   public API
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 12:01'
+updated_date: '2026-06-12 13:18'
 labels:
   - review-followup
 milestone: m-2
@@ -23,10 +24,10 @@ Found while reviewing TASK-17 (crates/gql-core/src/lib.rs:16 and src/mock.rs). T
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 crates/gql-core/src/lib.rs declares "mod mock;" (private), not "pub mod mock;"
-- [ ] #2 walk_selection_set is not pub (private, or pub(crate) at most); no internal mock helper is reachable from outside the crate, and crates/gql-core/tests/mock.rs no longer contains "use gql_core::mock"
-- [ ] #3 The abstract-type coverage (an interface or union resolves to a valid concrete member via __typename) is preserved as a #[cfg(test)] unit test inside src/mock.rs
-- [ ] #4 nix develop -c cargo test -p gql-core passes and nix develop -c cargo clippy -p gql-core --all-targets -- -D warnings is clean
+- [x] #1 crates/gql-core/src/lib.rs declares "mod mock;" (private), not "pub mod mock;"
+- [x] #2 walk_selection_set is not pub (private, or pub(crate) at most); no internal mock helper is reachable from outside the crate, and crates/gql-core/tests/mock.rs no longer contains "use gql_core::mock"
+- [x] #3 The abstract-type coverage (an interface or union resolves to a valid concrete member via __typename) is preserved as a #[cfg(test)] unit test inside src/mock.rs
+- [x] #4 nix develop -c cargo test -p gql-core passes and nix develop -c cargo clippy -p gql-core --all-targets -- -D warnings is clean
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -49,3 +50,9 @@ SETUP (read first): This is a Rust+WebAssembly core (crates/gql-core) with a Typ
    - nix develop -c cargo clippy -p gql-core --all-targets -- -D warnings
    - nix develop -c cargo fmt --check
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Restored mock module privacy. lib.rs: pub mod mock → mod mock. mock.rs: execute_mock demoted to pub(crate); all 11 helper functions (walk_selection_set, walk_fields, resolve_field, unwrap_type, is_enum_type, should_skip_field, should_skip_field_from_directives, directive_bool, resolve_value_to_bool, gen_*, hash_path) made private. Deleted dead op_count (had no callers). Removed ac2_abstract_types_resolve_to_valid_member from tests/mock.rs — it accessed gql_core::mock::walk_selection_set which no longer exists as a public symbol. Abstract-type coverage is preserved in the existing #[cfg(test)] unit tests inside src/mock.rs (ac2_union_resolves_to_one_concrete_type, ac2_interface_resolves_to_one_concrete_type). All 37 unit + 4 integration tests pass; clippy -D warnings and cargo fmt check clean.
+<!-- SECTION:FINAL_SUMMARY:END -->
