@@ -2,8 +2,8 @@ import * as pako from "pako";
 
 export interface WorkspacePayload {
   subgraphs: { name: string; sdl: string }[];
-  query: string;
-  variables: string;
+  queryTabs: { name: string; query: string; variables: string }[];
+  activeQueryTab: number;
   seed: number;
 }
 

@@ -60,6 +60,8 @@ describe("App", () => {
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       activeSubgraph: 0,
+      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      activeQueryTab: 0,
       supergraphSdl: null,
       composeErrors: null,
       composeHints: 0,
@@ -502,10 +504,11 @@ describe("App", () => {
     expect(container.textContent).toContain("type Query { orders }");
 
     // Remove the active tab (orders at index 2) - find close spans by content.
+    // 3 subgraph tabs + 1 query tab = 4 close spans total.
     const closeSpans = Array.from(container.querySelectorAll("span")).filter(
       (s) => s.textContent === "×",
     );
-    expect(closeSpans).toHaveLength(3);
+    expect(closeSpans).toHaveLength(4);
     fireEvent.click(closeSpans[2]);
 
     // removeSubgraph sets activeSubgraph to the nearest neighbor automatically.
@@ -661,7 +664,6 @@ describe("App", () => {
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
-      variables: "{invalid json",
     });
 
     render(<App />);
@@ -698,8 +700,8 @@ describe("App", () => {
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
-      query: testQuery,
-      variables: testVariables,
+      queryTabs: [{ name: "Query 1", query: testQuery, variables: testVariables }],
+      activeQueryTab: 0,
       seed: testSeed,
     });
 
@@ -748,8 +750,8 @@ describe("App", () => {
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
-      query: "query { hello }",
-      variables: "{}",
+      queryTabs: [{ name: "Query 1", query: "query { hello }", variables: "{}" }],
+      activeQueryTab: 0,
       seed: testSeed,
     });
 
@@ -787,8 +789,8 @@ describe("App", () => {
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
-      query: "query { hello }",
-      variables: "{}",
+      queryTabs: [{ name: "Query 1", query: "query { hello }", variables: "{}" }],
+      activeQueryTab: 0,
       seed: initialSeed,
     });
 
@@ -817,45 +819,54 @@ describe("App", () => {
 
   it("AC#2: query editor renders a Monaco editor showing the store query value", () => {
     const initialQuery = "query {\n  products {\n    id\n    name\n  }\n}\n";
-    useWorkspace.setState({ query: initialQuery });
+    useWorkspace.setState({
+      queryTabs: [{ name: "Query 1", query: initialQuery, variables: "{}" }],
+      activeQueryTab: 0,
+    });
 
     const { container } = render(<App />);
 
     // The query editor must be a Monaco editor (not a plain <pre> or <textarea>).
-    // It renders with path="query.graphql" so we can identify it.
-    const queryEditor = container.querySelector('[data-path="query.graphql"]');
+    // It renders with path="query-0.graphql" (per-tab path) so we can identify it.
+    const queryEditor = container.querySelector('[data-path="query-0.graphql"]');
     expect(queryEditor).not.toBeNull();
     expect(queryEditor!.textContent).toContain("products");
   });
 
-  it("AC#2: onChange on the query editor calls setQuery in the store", () => {
+  it("AC#2: onChange on the query editor calls setQueryTabQuery in the store", () => {
     const initialQuery = "query { products { id } }";
-    useWorkspace.setState({ query: initialQuery });
+    useWorkspace.setState({
+      queryTabs: [{ name: "Query 1", query: initialQuery, variables: "{}" }],
+      activeQueryTab: 0,
+    });
 
     render(<App />);
 
-    // The mock harness captures onChange by path.
-    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query.graphql"];
+    // The mock harness captures onChange by path (query-0.graphql for first tab).
+    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query-0.graphql"];
     expect(onChangeQuery).toBeDefined();
 
     // Simulate the user typing a new query.
     const newQuery = "query { products { name } }";
     onChangeQuery!(newQuery);
 
-    expect(useWorkspace.getState().query).toBe(newQuery);
+    expect(useWorkspace.getState().queryTabs[0].query).toBe(newQuery);
   });
 
   it("AC#2: onChange on the query editor with undefined falls back to empty string", () => {
-    useWorkspace.setState({ query: "query { x }" });
+    useWorkspace.setState({
+      queryTabs: [{ name: "Query 1", query: "query { x }", variables: "{}" }],
+      activeQueryTab: 0,
+    });
 
     render(<App />);
 
-    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query.graphql"];
+    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query-0.graphql"];
     expect(onChangeQuery).toBeDefined();
 
     onChangeQuery!(undefined);
 
-    expect(useWorkspace.getState().query).toBe("");
+    expect(useWorkspace.getState().queryTabs[0].query).toBe("");
   });
 
   // ---- AC#3: setSchemaConfig is called with the api_schema_sdl after successful compose ----
@@ -1004,12 +1015,12 @@ describe("App", () => {
 
   // ---- TASK-23 AC#3: Loading a URL with a valid hash restores workspace ----
 
-  it("TASK-23 AC#3: valid hash in location.hash restores subgraphs, query, variables, and seed on mount", async () => {
+  it("TASK-23 AC#3: valid hash in location.hash restores subgraphs, queryTabs, and seed on mount", async () => {
     const { encode: encodeShare } = await import("./share");
     const payload = {
       subgraphs: [{ name: "shared", sdl: "type Query { shared: String }" }],
-      query: "query { shared }",
-      variables: '{"x":1}',
+      queryTabs: [{ name: "Query 1", query: "query { shared }", variables: '{"x":1}' }],
+      activeQueryTab: 0,
       seed: 77,
     };
     Object.defineProperty(globalThis, "location", {
@@ -1023,10 +1034,11 @@ describe("App", () => {
     const state = useWorkspace.getState();
     expect(state.subgraphs).toHaveLength(1);
     expect(state.subgraphs[0].name).toBe("shared");
-    expect(state.query).toBe("query { shared }");
-    expect(state.variables).toBe('{"x":1}');
+    expect(state.queryTabs[0].query).toBe("query { shared }");
+    expect(state.queryTabs[0].variables).toBe('{"x":1}');
     expect(state.seed).toBe(77);
     expect(state.activeSubgraph).toBe(0);
+    expect(state.activeQueryTab).toBe(0);
   });
 
   it("TASK-23 AC#4: corrupt hash falls back to default workspace without throwing", () => {
@@ -1049,8 +1061,8 @@ describe("App", () => {
     const urlSeed = 55;
     const payload = {
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      query: "query { a }",
-      variables: "{}",
+      queryTabs: [{ name: "Query 1", query: "query { a }", variables: "{}" }],
+      activeQueryTab: 0,
       seed: urlSeed,
     };
     Object.defineProperty(globalThis, "location", {
@@ -1091,10 +1103,10 @@ describe("App", () => {
     const hashBefore = globalThis.location.hash;
     expect(hashBefore).toMatch(/^#w=/);
 
-    // Rapidly change all four tracked fields.
+    // Rapidly change tracked fields.
     useWorkspace.getState().setSubgraphSdl(0, "type Query { a }");
-    useWorkspace.getState().setQuery("query { x }");
-    useWorkspace.getState().setVariables('{"a":1}');
+    useWorkspace.getState().setQueryTabQuery(0, "query { x }");
+    useWorkspace.getState().setQueryTabVariables(0, '{"a":1}');
     useWorkspace.getState().setSeed(99);
 
     // Advance past the 300ms window.
@@ -1108,8 +1120,8 @@ describe("App", () => {
     const { decode: decodeShare } = await import("./share");
     const payload = decodeShare(globalThis.location.hash);
     expect(payload.subgraphs[0].sdl).toBe("type Query { a }");
-    expect(payload.query).toBe("query { x }");
-    expect(payload.variables).toBe('{"a":1}');
+    expect(payload.queryTabs[0].query).toBe("query { x }");
+    expect(payload.queryTabs[0].variables).toBe('{"a":1}');
     expect(payload.seed).toBe(99);
 
     vi.useRealTimers();

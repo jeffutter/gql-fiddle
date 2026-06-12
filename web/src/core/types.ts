@@ -15,6 +15,12 @@ export interface SubgraphInput {
   sdl: string;
 }
 
+export interface QueryTab {
+  name: string;
+  query: string;
+  variables: string;
+}
+
 export type ComposeResult =
   | { ok: true; supergraph_sdl: string; api_schema_sdl: string; hints: CompositionHint[] }
   | { ok: false; errors: CompositionError[] };

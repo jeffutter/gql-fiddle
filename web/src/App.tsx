@@ -79,19 +79,27 @@ export default function App() {
     setSubgraphSdl,
     addSubgraph,
     removeSubgraph,
-    query,
-    setQuery,
+    queryTabs,
+    activeQueryTab,
+    setActiveQueryTab,
+    addQueryTab,
+    removeQueryTab,
+    renameQueryTab,
+    setQueryTabQuery,
+    setQueryTabVariables,
     supergraphSdl,
-    variables,
-    setVariables,
     seed,
     setSeed,
     resetToDefaults,
     renameSubgraph,
   } = useWorkspace();
+  const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
+  const currentVariables = queryTabs[activeQueryTab]?.variables ?? "{}";
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [renamingQueryTab, setRenamingQueryTab] = useState<number | null>(null);
+  const [renameQueryValue, setRenameQueryValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [rightTab, setRightTab] = useState<"sdl" | "plan">("sdl");
@@ -113,8 +121,8 @@ export default function App() {
       const payload = decode(hash);
       useWorkspace.setState({
         subgraphs: payload.subgraphs,
-        query: payload.query,
-        variables: payload.variables,
+        queryTabs: payload.queryTabs,
+        activeQueryTab: payload.activeQueryTab ?? 0,
         seed: payload.seed,
         activeSubgraph: 0,
       });
@@ -130,8 +138,8 @@ export default function App() {
       const state = useWorkspace.getState();
       const payload: WorkspacePayload = {
         subgraphs: state.subgraphs,
-        query: state.query,
-        variables: state.variables,
+        queryTabs: state.queryTabs,
+        activeQueryTab: state.activeQueryTab,
         seed: state.seed,
       };
       location.hash = encode(payload);
@@ -139,7 +147,7 @@ export default function App() {
     return () => {
       if (hashUpdateRef.current) clearTimeout(hashUpdateRef.current);
     };
-  }, [subgraphs, query, variables, seed]);
+  }, [subgraphs, queryTabs, activeQueryTab, seed]);
 
   // Focus the editor whenever the active subgraph changes (e.g. after adding).
   useEffect(() => {
@@ -221,9 +229,9 @@ export default function App() {
       }
     }
 
-    parts.push(`\n## Query\n\`\`\`graphql\n${query}\n\`\`\``);
+    parts.push(`\n## Query\n\`\`\`graphql\n${currentQuery}\n\`\`\``);
 
-    const trimmedVars = variables.trim();
+    const trimmedVars = currentVariables.trim();
     if (trimmedVars && trimmedVars !== "{}") {
       parts.push(`\n## Variables\n\`\`\`json\n${trimmedVars}\n\`\`\``);
     }
@@ -577,12 +585,89 @@ export default function App() {
       >
         <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
           <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Query</h2>
+          <nav style={{ display: "flex", gap: 4, flexShrink: 0, margin: "4px 0" }}>
+            {queryTabs.map((tab, i) => (
+              <button
+                key={i}
+                onClick={() => setActiveQueryTab(i)}
+                aria-pressed={i === activeQueryTab}
+                style={{
+                  backgroundColor: i === activeQueryTab ? "#e5e7eb" : "transparent",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 4,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                {renamingQueryTab === i ? (
+                  <input
+                    value={renameQueryValue}
+                    autoFocus
+                    size={Math.max(renameQueryValue.length, 3)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setRenameQueryValue(e.target.value)}
+                    onBlur={() => {
+                      const trimmed = renameQueryValue.trim();
+                      if (trimmed) renameQueryTab(i, trimmed);
+                      setRenamingQueryTab(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const trimmed = renameQueryValue.trim();
+                        if (trimmed) renameQueryTab(i, trimmed);
+                        setRenamingQueryTab(null);
+                      } else if (e.key === "Escape") {
+                        setRenamingQueryTab(null);
+                      }
+                      e.stopPropagation();
+                    }}
+                    style={{
+                      fontSize: 13,
+                      border: "none",
+                      outline: "1px solid #2563eb",
+                      borderRadius: 2,
+                      padding: "0 2px",
+                      background: "white",
+                    }}
+                  />
+                ) : (
+                  <span
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingQueryTab(i);
+                      setRenameQueryValue(tab.name);
+                    }}
+                    title="Double-click to rename"
+                  >
+                    {tab.name}
+                  </span>
+                )}
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeQueryTab(i);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    color: i === activeQueryTab ? "#1f2937" : "#6b7280",
+                  }}
+                >
+                  ×
+                </span>
+              </button>
+            ))}
+            <button onClick={() => addQueryTab()}>+</button>
+          </nav>
           <div data-testid="query-editor" style={{ flex: 1, minHeight: 0 }}>
             <Editor
               language="graphql"
-              path="query.graphql"
-              value={query}
-              onChange={(v) => setQuery(v ?? "")}
+              path={`query-${activeQueryTab}.graphql`}
+              value={currentQuery}
+              onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
               height="100%"
             />
           </div>
@@ -599,8 +684,8 @@ export default function App() {
           <textarea
             id="variables-textarea"
             aria-label="variables"
-            value={variables}
-            onChange={(e) => setVariables(e.target.value)}
+            value={currentVariables}
+            onChange={(e) => setQueryTabVariables(activeQueryTab, e.target.value)}
             style={{
               flex: 1,
               fontFamily: "monospace",
@@ -649,7 +734,7 @@ export default function App() {
               onClick={() => {
                 let parsedVariables: Record<string, unknown>;
                 try {
-                  parsedVariables = JSON.parse(variables) as Record<string, unknown>;
+                  parsedVariables = JSON.parse(currentVariables) as Record<string, unknown>;
                 } catch {
                   setVarError("Invalid variables JSON");
                   return;
@@ -659,8 +744,10 @@ export default function App() {
                 void (async () => {
                   const core = await loadCore();
                   const [execResult, plan] = await Promise.all([
-                    Promise.resolve(core.executeMock(supergraphSdl, query, parsedVariables, seed)),
-                    Promise.resolve(core.plan(supergraphSdl, query)),
+                    Promise.resolve(
+                      core.executeMock(supergraphSdl, currentQuery, parsedVariables, seed),
+                    ),
+                    Promise.resolve(core.plan(supergraphSdl, currentQuery)),
                   ]);
                   setMockResult(execResult);
                   setPlanResult(plan);

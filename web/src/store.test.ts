@@ -3,7 +3,12 @@ import { useWorkspace } from "./store";
 
 describe("workspace store", () => {
   beforeEach(() => {
-    useWorkspace.setState({ subgraphs: [{ name: "products", sdl: "" }], activeSubgraph: 0 });
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "" }],
+      activeSubgraph: 0,
+      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      activeQueryTab: 0,
+    });
   });
 
   it("adds a subgraph and makes it active", () => {
@@ -62,6 +67,79 @@ describe("workspace store", () => {
       const after = useWorkspace.getState();
       expect(after.subgraphs).toHaveLength(1);
       expect(after.subgraphs[0].name).toBe("products");
+    });
+  });
+
+  describe("query tab management", () => {
+    it("addQueryTab creates a new tab and makes it active", () => {
+      useWorkspace.getState().addQueryTab();
+      const state = useWorkspace.getState();
+      expect(state.queryTabs).toHaveLength(2);
+      expect(state.queryTabs[1].name).toBe("Query 2");
+      expect(state.queryTabs[1].query).toBe("");
+      expect(state.queryTabs[1].variables).toBe("{}");
+      expect(state.activeQueryTab).toBe(1);
+    });
+
+    it("addQueryTab picks a name that avoids duplicates", () => {
+      useWorkspace.getState().addQueryTab(); // Query 2
+      useWorkspace.getState().addQueryTab(); // Query 3
+      useWorkspace.getState().removeQueryTab(1); // remove Query 2
+      useWorkspace.getState().addQueryTab(); // should be Query 2 again (gap)
+      const names = useWorkspace.getState().queryTabs.map((t) => t.name);
+      expect(new Set(names).size).toBe(names.length);
+      expect(names).toContain("Query 2");
+    });
+
+    it("removeQueryTab removes the tab at the given index and adjusts active", () => {
+      useWorkspace.getState().addQueryTab(); // Query 2
+      useWorkspace.getState().addQueryTab(); // Query 3
+      useWorkspace.getState().setActiveQueryTab(1);
+      useWorkspace.getState().removeQueryTab(1); // remove Query 2
+      const after = useWorkspace.getState();
+      expect(after.queryTabs).toHaveLength(2);
+      expect(after.queryTabs.map((t) => t.name)).toEqual(["Query 1", "Query 3"]);
+      expect(after.activeQueryTab).toBe(1);
+    });
+
+    it("removeQueryTab on the only remaining tab replaces it with a default empty tab", () => {
+      useWorkspace.getState().removeQueryTab(0);
+      const after = useWorkspace.getState();
+      expect(after.queryTabs).toHaveLength(1);
+      expect(after.queryTabs[0].name).toBe("Query 1");
+      expect(after.queryTabs[0].query).toBe("");
+      expect(after.queryTabs[0].variables).toBe("{}");
+      expect(after.activeQueryTab).toBe(0);
+    });
+
+    it("renameQueryTab updates only the targeted tab's name", () => {
+      useWorkspace.getState().addQueryTab();
+      useWorkspace.getState().renameQueryTab(0, "My Query");
+      const state = useWorkspace.getState();
+      expect(state.queryTabs[0].name).toBe("My Query");
+      expect(state.queryTabs[1].name).toBe("Query 2");
+    });
+
+    it("setQueryTabQuery updates only the targeted tab's query text", () => {
+      useWorkspace.getState().addQueryTab();
+      useWorkspace.getState().setQueryTabQuery(0, "query { a }");
+      const state = useWorkspace.getState();
+      expect(state.queryTabs[0].query).toBe("query { a }");
+      expect(state.queryTabs[1].query).toBe("");
+    });
+
+    it("setQueryTabVariables updates only the targeted tab's variables", () => {
+      useWorkspace.getState().addQueryTab();
+      useWorkspace.getState().setQueryTabVariables(0, '{"id":"1"}');
+      const state = useWorkspace.getState();
+      expect(state.queryTabs[0].variables).toBe('{"id":"1"}');
+      expect(state.queryTabs[1].variables).toBe("{}");
+    });
+
+    it("setActiveQueryTab changes the active tab index", () => {
+      useWorkspace.getState().addQueryTab();
+      useWorkspace.getState().setActiveQueryTab(1);
+      expect(useWorkspace.getState().activeQueryTab).toBe(1);
     });
   });
 
