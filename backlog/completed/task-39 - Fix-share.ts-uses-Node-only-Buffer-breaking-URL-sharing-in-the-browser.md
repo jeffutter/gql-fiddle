@@ -1,9 +1,10 @@
 ---
 id: TASK-39
 title: 'Fix: share.ts uses Node-only Buffer, breaking URL sharing in the browser'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 12:00'
+updated_date: '2026-06-12 12:57'
 labels:
   - review-followup
 milestone: m-4
@@ -21,10 +22,10 @@ Found while reviewing TASK-23 (web/src/share.ts:14,28). encode() and decode() ca
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 web/src/share.ts contains zero references to Buffer (grep -n Buffer web/src/share.ts returns nothing)
-- [ ] #2 encode/decode use only browser-available APIs (btoa/atob over a binary string, or Uint8Array.toBase64/fromBase64) and the existing round-trip test still passes
-- [ ] #3 A test asserts encode() output after the #w= prefix is URL-safe: contains no +, /, or = characters
-- [ ] #4 nix develop -c bash -c 'cd web && pnpm test --run' passes and nix develop -c bash -c 'cd web && pnpm tsc --noEmit' passes
+- [x] #1 web/src/share.ts contains zero references to Buffer (grep -n Buffer web/src/share.ts returns nothing)
+- [x] #2 encode/decode use only browser-available APIs (btoa/atob over a binary string, or Uint8Array.toBase64/fromBase64) and the existing round-trip test still passes
+- [x] #3 A test asserts encode() output after the #w= prefix is URL-safe: contains no +, /, or = characters
+- [x] #4 nix develop -c bash -c 'cd web && pnpm test --run' passes and nix develop -c bash -c 'cd web && pnpm tsc --noEmit' passes
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -58,3 +59,9 @@ SETUP (read first): This is a Rust+WebAssembly core (crates/gql-core) with a Typ
 
 OUT OF SCOPE: do not change App.tsx; the integration there is correct once encode/decode are browser-safe.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Replaced Buffer.from() in uint8ToBase64url and base64urlToUint8 with btoa/atob over a binary string. Both are universally available in browsers and in jsdom, so all 60 existing web tests continue to pass. Added a new test asserting the encoded payload after the #w= prefix matches /^[A-Za-z0-9_-]+$/ (no +, /, or =). Prettier-formatted, tsc --noEmit clean, eslint clean. All pre-commit hooks pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
