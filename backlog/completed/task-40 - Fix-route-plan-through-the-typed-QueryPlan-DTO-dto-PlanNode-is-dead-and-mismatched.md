@@ -3,9 +3,10 @@ id: TASK-40
 title: >-
   Fix: route plan() through the typed QueryPlan DTO (dto::PlanNode is dead and
   mismatched)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 12:00'
+updated_date: '2026-06-12 15:17'
 labels:
   - review-followup
 milestone: m-3
@@ -23,10 +24,10 @@ Found while reviewing TASK-20 (crates/gql-core/src/plan.rs and src/dto.rs:17). p
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dto::PlanNode is the single serialized type that plan() constructs (via serde_json::to_value), covering every kind plan() can emit: Fetch, Sequence, Parallel, Flatten, Subscription, Defer, Condition — OR the dead DTO is deleted and plan() keeps hand-built json! with a doc comment enumerating the kinds it emits. Pick the typed route unless it proves unreasonably large.
-- [ ] #2 No #[expect(dead_code)] or #[allow(dead_code)] remains on any plan DTO type
-- [ ] #3 The JSON keys the existing tests assert on are unchanged: plan_returns_ok_with_query_plan_tree and plan_multi_subgraph_yields_fetch_per_subgraph still pass without edits to their assertions
-- [ ] #4 nix develop -c cargo test -p gql-core passes and nix develop -c cargo clippy -p gql-core --all-targets -- -D warnings is clean
+- [x] #1 dto::PlanNode is the single serialized type that plan() constructs (via serde_json::to_value), covering every kind plan() can emit: Fetch, Sequence, Parallel, Flatten, Subscription, Defer, Condition — OR the dead DTO is deleted and plan() keeps hand-built json! with a doc comment enumerating the kinds it emits. Pick the typed route unless it proves unreasonably large.
+- [x] #2 No #[expect(dead_code)] or #[allow(dead_code)] remains on any plan DTO type
+- [x] #3 The JSON keys the existing tests assert on are unchanged: plan_returns_ok_with_query_plan_tree and plan_multi_subgraph_yields_fetch_per_subgraph still pass without edits to their assertions
+- [x] #4 nix develop -c cargo test -p gql-core passes and nix develop -c cargo clippy -p gql-core --all-targets -- -D warnings is clean
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -59,3 +60,9 @@ FALLBACK APPROACH (b) — only if (a) becomes unreasonably large: delete the dea
    - nix develop -c cargo clippy -p gql-core --all-targets -- -D warnings
    - nix develop -c cargo fmt --check
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Expanded dto::PlanNode from a 4-variant dead stub to a complete 7-variant enum (Fetch, Sequence, Parallel, Flatten, Subscription, Defer, Condition) plus DeferredBranch. Removed #[expect(dead_code)]. Rewrote all map_* helpers in plan.rs to return dto::PlanNode instead of serde_json::Value; plan() now serializes via serde_json::to_value(node).unwrap_or(Value::Null). Also fixed a latent bug in map_subscription_node where the rest field was doubly-nested. All existing test assertions pass unchanged (JSON key names preserved via #[serde(rename)] attributes). All 37 unit + 11 integration tests pass; clippy -D warnings clean.
+<!-- SECTION:FINAL_SUMMARY:END -->
