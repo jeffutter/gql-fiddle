@@ -11,21 +11,19 @@ const HASH_PREFIX = "#w=";
 
 /** Convert a Uint8Array to URL-safe base64 (no padding). */
 function uint8ToBase64url(bytes: Uint8Array): string {
-  return Buffer.from(bytes)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 /** Decode a URL-safe base64 string (no padding) back to Uint8Array. */
 function base64urlToUint8(str: string): Uint8Array {
   let s = str.replace(/-/g, "+").replace(/_/g, "/");
-  // Pad to multiple of 4
-  while (s.length % 4 !== 0) {
-    s += "=";
-  }
-  return new Uint8Array(Buffer.from(s, "base64"));
+  while (s.length % 4 !== 0) s += "=";
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
 }
 
 /** Encode a workspace payload into a URL hash fragment. */
