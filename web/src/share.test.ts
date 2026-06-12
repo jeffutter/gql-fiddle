@@ -54,4 +54,10 @@ describe("share.ts encode/decode", () => {
   it("throws on empty payload after prefix", () => {
     expect(() => decode("#w=")).toThrow();
   });
+
+  it("encoded payload contains only URL-safe characters (no +, /, or =)", () => {
+    const encoded = encode(SAMPLE_PAYLOAD);
+    const payload = encoded.slice("#w=".length);
+    expect(payload).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
 });
