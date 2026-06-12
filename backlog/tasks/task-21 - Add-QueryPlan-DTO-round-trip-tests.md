@@ -4,10 +4,12 @@ title: Add QueryPlan DTO round-trip tests
 status: To Do
 assignee: []
 created_date: '2026-06-06 20:20'
+updated_date: '2026-06-12 12:03'
 labels: []
 milestone: m-3
 dependencies:
   - TASK-20
+  - TASK-40
 documentation:
   - backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md
 priority: low

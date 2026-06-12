@@ -4,10 +4,12 @@ title: Add URL round-trip and shared-URL reproducibility tests
 status: To Do
 assignee: []
 created_date: '2026-06-06 20:20'
+updated_date: '2026-06-12 12:03'
 labels: []
 milestone: m-4
 dependencies:
   - TASK-23
+  - TASK-39
 documentation:
   - backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md
 priority: low

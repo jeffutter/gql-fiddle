@@ -1,11 +1,11 @@
 ---
 id: TASK-20
 title: Implement plan() returning a slim QueryPlan DTO
-status: In Progress
+status: Done
 assignee:
   - developer
 created_date: '2026-06-06 20:20'
-updated_date: '2026-06-12 02:10'
+updated_date: '2026-06-12 12:55'
 labels: []
 milestone: m-3
 dependencies:
@@ -26,9 +26,11 @@ Replace the plan.rs stub. Produce the federation query plan for an operation and
 <!-- AC:BEGIN -->
 - [x] #1 plan() returns ok:true with a query_plan tree using only our node kinds (Fetch/Sequence/Parallel/Flatten)
 - [x] #2 A multi-subgraph query yields a plan with at least one Fetch per involved subgraph, each labeled with the subgraph name
-- [ ] #3 No apollo-federation internal types appear in the JSON
-- [ ] #4 nix develop -c cargo build passes
+- [x] #3 No apollo-federation internal types appear in the JSON
+- [x] #4 nix develop -c cargo build passes
 <!-- AC:END -->
+
+
 
 
 
