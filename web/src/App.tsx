@@ -269,7 +269,14 @@ export default function App() {
 
   return (
     <main
-      style={{ display: "grid", gridTemplateRows: "1fr 1fr", height: "100vh", gap: 8, padding: 8 }}
+      style={{
+        display: "grid",
+        gridTemplateRows: "1fr 1fr",
+        height: "100vh",
+        gap: 8,
+        padding: 8,
+        boxSizing: "border-box",
+      }}
     >
       {/* Top row: subgraph editor + supergraph schema */}
       <section
