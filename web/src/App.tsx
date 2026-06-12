@@ -9,6 +9,8 @@ import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
 import { useWorkspace } from "./store";
 import { loadCore } from "./core";
+import { decode, encode } from "./share";
+import type { WorkspacePayload } from "./share";
 import type { ComposeResult, Diagnostic, MockResult } from "./core/types";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
@@ -94,6 +96,43 @@ export default function App() {
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hashUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Restore workspace from URL hash on mount (once only).
+  useEffect(() => {
+    const hash = location.hash;
+    if (!hash.startsWith("#w=")) return;
+    try {
+      const payload = decode(hash);
+      useWorkspace.setState({
+        subgraphs: payload.subgraphs,
+        query: payload.query,
+        variables: payload.variables,
+        seed: payload.seed,
+        activeSubgraph: 0,
+      });
+    } catch (err) {
+      console.warn("Failed to restore workspace from URL hash:", err);
+    }
+  }, []);
+
+  // Debounced workspace → location.hash update.
+  useEffect(() => {
+    if (hashUpdateRef.current) clearTimeout(hashUpdateRef.current);
+    hashUpdateRef.current = setTimeout(() => {
+      const state = useWorkspace.getState();
+      const payload: WorkspacePayload = {
+        subgraphs: state.subgraphs,
+        query: state.query,
+        variables: state.variables,
+        seed: state.seed,
+      };
+      location.hash = encode(payload);
+    }, COMPOSE_DEBOUNCE_MS);
+    return () => {
+      if (hashUpdateRef.current) clearTimeout(hashUpdateRef.current);
+    };
+  }, [subgraphs, query, variables, seed]);
 
   // Focus the editor whenever the active subgraph changes (e.g. after adding).
   useEffect(() => {

@@ -52,6 +52,11 @@ describe("App", () => {
   beforeEach(() => {
     cleanup();
     validateSubgraphCallCount = 0;
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "" },
+      writable: true,
+      configurable: true,
+    });
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       activeSubgraph: 0,
@@ -959,6 +964,121 @@ describe("App", () => {
         fileMatch: ["**/*.graphql"],
       },
     ]);
+
+    vi.useRealTimers();
+  });
+
+  // ---- TASK-23 AC#2: Editing the workspace updates location.hash (debounced) ----
+
+  it("TASK-23 AC#2: editing subgraph SDL updates location.hash after 300ms debounce", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "" },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<App />);
+
+    // Advance past the initial mount debounce so the first hash is set.
+    await vi.advanceTimersByTimeAsync(350);
+
+    const hashBefore = globalThis.location.hash;
+    expect(hashBefore).toMatch(/^#w=/);
+
+    // Editing the subgraph SDL should trigger a new hash update after 300ms.
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { newField }\ntype Product { id: ID! }");
+
+    // Before the debounce fires, hash should be unchanged.
+    expect(globalThis.location.hash).toBe(hashBefore);
+
+    // Advance past the 300ms debounce window.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Hash should now start with "#w=" and be different (new SDL encoded).
+    expect(globalThis.location.hash).toMatch(/^#w=/);
+    expect(globalThis.location.hash).not.toBe(hashBefore);
+
+    vi.useRealTimers();
+  });
+
+  // ---- TASK-23 AC#3: Loading a URL with a valid hash restores workspace ----
+
+  it("TASK-23 AC#3: valid hash in location.hash restores subgraphs, query, variables, and seed on mount", async () => {
+    const { encode: encodeShare } = await import("./share");
+    const payload = {
+      subgraphs: [{ name: "shared", sdl: "type Query { shared: String }" }],
+      query: "query { shared }",
+      variables: '{"x":1}',
+      seed: 77,
+    };
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: encodeShare(payload) },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<App />);
+
+    const state = useWorkspace.getState();
+    expect(state.subgraphs).toHaveLength(1);
+    expect(state.subgraphs[0].name).toBe("shared");
+    expect(state.query).toBe("query { shared }");
+    expect(state.variables).toBe('{"x":1}');
+    expect(state.seed).toBe(77);
+    expect(state.activeSubgraph).toBe(0);
+  });
+
+  it("TASK-23 AC#4: corrupt hash falls back to default workspace without throwing", () => {
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "#w=notvalidbase64!!" },
+      writable: true,
+      configurable: true,
+    });
+
+    // Should render without throwing.
+    expect(() => render(<App />)).not.toThrow();
+
+    // Store must still be in a usable state (defaults from beforeEach).
+    const state = useWorkspace.getState();
+    expect(state.subgraphs.length).toBeGreaterThan(0);
+  });
+
+  it("TASK-23 AC#2: rapid workspace edits only produce one hash update (debounce coalescing)", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "" },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<App />);
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Capture the initial hash.
+    const hashBefore = globalThis.location.hash;
+    expect(hashBefore).toMatch(/^#w=/);
+
+    // Rapidly change all four tracked fields.
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { a }");
+    useWorkspace.getState().setQuery("query { x }");
+    useWorkspace.getState().setVariables('{"a":1}');
+    useWorkspace.getState().setSeed(99);
+
+    // Advance past the 300ms window.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Hash should be set exactly once — not four times.
+    expect(globalThis.location.hash).toMatch(/^#w=/);
+    expect(globalThis.location.hash).not.toBe(hashBefore);
+
+    // Decode and verify it contains the latest values.
+    const { decode: decodeShare } = await import("./share");
+    const payload = decodeShare(globalThis.location.hash);
+    expect(payload.subgraphs[0].sdl).toBe("type Query { a }");
+    expect(payload.query).toBe("query { x }");
+    expect(payload.variables).toBe('{"a":1}');
+    expect(payload.seed).toBe(99);
 
     vi.useRealTimers();
   });
