@@ -3,7 +3,7 @@
 use apollo_compiler::Name;
 use serde_json::{json, Value};
 
-use crate::dto::{DeferredBranch, PlanNode};
+use crate::dto::{DeferredBranch, PlanNode, RequiresSelection};
 
 /// Produce a slim, stable query-plan DTO for an operation.
 ///
@@ -98,10 +98,35 @@ fn map_fetch(fetch: apollo_federation::query_plan::FetchNode) -> PlanNode {
     let service = fetch.subgraph_name.to_string();
     let op_str = serde_json::to_string(&fetch.operation_document).unwrap_or_default();
     let op_kind = format!("{}", fetch.operation_kind);
+    let requires = map_requires(fetch.requires);
     PlanNode::Fetch {
         service,
         operation_str: op_str,
         operation_kind: op_kind,
+        requires,
+    }
+}
+
+fn map_requires(
+    selections: Vec<apollo_federation::query_plan::requires_selection::Selection>,
+) -> Vec<RequiresSelection> {
+    selections.into_iter().map(map_requires_selection).collect()
+}
+
+fn map_requires_selection(
+    sel: apollo_federation::query_plan::requires_selection::Selection,
+) -> RequiresSelection {
+    use apollo_federation::query_plan::requires_selection::Selection;
+    match sel {
+        Selection::Field(f) => RequiresSelection::Field {
+            alias: f.alias.map(|a| a.to_string()),
+            name: f.name.to_string(),
+            selections: map_requires(f.selections),
+        },
+        Selection::InlineFragment(frag) => RequiresSelection::InlineFragment {
+            type_condition: frag.type_condition.map(|t| t.to_string()),
+            selections: map_requires(frag.selections),
+        },
     }
 }
 

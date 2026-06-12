@@ -1,6 +1,6 @@
 ---
 source: crates/gql-core/tests/plan.rs
-assertion_line: 43
+assertion_line: 42
 expression: result
 ---
-{"ok":true,"query_plan":{"kind":"Sequence","nodes":[{"kind":"Fetch","service":"user","operation":"\"{ user(id: \\\"1\\\") { __typename id name } }\"","operation_kind":"query"},{"kind":"Flatten","path":["user"],"node":{"kind":"Fetch","service":"profile","operation":"\"query($representations: [_Any!]!) { _entities(representations: $representations) { ... on User { bio } } }\"","operation_kind":"query"}}]}}
+{"ok":true,"query_plan":{"kind":"Sequence","nodes":[{"kind":"Fetch","service":"user","operation":"\"{ user(id: \\\"1\\\") { __typename id name } }\"","operation_kind":"query"},{"kind":"Flatten","path":["user"],"node":{"kind":"Fetch","service":"profile","operation":"\"query($representations: [_Any!]!) { _entities(representations: $representations) { ... on User { bio } } }\"","operation_kind":"query","requires":[{"kind":"InlineFragment","typeCondition":"User","selections":[{"kind":"Field","name":"__typename"},{"kind":"Field","name":"id"}]}]}}]}}
