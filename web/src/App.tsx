@@ -111,7 +111,6 @@ export default function App() {
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hashUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Restore workspace from URL hash on mount (once only).
   useEffect(() => {
@@ -126,28 +125,11 @@ export default function App() {
         seed: payload.seed,
         activeSubgraph: 0,
       });
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
     } catch (err) {
       console.warn("Failed to restore workspace from URL hash:", err);
     }
   }, []);
-
-  // Debounced workspace → location.hash update.
-  useEffect(() => {
-    if (hashUpdateRef.current) clearTimeout(hashUpdateRef.current);
-    hashUpdateRef.current = setTimeout(() => {
-      const state = useWorkspace.getState();
-      const payload: WorkspacePayload = {
-        subgraphs: state.subgraphs,
-        queryTabs: state.queryTabs,
-        activeQueryTab: state.activeQueryTab,
-        seed: state.seed,
-      };
-      location.hash = encode(payload);
-    }, COMPOSE_DEBOUNCE_MS);
-    return () => {
-      if (hashUpdateRef.current) clearTimeout(hashUpdateRef.current);
-    };
-  }, [subgraphs, queryTabs, activeQueryTab, seed]);
 
   // Focus the editor whenever the active subgraph changes (e.g. after adding).
   useEffect(() => {
@@ -298,6 +280,40 @@ export default function App() {
     }
   }
 
+  function copyShareUrl() {
+    const payload: WorkspacePayload = {
+      subgraphs,
+      queryTabs,
+      activeQueryTab,
+      seed,
+    };
+    const encodedHash = encode(payload);
+    // Build origin — handle JSDOM where location.origin/hostname may be undefined.
+    const loc = window.location;
+    const hostname =
+      typeof loc.hostname === "string" && loc.hostname.length > 0 ? loc.hostname : "localhost";
+    const port = typeof loc.port === "string" && loc.port.length > 0 ? loc.port : "";
+    const origin = loc.origin || `http://${hostname}${port ? `:${port}` : ""}`;
+    const shareUrl = origin + window.location.pathname + encodedHash;
+
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(shareUrl).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = shareUrl;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
   return (
     <main
       style={{
@@ -337,6 +353,21 @@ export default function App() {
                 }}
               >
                 {copied ? "Copied!" : "Copy for LLM"}
+              </button>
+              <button
+                onClick={copyShareUrl}
+                style={{
+                  padding: "2px 8px",
+                  fontSize: 12,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  background: "transparent",
+                  color: copied ? "#16a34a" : "#6b7280",
+                  borderColor: copied ? "#86efac" : "#d1d5db",
+                }}
+              >
+                {copied ? "Copied!" : "Share"}
               </button>
               <button
                 onClick={() => {
