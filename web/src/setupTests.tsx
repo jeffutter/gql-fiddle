@@ -4,6 +4,36 @@ import { vi } from "vitest";
 // in jsdom where no server is running).  This keeps test output clean.
 process.on("unhandledRejection", () => {});
 
+// Polyfill localStorage for zustand persist middleware.
+class LocalStorageMock {
+  private store: Record<string, string> = {};
+  length = 0;
+  clear() {
+    this.store = {};
+    this.length = 0;
+  }
+  getItem(key: string) {
+    return this.store[key] ?? null;
+  }
+  key(index: number) {
+    const keys = Object.keys(this.store);
+    return keys[index] ?? null;
+  }
+  removeItem(key: string) {
+    delete this.store[key];
+    this.length--;
+  }
+  setItem(key: string, value: string) {
+    this.store[key] = String(value);
+    this.length = Object.keys(this.store).length;
+  }
+}
+Object.defineProperty(globalThis, "localStorage", {
+  value: new LocalStorageMock(),
+  writable: true,
+  configurable: true,
+});
+
 // Polyfill browser APIs that Monaco depends on but jsdom does not provide.
 document.queryCommandSupported = vi.fn(() => false);
 

@@ -4,6 +4,7 @@ import App from "./App";
 import { useWorkspace } from "./store";
 import * as monaco from "monaco-editor";
 import type { Diagnostic } from "./core/types";
+import { encode } from "./share";
 
 let validateSubgraphCallCount = 0;
 
@@ -1135,9 +1136,9 @@ describe("App", () => {
     vi.useRealTimers();
   });
 
-  // ---- TASK-23 AC#2: Editing the workspace updates location.hash (debounced) ----
+  // ---- TASK-43 AC#1: No auto hash update on edit ----
 
-  it("TASK-23 AC#2: editing subgraph SDL updates location.hash after 300ms debounce", async () => {
+  it("TASK-43 AC#1: editing subgraphs, queries, variables, and seed does NOT update location.hash", async () => {
     vi.useFakeTimers();
     Object.defineProperty(globalThis, "location", {
       value: { hash: "" },
@@ -1147,24 +1148,30 @@ describe("App", () => {
 
     render(<App />);
 
-    // Advance past the initial mount debounce so the first hash is set.
+    // Advance past the initial mount debounce so any first-hash is set.
     await vi.advanceTimersByTimeAsync(350);
 
-    const hashBefore = globalThis.location.hash;
-    expect(hashBefore).toMatch(/^#w=/);
+    const hashAfterMount = globalThis.location.hash;
 
-    // Editing the subgraph SDL should trigger a new hash update after 300ms.
-    useWorkspace.getState().setSubgraphSdl(0, "type Query { newField }\ntype Product { id: ID! }");
-
-    // Before the debounce fires, hash should be unchanged.
-    expect(globalThis.location.hash).toBe(hashBefore);
-
-    // Advance past the 300ms debounce window.
+    // Editing subgraph SDL should NOT change the hash.
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { newField }");
     await vi.advanceTimersByTimeAsync(350);
+    expect(globalThis.location.hash).toBe(hashAfterMount);
 
-    // Hash should now start with "#w=" and be different (new SDL encoded).
-    expect(globalThis.location.hash).toMatch(/^#w=/);
-    expect(globalThis.location.hash).not.toBe(hashBefore);
+    // Editing query tab should NOT change the hash.
+    useWorkspace.getState().setQueryTabQuery(0, "query { x }");
+    await vi.advanceTimersByTimeAsync(350);
+    expect(globalThis.location.hash).toBe(hashAfterMount);
+
+    // Editing variables should NOT change the hash.
+    useWorkspace.getState().setQueryTabVariables(0, '{"a":1}');
+    await vi.advanceTimersByTimeAsync(350);
+    expect(globalThis.location.hash).toBe(hashAfterMount);
+
+    // Changing seed should NOT change the hash.
+    useWorkspace.getState().setSeed(99);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(globalThis.location.hash).toBe(hashAfterMount);
 
     vi.useRealTimers();
   });
@@ -1195,6 +1202,125 @@ describe("App", () => {
     expect(state.seed).toBe(77);
     expect(state.activeSubgraph).toBe(0);
     expect(state.activeQueryTab).toBe(0);
+  });
+
+  // ---- TASK-43 AC#3: Hash stripped via history.replaceState after restore ----
+
+  it("TASK-43 AC#3: hydrating from a hash calls history.replaceState to strip the hash", async () => {
+    const { encode: encodeShare } = await import("./share");
+    const payload = {
+      subgraphs: [{ name: "products", sdl: "type Query { hello: String }" }],
+      queryTabs: [{ name: "Query 1", query: "query { hello }", variables: "{}" }],
+      activeQueryTab: 0,
+      seed: 42,
+    };
+
+    // JSDOM workaround: replaceState is not configurable, so we must assign directly.
+    const origReplaceState = window.history.replaceState;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.history as any).replaceState = vi.fn();
+
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: encodeShare(payload) },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<App />);
+
+    // replaceState must have been called to strip the hash.
+    expect(window.history.replaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      window.location.pathname + window.location.search,
+    );
+
+    // Restore original method after test.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.history as any).replaceState = origReplaceState;
+  });
+
+  // ---- TASK-43 AC#2: Hydrate from URL hash preserved after removing debounce ----
+
+  it("TASK-43 AC#2: navigating to a URL with #w=… hash hydrates the workspace correctly", async () => {
+    const { encode: encodeShare } = await import("./share");
+    const payload = {
+      subgraphs: [{ name: "hydrated", sdl: "type Query { hello: String }" }],
+      queryTabs: [{ name: "Query 1", query: "query { hello }", variables: "{}" }],
+      activeQueryTab: 0,
+      seed: 42,
+    };
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: encodeShare(payload) },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<App />);
+
+    const state = useWorkspace.getState();
+    expect(state.subgraphs).toHaveLength(1);
+    expect(state.subgraphs[0].name).toBe("hydrated");
+    expect(state.subgraphs[0].sdl).toBe("type Query { hello: String }");
+    expect(state.queryTabs[0].query).toBe("query { hello }");
+    expect(state.seed).toBe(42);
+    expect(state.activeSubgraph).toBe(0);
+    expect(state.activeQueryTab).toBe(0);
+  });
+
+  // ---- TASK-43 AC#6: Share button shows "Copied!" feedback that reverts ----
+
+  it("TASK-43 AC#6: clicking Share shows 'Copied!' then reverts after 1500ms", async () => {
+    vi.useFakeTimers();
+
+    // Mock navigator.clipboard for JSDOM.
+    const mockWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: mockWriteText },
+      configurable: true,
+    });
+
+    Object.defineProperty(globalThis, "location", {
+      value: {
+        hash: "",
+        origin: "http://localhost",
+        hostname: "localhost",
+        port: "",
+        pathname: "/",
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<App />);
+
+    // Advance past the initial debounce so any first hash is set.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // The Share button should initially show "Share" text.
+    const shareBtn = screen.getByRole("button", { name: /share/i });
+    expect(shareBtn.textContent).toBe("Share");
+
+    // Click the Share button.
+    fireEvent.click(shareBtn);
+
+    // The clipboard write should have been triggered.
+    expect(mockWriteText).toHaveBeenCalledTimes(1);
+
+    // Advance 1ms to let React flush its internal timer-driven state update.
+    await vi.advanceTimersByTimeAsync(1);
+
+    // The button text should now be "Copied!" (green feedback).
+    const allBtns = screen.getAllByRole("button");
+    const copiedText = allBtns.find((b) => b.textContent === "Copied!");
+    expect(copiedText).toBeDefined();
+
+    // Advance 1499ms more — the setTimeout callback should fire and revert.
+    await vi.advanceTimersByTimeAsync(1499);
+
+    // The button text should be back to "Share".
+    const shareBtnAfter = screen.getAllByRole("button").find((b) => b.textContent === "Share");
+    expect(shareBtnAfter).toBeDefined();
   });
 
   it("TASK-23 AC#4: corrupt hash falls back to default workspace without throwing", () => {
@@ -1244,41 +1370,70 @@ describe("App", () => {
     expect(calledSeed).toBe(urlSeed);
   });
 
-  it("TASK-23 AC#2: rapid workspace edits only produce one hash update (debounce coalescing)", async () => {
+  // ---- TASK-43 AC#4: Share button is visible and generates shareable URL ----
+
+  it("TASK-43 AC#4: Share button is visible in the UI and generates a point-in-time shareable URL with #w=…", async () => {
     vi.useFakeTimers();
+
+    // Mock navigator.clipboard for JSDOM.
+    const mockWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: mockWriteText },
+      configurable: true,
+    });
+
+    // Set up a fully-formed location so the URL builder works correctly.
     Object.defineProperty(globalThis, "location", {
-      value: { hash: "" },
+      value: {
+        hash: "",
+        origin: "http://localhost",
+        hostname: "localhost",
+        port: "",
+        pathname: "/",
+      },
       writable: true,
       configurable: true,
     });
 
+    // Set workspace state to match the payload we'll assert against.
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      activeQueryTab: 0,
+      seed: 42,
+      activeSubgraph: 0,
+    });
+
     render(<App />);
+
+    // Advance past the initial debounce so any first hash is set.
     await vi.advanceTimersByTimeAsync(350);
 
-    // Capture the initial hash.
-    const hashBefore = globalThis.location.hash;
-    expect(hashBefore).toMatch(/^#w=/);
+    // The Share button must be visible in the UI.
+    const shareBtn = screen.getByRole("button", { name: /share/i });
+    expect(shareBtn).toBeInTheDocument();
 
-    // Rapidly change tracked fields.
-    useWorkspace.getState().setSubgraphSdl(0, "type Query { a }");
-    useWorkspace.getState().setQueryTabQuery(0, "query { x }");
-    useWorkspace.getState().setQueryTabVariables(0, '{"a":1}');
-    useWorkspace.getState().setSeed(99);
+    // Click the Share button.
+    fireEvent.click(shareBtn);
 
-    // Advance past the 300ms window.
-    await vi.advanceTimersByTimeAsync(350);
+    // navigator.clipboard.writeText must have been called with a full URL
+    // containing origin + pathname + #w= hash (AC#5).
+    expect(mockWriteText).toHaveBeenCalledTimes(1);
+    const [calledUrl] = mockWriteText.mock.calls[0];
+    expect(calledUrl).toMatch(/^https?:\/\/.+#w=/);
 
-    // Hash should be set exactly once — not four times.
-    expect(globalThis.location.hash).toMatch(/^#w=/);
-    expect(globalThis.location.hash).not.toBe(hashBefore);
-
-    // Decode and verify it contains the latest values.
-    const { decode: decodeShare } = await import("./share");
-    const payload = decodeShare(globalThis.location.hash);
-    expect(payload.subgraphs[0].sdl).toBe("type Query { a }");
-    expect(payload.queryTabs[0].query).toBe("query { x }");
-    expect(payload.queryTabs[0].variables).toBe('{"a":1}');
-    expect(payload.seed).toBe(99);
+    // AC#5: the full URL must include origin + pathname + encoded hash.
+    // In JSDOM location.origin is undefined, so copyShareUrl falls back to
+    // http://localhost — verify the constructed URL matches that fallback.
+    const payload = {
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      activeQueryTab: 0,
+      seed: 42,
+    };
+    const expectedHash = encode(payload);
+    // pathname is "/", so the URL is origin + pathname + hash.
+    expect(calledUrl).toBe("http://localhost/" + expectedHash);
 
     vi.useRealTimers();
   });
