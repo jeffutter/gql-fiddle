@@ -23,9 +23,15 @@ const mockCompose = vi.fn(
   },
 );
 
-// Mock for monaco-graphql initializeMode (AC#3).
+// Mock for monaco-graphql initializeMode (AC#1, AC#3).
 const mockSetSchemaConfig = vi.fn();
-const mockMonacoGraphQLAPI = { setSchemaConfig: mockSetSchemaConfig };
+const mockSetModeConfiguration = vi.fn();
+const mockSetDiagnosticSettings = vi.fn();
+const mockMonacoGraphQLAPI = {
+  setSchemaConfig: mockSetSchemaConfig,
+  setModeConfiguration: mockSetModeConfiguration,
+  setDiagnosticSettings: mockSetDiagnosticSettings,
+};
 vi.mock("monaco-graphql/initializeMode", () => ({
   initializeMode: vi.fn(() => mockMonacoGraphQLAPI),
 }));
@@ -68,18 +74,31 @@ describe("App", () => {
     });
   });
 
-  it("renders a Monaco editor for the active subgraph instead of a textarea", () => {
+  it("renders Monaco editors and no plain textareas", () => {
     const { container } = render(<App />);
 
-    // The subgraph and query editors must use Monaco (no plain textarea for them).
-    // The variables editor uses a plain <textarea> — exactly 1 should be present.
+    // All three editors (subgraph, query, variables) use Monaco — zero plain textareas.
     const textareas = container.querySelectorAll("textarea");
-    expect(textareas).toHaveLength(1);
+    expect(textareas).toHaveLength(0);
 
     // The Monaco editor mounts a div with class "monaco-editor".
     // There are two Monaco editors: one for the subgraph SDL and one for the query.
     const monacoEditors = screen.getAllByRole("textbox");
     expect(monacoEditors.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ---- AC#4: Variables editor is a Monaco JSON editor ----
+
+  it("AC#4: variables editor is a Monaco JSON editor (no <textarea>)", () => {
+    const { container } = render(<App />);
+
+    // There must be zero plain textareas — the variables editor uses Monaco.
+    const textareas = container.querySelectorAll("textarea");
+    expect(textareas).toHaveLength(0);
+
+    // The Monaco editor for variables renders with a json-specific path.
+    const varEditor = container.querySelector('[data-path="/variables-query-0.json"]');
+    expect(varEditor).not.toBeNull();
   });
 
   it("switching subgraph tabs shows that subgraph's SDL in the editor", () => {
@@ -658,19 +677,18 @@ describe("App", () => {
   it("TASK-19 AC#1: invalid JSON in variables textarea shows error message and does not call executeMock", () => {
     mockExecuteMock.mockClear();
 
-    // Pre-set the store so supergraphSdl is non-null (Run button is enabled).
+    // Pre-set the store so supergraphSdl is non-null (Run button is enabled)
+    // and variables contain invalid JSON.
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
+      queryTabs: [{ name: "Query 1", query: "", variables: "{invalid json" }],
+      activeQueryTab: 0,
     });
 
     render(<App />);
-
-    // Find the variables textarea and set its value to invalid JSON.
-    const variablesTextarea = screen.getByRole("textbox", { name: /variables/i });
-    fireEvent.change(variablesTextarea, { target: { value: "{invalid json" } });
 
     // Click the Run button.
     const runButton = screen.getByRole("button", { name: /run/i });
@@ -707,9 +725,10 @@ describe("App", () => {
 
     render(<App />);
 
-    // Set the variables textarea to valid JSON.
-    const variablesTextarea = screen.getByRole("textbox", { name: /variables/i });
-    fireEvent.change(variablesTextarea, { target: { value: testVariables } });
+    // Set the Monaco variables editor to valid JSON.
+    const onChangeVars = globalThis.__editorTestHarness.onChangeByPath["/variables-query-0.json"];
+    expect(onChangeVars).toBeDefined();
+    onChangeVars!(testVariables);
 
     // Click Run.
     const runButton = screen.getByRole("button", { name: /run/i });
@@ -869,6 +888,36 @@ describe("App", () => {
     expect(useWorkspace.getState().queryTabs[0].query).toBe("");
   });
 
+  // ---- AC#1: setModeConfiguration enables autocomplete on init ----
+
+  it("AC#1: calls setModeConfiguration with all features enabled after successful compose", async () => {
+    vi.useFakeTimers();
+    mockSetModeConfiguration.mockClear();
+
+    mockCompose.mockReturnValueOnce({
+      ok: true,
+      supergraph_sdl: "# supergraph",
+      api_schema_sdl: "type Query { products: [Product] }",
+      hints: [],
+    });
+
+    render(<App />);
+
+    // Advance past the 300ms debounce window so composition fires.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // setModeConfiguration must have been called with all features enabled.
+    expect(mockSetModeConfiguration).toHaveBeenCalledWith({
+      completionItems: true,
+      diagnostics: true,
+      hovers: true,
+      documentSymbols: true,
+      documentFormattingEdits: true,
+    });
+
+    vi.useRealTimers();
+  });
+
   // ---- AC#3: setSchemaConfig is called with the api_schema_sdl after successful compose ----
 
   it("AC#3: calls setSchemaConfig with api_schema_sdl from the composed result", async () => {
@@ -918,6 +967,54 @@ describe("App", () => {
   });
 
   // ---- AC#4: Editing subgraphs updates the autocomplete schema to match ----
+
+  // ---- AC#5: setDiagnosticSettings called with validateVariablesJson mapping ----
+
+  it("AC#5: calls setDiagnosticSettings with correct validateVariablesJson after successful compose", async () => {
+    vi.useFakeTimers();
+    mockSetDiagnosticSettings.mockClear();
+
+    mockCompose.mockReturnValueOnce({
+      ok: true,
+      supergraph_sdl: "# supergraph",
+      api_schema_sdl: "type Query { products: [Product] }",
+      hints: [],
+    });
+
+    render(<App />);
+
+    // Advance past the 300ms debounce window so composition fires.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // setDiagnosticSettings must have been called with validateVariablesJson
+    // mapping the query URI to the variables URI.
+    expect(mockSetDiagnosticSettings).toHaveBeenCalledWith({
+      validateVariablesJSON: {
+        "/query-0.graphql": ["/variables-query-0.json"],
+      },
+      jsonDiagnosticSettings: { allowComments: true },
+    });
+
+    vi.useRealTimers();
+  });
+
+  it("AC#5: does not call setDiagnosticSettings when compose fails", async () => {
+    vi.useFakeTimers();
+    mockSetDiagnosticSettings.mockClear();
+
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [{ code: "ERR001", message: "bad" }],
+    });
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(mockSetDiagnosticSettings).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
 
   it("AC#4: editing a subgraph triggers re-composition and calls setSchemaConfig with the new api_schema_sdl", async () => {
     vi.useFakeTimers();
@@ -975,6 +1072,65 @@ describe("App", () => {
         fileMatch: ["**/*.graphql"],
       },
     ]);
+
+    vi.useRealTimers();
+  });
+
+  // ---- AC#6: Switching query tabs updates the variables JSON Schema ----
+
+  it("AC#6: switching query tabs calls setDiagnosticSettings with new tab URIs", async () => {
+    vi.useFakeTimers();
+    mockSetDiagnosticSettings.mockClear();
+
+    // Pre-set two query tabs with distinct variable values.
+    useWorkspace.setState({
+      queryTabs: [
+        { name: "Query 1", query: "query { a }", variables: '{"foo":"bar"}' },
+        { name: "Query 2", query: "query { b }", variables: '{"baz":42}' },
+      ],
+      activeQueryTab: 0,
+    });
+
+    mockCompose.mockReturnValueOnce({
+      ok: true,
+      supergraph_sdl: "# supergraph",
+      api_schema_sdl: "type Query { a: Int }",
+      hints: [],
+    });
+
+    render(<App />);
+
+    // Advance past the 300ms debounce window so composition fires and sets up tab-0 URIs.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // First call should be for tab 0 (from the compose effect).
+    expect(mockSetDiagnosticSettings).toHaveBeenCalledTimes(1);
+    expect(mockSetDiagnosticSettings).toHaveBeenLastCalledWith({
+      validateVariablesJSON: {
+        "/query-0.graphql": ["/variables-query-0.json"],
+      },
+      jsonDiagnosticSettings: { allowComments: true },
+    });
+
+    // Click the second query tab button.
+    const allButtons = screen.getAllByRole("button");
+    const secondQueryTabBtn = allButtons.find((b) => b.textContent?.startsWith("Query 2"));
+    expect(secondQueryTabBtn).toBeDefined();
+    fireEvent.click(secondQueryTabBtn!);
+
+    // setActiveQueryTab(1) triggers a re-render; the new useEffect on activeQueryTab
+    // should fire and call setDiagnosticSettings with tab-1 URIs.
+    await vi.waitFor(() => {
+      expect(mockSetDiagnosticSettings).toHaveBeenCalledTimes(2);
+    });
+
+    // The second call must use the new tab's URIs.
+    expect(mockSetDiagnosticSettings).toHaveBeenLastCalledWith({
+      validateVariablesJSON: {
+        "/query-1.graphql": ["/variables-query-1.json"],
+      },
+      jsonDiagnosticSettings: { allowComments: true },
+    });
 
     vi.useRealTimers();
   });

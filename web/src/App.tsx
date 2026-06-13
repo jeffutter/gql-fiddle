@@ -155,8 +155,25 @@ export default function App() {
       editor.focus();
     }
   }, [editor, activeSubgraph]);
+
+  // Update variables JSON Schema when the active query tab changes.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    if (!monacoGraphQLAPI) return;
+    const opUri = `/query-${activeQueryTab}.graphql`;
+    const varUri = `/variables-query-${activeQueryTab}.json`;
+    monacoGraphQLAPI.setDiagnosticSettings({
+      validateVariablesJSON: { [opUri]: [varUri] },
+      jsonDiagnosticSettings: { allowComments: true },
+    });
+  }, [activeQueryTab]);
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   // Debounced composition effect.
   useEffect(() => {
     if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
@@ -168,6 +185,13 @@ export default function App() {
         if (!monacoGraphQLAPI) {
           monacoGraphQLAPI = initializeMode();
         }
+        monacoGraphQLAPI.setModeConfiguration({
+          completionItems: true,
+          diagnostics: true,
+          hovers: true,
+          documentSymbols: true,
+          documentFormattingEdits: true,
+        });
         monacoGraphQLAPI.setSchemaConfig([
           {
             documentString: result.api_schema_sdl,
@@ -175,6 +199,12 @@ export default function App() {
             fileMatch: ["**/*.graphql"],
           },
         ]);
+        const opUri = `/query-${activeQueryTab}.graphql`;
+        const varUri = `/variables-query-${activeQueryTab}.json`;
+        monacoGraphQLAPI.setDiagnosticSettings({
+          validateVariablesJSON: { [opUri]: [varUri] },
+          jsonDiagnosticSettings: { allowComments: true },
+        });
       } else {
         useWorkspace.getState().setComposeResult(null, result.errors, 0);
       }
@@ -184,6 +214,7 @@ export default function App() {
       if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
     };
   }, [subgraphs]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // Debounced validation effect.
   useEffect(() => {
@@ -683,26 +714,18 @@ export default function App() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
           <h2 style={{ margin: 0, flexShrink: 0 }}>Variables</h2>
           <label
-            htmlFor="variables-textarea"
+            htmlFor="variables-editor-label"
             style={{ fontSize: 12, color: "#6b7280", flexShrink: 0 }}
           >
             Variables (JSON)
           </label>
-          <textarea
-            id="variables-textarea"
-            aria-label="variables"
+          <Editor
+            height="100%"
+            language="json"
+            path={`/variables-query-${activeQueryTab}.json`}
             value={currentVariables}
-            onChange={(e) => setQueryTabVariables(activeQueryTab, e.target.value)}
-            style={{
-              flex: 1,
-              fontFamily: "monospace",
-              fontSize: 13,
-              padding: 8,
-              border: "1px solid #d1d5db",
-              borderRadius: 4,
-              resize: "none",
-              minHeight: 0,
-            }}
+            onChange={(val) => setQueryTabVariables(activeQueryTab, val ?? "")}
+            options={{ minimap: { enabled: false }, wordWrap: "on" }}
           />
           {varError !== null && (
             <div
