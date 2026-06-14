@@ -14,7 +14,6 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@bokuweb/zstd-wasm": "^0.0.27",
     "@monaco-editor/react": "^4.7.0",
     "graphql": "^16.14.2",
     "monaco-editor": "^0.55.1",
