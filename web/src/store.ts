@@ -105,7 +105,14 @@ export const useWorkspace = create<WorkspaceState>()(
               activeQueryTab: 0,
             };
           }
-          const newActive = Math.min(index, remaining.length - 1);
+          let newActive: number;
+          if (state.activeQueryTab === index) {
+            newActive = Math.min(index, remaining.length - 1);
+          } else if (state.activeQueryTab > index) {
+            newActive = state.activeQueryTab - 1;
+          } else {
+            newActive = state.activeQueryTab;
+          }
           return { queryTabs: remaining, activeQueryTab: newActive };
         }),
       renameQueryTab: (index, name) =>
