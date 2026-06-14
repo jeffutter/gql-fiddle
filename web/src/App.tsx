@@ -90,6 +90,16 @@ function diagnosticToMarker(
   };
 }
 
+const SELECT_TEXT_BTN: React.CSSProperties = {
+  padding: "2px 8px",
+  fontSize: 12,
+  border: "1px solid #d1d5db",
+  borderRadius: 4,
+  cursor: "pointer",
+  background: "transparent",
+  color: "#6b7280",
+};
+
 const TAB_BTN = (active: boolean): React.CSSProperties => ({
   backgroundColor: active ? "#e5e7eb" : "transparent",
   border: "1px solid #d1d5db",
@@ -140,6 +150,7 @@ export default function App() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = useMobile();
   const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output">("schema");
+  const [viewSource, setViewSource] = useState<{ title: string; content: string } | null>(null);
 
   // Reset 'results' rightTab when returning to desktop (no Results tab there).
   useEffect(() => {
@@ -818,6 +829,19 @@ export default function App() {
                   </div>
                 </div>
                 {subgraphTabStrip}
+                <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+                  <button
+                    onClick={() =>
+                      setViewSource({
+                        title: `${subgraphs[activeSubgraph]?.name ?? "Subgraph"} SDL`,
+                        content: subgraphs[activeSubgraph]?.sdl ?? "",
+                      })
+                    }
+                    style={SELECT_TEXT_BTN}
+                  >
+                    Select text
+                  </button>
+                </div>
                 {subgraphEditor}
               </div>
             )}
@@ -834,6 +858,14 @@ export default function App() {
               >
                 <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Query</h2>
                 {queryTabStrip}
+                <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+                  <button
+                    onClick={() => setViewSource({ title: "Query", content: currentQuery })}
+                    style={SELECT_TEXT_BTN}
+                  >
+                    Select text
+                  </button>
+                </div>
                 <div data-testid="query-editor" style={{ height: "42vh", flexShrink: 0 }}>
                   <Editor
                     language="graphql"
@@ -843,12 +875,20 @@ export default function App() {
                     height="100%"
                   />
                 </div>
-                <label
-                  htmlFor="variables-editor-label"
-                  style={{ fontSize: 12, color: "#6b7280", flexShrink: 0 }}
-                >
-                  Variables (JSON)
-                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <label
+                    htmlFor="variables-editor-label"
+                    style={{ fontSize: 12, color: "#6b7280" }}
+                  >
+                    Variables (JSON)
+                  </label>
+                  <button
+                    onClick={() => setViewSource({ title: "Variables", content: currentVariables })}
+                    style={{ ...SELECT_TEXT_BTN, marginLeft: "auto" }}
+                  >
+                    Select text
+                  </button>
+                </div>
                 <div style={{ flex: 1, minHeight: 0 }}>
                   <Editor
                     height="100%"
@@ -969,6 +1009,60 @@ export default function App() {
             ))}
           </nav>
         </div>
+        {viewSource !== null && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 200,
+              background: "white",
+              display: "flex",
+              flexDirection: "column",
+              padding: 12,
+              boxSizing: "border-box",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 8,
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ fontWeight: 600, fontSize: 15 }}>{viewSource.title}</span>
+              <button
+                onClick={() => setViewSource(null)}
+                style={{
+                  padding: "4px 14px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  background: "transparent",
+                }}
+              >
+                Done
+              </button>
+            </div>
+            <textarea
+              readOnly
+              value={viewSource.content}
+              onFocus={(e) => e.currentTarget.select()}
+              style={{
+                flex: 1,
+                fontFamily: "monospace",
+                fontSize: 13,
+                resize: "none",
+                border: "1px solid #d1d5db",
+                borderRadius: 4,
+                padding: 8,
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+        )}
       </>
     );
   }
