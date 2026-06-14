@@ -34,6 +34,20 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
 });
 
+// Polyfill matchMedia — not implemented in JSDOM; always returns desktop (non-mobile).
+Object.defineProperty(globalThis, "matchMedia", {
+  writable: true,
+  configurable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+});
+
 // Polyfill ResizeObserver — required by react-resizable-panels in JSDOM.
 globalThis.ResizeObserver = class ResizeObserver {
   constructor() {}
