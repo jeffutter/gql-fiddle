@@ -37,6 +37,13 @@ vi.mock("monaco-graphql/initializeMode", () => ({
   initializeMode: vi.fn(() => mockMonacoGraphQLAPI),
 }));
 
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({ svg: '<svg data-testid="mermaid-svg"></svg>' }),
+  },
+}));
+
 const validateSubgraphMock = vi.fn(() => {
   validateSubgraphCallCount++;
   return { diagnostics: [] as Diagnostic[] };
@@ -1607,5 +1614,20 @@ describe("App", () => {
       .join("\n")
       .includes(".resize-handle:hover");
     expect(hoverRule).toBe(true);
+  });
+
+  // ---- TASK-46: Sequence Diagram tab ----
+
+  it("TASK-46: Sequence Diagram tab button is visible in the right pane", () => {
+    render(<App />);
+    const seqTab = screen.getByRole("button", { name: /Sequence Diagram/ });
+    expect(seqTab).toBeInTheDocument();
+    expect(seqTab).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("TASK-46: clicking Sequence Diagram tab shows placeholder when no plan is available", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Sequence Diagram/ }));
+    expect(screen.getByText(/Run a query to see the sequence diagram/)).toBeInTheDocument();
   });
 });

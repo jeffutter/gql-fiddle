@@ -14,6 +14,7 @@ import { decode, encode } from "./share";
 import type { WorkspacePayload } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
 import { PlanTree } from "./PlanTree";
+import { SequenceDiagram } from "./SequenceDiagram";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -107,7 +108,7 @@ export default function App() {
   const [renameQueryValue, setRenameQueryValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
-  const [rightTab, setRightTab] = useState<"sdl" | "plan">("plan");
+  const [rightTab, setRightTab] = useState<"sdl" | "plan" | "sequence">("plan");
   const [varError, setVarError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -527,6 +528,20 @@ export default function App() {
                   >
                     Query Plan
                   </button>
+                  <button
+                    onClick={() => setRightTab("sequence")}
+                    aria-pressed={rightTab === "sequence"}
+                    style={{
+                      backgroundColor: rightTab === "sequence" ? "#e5e7eb" : "transparent",
+                      border: "1px solid #d1d5db",
+                      borderRadius: 4,
+                      padding: "4px 8px",
+                      cursor: "pointer",
+                      fontSize: 13,
+                    }}
+                  >
+                    Sequence Diagram
+                  </button>
                 </nav>
 
                 {rightTab === "sdl" && (
@@ -592,6 +607,31 @@ export default function App() {
                       <p style={{ fontSize: 13, color: "#6b7280" }}>Run a query to see the plan.</p>
                     ) : planResult.ok ? (
                       <PlanTree node={planResult.query_plan} />
+                    ) : (
+                      <div
+                        style={{
+                          backgroundColor: "#fee2e2",
+                          borderLeft: "3px solid #dc2626",
+                          padding: 8,
+                          borderRadius: 4,
+                        }}
+                      >
+                        {planResult.errors.map((e, i) => (
+                          <ErrorMessage key={i} text={e.message} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {rightTab === "sequence" && (
+                  <div style={{ flex: 1, overflow: "auto" }}>
+                    {planResult === null ? (
+                      <p style={{ fontSize: 13, color: "#6b7280" }}>
+                        Run a query to see the sequence diagram.
+                      </p>
+                    ) : planResult.ok ? (
+                      <SequenceDiagram node={planResult.query_plan} />
                     ) : (
                       <div
                         style={{
