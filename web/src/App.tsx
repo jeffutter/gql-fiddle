@@ -463,6 +463,7 @@ export default function App() {
                     </button>
                   ))}
                   <button
+                    data-testid="subgraph-add-btn"
                     onClick={() => {
                       let n = 1;
                       while (subgraphs.some((s) => s.name === `subgraph-${n}`)) n++;
