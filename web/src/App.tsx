@@ -330,7 +330,9 @@ export default function App() {
         <Panel defaultSize={50} minSize={200}>
           <Group orientation="horizontal">
             <Panel defaultSize={50} minSize={200}>
-              <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <h2 style={{ margin: 0 }}>Subgraphs</h2>
                   <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
@@ -495,6 +497,7 @@ export default function App() {
                 style={{
                   display: "flex",
                   flexDirection: "column",
+                  height: "100%",
                   minHeight: 0,
                   overflow: "hidden",
                 }}
@@ -659,7 +662,9 @@ export default function App() {
         <Panel defaultSize={50} minSize={200}>
           <Group orientation="horizontal">
             <Panel defaultSize={33.34} minSize={150}>
-              <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+              >
                 <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Query</h2>
                 <nav style={{ display: "flex", gap: 4, flexShrink: 0, margin: "4px 0" }}>
                   {queryTabs.map((tab, i) => (
@@ -751,7 +756,15 @@ export default function App() {
             </Panel>
             <Separator className="resize-handle" />
             <Panel defaultSize={33.33} minSize={150}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  height: "100%",
+                  gap: 8,
+                  minHeight: 0,
+                }}
+              >
                 <h2 style={{ margin: 0, flexShrink: 0 }}>Variables</h2>
                 <label
                   htmlFor="variables-editor-label"
@@ -846,7 +859,9 @@ export default function App() {
             </Panel>
             <Separator className="resize-handle" />
             <Panel defaultSize={33.33} minSize={150}>
-              <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+              >
                 <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Results</h2>
                 {mockResult === null ? (
                   <p style={{ fontSize: 13, color: "#6b7280" }}>No results yet. Click Run.</p>
