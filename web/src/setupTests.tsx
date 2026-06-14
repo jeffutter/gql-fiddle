@@ -34,6 +34,14 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
 });
 
+// Polyfill ResizeObserver — required by react-resizable-panels in JSDOM.
+globalThis.ResizeObserver = class ResizeObserver {
+  constructor() {}
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 // Polyfill browser APIs that Monaco depends on but jsdom does not provide.
 document.queryCommandSupported = vi.fn(() => false);
 
