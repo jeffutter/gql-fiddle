@@ -50,7 +50,7 @@ vi.mock("./core", () => ({
       compose: mockCompose,
       validateSubgraph: validateSubgraphMock,
       validateQuery: vi.fn(() => ({ diagnostics: [] })),
-      plan: vi.fn(() => ({})),
+      plan: vi.fn(() => ({ ok: false, errors: [] })),
       executeMock: mockExecuteMock,
     }),
 }));
@@ -263,10 +263,10 @@ describe("App", () => {
     // Advance past the debounce window so the composition effect fires.
     await vi.advanceTimersByTimeAsync(350);
 
-    // The Supergraph SDL tab should be present; expand it to see the SDL.
+    // The Supergraph SDL tab should be present; click it to see the SDL.
     const supergraphTab = screen.getByText("Supergraph SDL");
     expect(supergraphTab).toBeInTheDocument();
-    fireEvent.click(screen.getByText("▶ Show"));
+    fireEvent.click(supergraphTab);
 
     expect(screen.getByText("# supergraph")).toBeInTheDocument();
 
@@ -290,6 +290,9 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
+    // Switch to the SDL tab — compose errors are only shown there.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
+
     // Both messages must appear independently — not just as part of a compound regex.
     expect(screen.getByText(/first/)).toBeInTheDocument();
     expect(screen.getByText(/second/)).toBeInTheDocument();
@@ -312,6 +315,9 @@ describe("App", () => {
     // Advance past the debounce window.
     await vi.advanceTimersByTimeAsync(350);
 
+    // Switch to the SDL tab — compose errors are only shown there.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
+
     // Both error messages must appear — index keys prevent React from dropping duplicates.
     expect(screen.getByText(/SATISFIABILITY_ERROR.*first/)).toBeInTheDocument();
     expect(screen.getByText(/SATISFIABILITY_ERROR.*second/)).toBeInTheDocument();
@@ -333,6 +339,9 @@ describe("App", () => {
 
     // Advance past the debounce window.
     await vi.advanceTimersByTimeAsync(350);
+
+    // Switch to the SDL tab — compose errors are only shown there.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
 
     // The error banner should be present — identified by its red left border.
     const banner = screen.getByText(/ERR001.*Field `a` conflicts/);
@@ -362,8 +371,8 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
-    // Expand the supergraph panel to see the stale content.
-    fireEvent.click(screen.getByText("▶ Show"));
+    // Switch to the SDL tab to see the stale content.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
 
     // The stale badge text must appear.
     expect(screen.getByText("stale")).toBeInTheDocument();
@@ -400,8 +409,8 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
-    // Expand the supergraph panel to check its contents.
-    fireEvent.click(screen.getByText("▶ Show"));
+    // Switch to the SDL tab to check its contents.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
 
     // No stale badge should be present after a successful compose.
     expect(screen.queryByText("stale")).not.toBeInTheDocument();
@@ -430,8 +439,8 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
-    // Expand the supergraph panel to check its contents.
-    fireEvent.click(screen.getByText("▶ Show"));
+    // Switch to the SDL tab to check its contents.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
 
     // The placeholder text should be shown.
     expect(screen.getByText("No valid composition yet")).toBeInTheDocument();
@@ -453,8 +462,8 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
-    // Expand the supergraph panel to check its contents.
-    fireEvent.click(screen.getByText("▶ Show"));
+    // Switch to the SDL tab to check its contents.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
 
     expect(screen.getByText("No valid composition yet")).toBeInTheDocument();
   });
@@ -1136,6 +1145,147 @@ describe("App", () => {
     vi.useRealTimers();
   });
 
+  // ---- TASK-45 AC#2: Query Plan is the default tab on mount ----
+
+  it("TASK-45 AC#2: Query Plan tab is active on initial load without user interaction", () => {
+    render(<App />);
+
+    // The Query Plan pane's placeholder text must be visible immediately.
+    expect(screen.getByText(/Run a query to see the plan/)).toBeInTheDocument();
+
+    // The "Query Plan" tab button should be pressed (active).
+    const planTab = screen.getByRole("button", { name: /Query Plan/ });
+    expect(planTab).toHaveAttribute("aria-pressed", "true");
+  });
+
+  // ---- TASK-45 AC#3: Vertical split is draggable ----
+
+  it("TASK-45 AC#3: vertical Group with Separator renders between top and bottom rows", () => {
+    render(<App />);
+
+    // The outer <Group> (orientation="vertical") wraps two Panel children:
+    // the top row (subgraph editor + SDL/plan) and the bottom row (query +
+    // variables + results).  Both must be direct children of the same Group.
+    const main = document.querySelector("[style*='height: 100vh']");
+    expect(main).not.toBeNull();
+
+    // The outer group has three direct children: top Panel, Separator, bottom Panel.
+    expect(main!.children.length).toBe(3);
+
+    // Between them sits a <Separator> element — the draggable divider.
+    const separator =
+      document.querySelector("button[role='separator']") ??
+      document.querySelector("div[role='separator']") ??
+      Array.from(document.querySelectorAll("*")).find(
+        (el) =>
+          el.classList.contains("rp-Separator") || el.getAttribute("data-rp-separator") !== null,
+      );
+    // react-resizable-panels renders separators as <button> or <div> elements
+    // that sit between Panel children in the DOM.
+    expect(separator).toBeDefined();
+  });
+
+  // ---- TASK-45 AC#4: Horizontal split between subgraph editor and SDL/plan is draggable ----
+
+  it("TASK-45 AC#4: horizontal Separator renders between subgraph editor and SDL/plan pane", () => {
+    render(<App />);
+
+    // The top row Panel contains an inner <Group orientation="horizontal">
+    // wrapping two Panels (subgraph editor | SDL/plan) with a Separator between them.
+    // react-resizable-panels renders separators as sibling elements within the Group.
+    // DOM structure:
+    //   main (outer vertical Group)
+    //     ├─ main.child[0] = top Panel wrapper
+    //     │   └─ main.child[0].child[0] = content div (flex column)
+    //     │       └─ main.child[0].child[0].child[0] = inner horizontal Group
+    //     │           ├─ child[0] = subgraph editor Panel
+    //     │           ├─ child[1] = Separator (horizontal split)
+    //     │           └─ child[2] = SDL/plan Panel
+    //     ├─ main.child[1] = Separator (vertical split)
+    //     └─ main.child[2] = bottom Panel wrapper
+    const main = document.querySelector("[style*='height: 100vh']");
+    expect(main).not.toBeNull();
+
+    // Outer group: top Panel | Separator | bottom Panel
+    expect(main!.children.length).toBe(3);
+
+    // The inner horizontal Group sits at main.child[0].child[0].child[0]
+    // and has the subgraph editor Panel, a Separator, and the SDL/plan Panel
+    // as direct children (plus more for the bottom row, but we only check 5).
+    const innerGroup = main!.children[0].children[0].children[0];
+    expect(innerGroup).not.toBeNull();
+
+    // The inner horizontal Group has at least 3 direct children: subgraph editor,
+    // Separator, SDL/plan.
+    expect(innerGroup.children.length).toBeGreaterThanOrEqual(3);
+
+    // child[1] must be a <div role="separator"> — the draggable divider between
+    // the subgraph editor and the SDL/plan pane.
+    const topSeparator = innerGroup.children[1];
+    expect(topSeparator.getAttribute("role")).toBe("separator");
+  });
+
+  // ---- TASK-45 AC#5: Horizontal splits between query, variables, and results are draggable ----
+
+  it("TASK-45 AC#5: bottom row has Group with 3 Panels and 2 Separators for draggable splits", () => {
+    render(<App />);
+
+    // The outer <Group> (orientation="vertical") wraps two Panel children:
+    // the top row and the bottom row.  The bottom row is main.child[2].
+    const main = document.querySelector("[style*='height: 100vh']");
+    expect(main).not.toBeNull();
+
+    // Outer group: top Panel | Separator | bottom Panel (3 children).
+    expect(main!.children.length).toBe(3);
+
+    // Bottom row is main.child[2] — an outer <Panel> wrapper.
+    const bottomRow = main!.children[2];
+    expect(bottomRow).not.toBeNull();
+
+    // The bottom row Panel wraps:
+    //   bottomRow.child[0] = content div (flex column)
+    //     └─ child[0] = inner <Group orientation="horizontal">
+    //         ├─ child[0] = Query Panel wrapper
+    //         ├─ child[1] = Separator (query | variables)
+    //         ├─ child[2] = Variables Panel wrapper
+    //         ├─ child[3] = Separator (variables | results)
+    //         └─ child[4] = Results Panel wrapper
+    const contentDiv = bottomRow.children[0];
+    expect(contentDiv).not.toBeNull();
+
+    const innerGroup = contentDiv.children[0];
+    expect(innerGroup).not.toBeNull();
+
+    // The inner horizontal Group must have 5 direct children:
+    // 3 Panel wrappers + 2 Separators.
+    expect(innerGroup.children.length).toBe(5);
+
+    // child[1] and child[3] must be separator elements (draggable dividers).
+    const sepBetweenQueryAndVars = innerGroup.children[1];
+    const sepBetweenVarsAndResults = innerGroup.children[3];
+    expect(sepBetweenQueryAndVars.getAttribute("role")).toBe("separator");
+    expect(sepBetweenVarsAndResults.getAttribute("role")).toBe("separator");
+  });
+
+  // ---- TASK-45 AC#1: Show/Hide toggle removed, SDL always visible ----
+
+  it("TASK-45 AC#1: no Show/Hide button exists; SDL content visible when tab is active", async () => {
+    render(<App />);
+
+    // The Show/Hide button must NOT be present anywhere in the SDL tab.
+    expect(screen.queryByText(/Show|Hide/)).not.toBeInTheDocument();
+
+    // Switch to the SDL tab (default is "plan"). The content area renders
+    // immediately — no Show/Hide toggle is needed to reveal it.
+    fireEvent.click(screen.getByText("Supergraph SDL"));
+
+    // The SDL content area is visible right away (showing "Loading core…" or
+    // the composed SDL). The critical AC is that no toggle gates the content.
+    expect(
+      screen.queryByText(/Loading core|# supergraph|No valid composition/),
+    ).toBeInTheDocument();
+  });
+
   // ---- TASK-43 AC#1: No auto hash update on edit ----
 
   it("TASK-43 AC#1: editing subgraphs, queries, variables, and seed does NOT update location.hash", async () => {
@@ -1436,5 +1586,26 @@ describe("App", () => {
     expect(calledUrl).toBe("http://localhost/" + expectedHash);
 
     vi.useRealTimers();
+  });
+
+  // ---- TASK-45 AC#6: Drag handles have a visible hover state ----
+
+  it("TASK-45 AC#6: separator elements carry resize-handle class and hover CSS rule is defined", () => {
+    render(<App />);
+
+    // All separators must carry the .resize-handle class so CSS can style them.
+    // react-resizable-panels renders separators with role="separator" and passes
+    // through the className prop — it does NOT add its own .rp-Separator class.
+    const separators = Array.from(document.querySelectorAll('[role="separator"].resize-handle'));
+    expect(separators.length).toBeGreaterThan(0);
+
+    // A <style> block must exist with a .resize-handle:hover rule that changes
+    // the background from transparent to an opaque color (e.g. #d1d5db).
+    const styleEls = document.querySelectorAll("style");
+    const hoverRule = Array.from(styleEls)
+      .map((s) => s.textContent ?? "")
+      .join("\n")
+      .includes(".resize-handle:hover");
+    expect(hoverRule).toBe(true);
   });
 });

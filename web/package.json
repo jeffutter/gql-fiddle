@@ -14,6 +14,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@bokuweb/zstd-wasm": "^0.0.27",
     "@monaco-editor/react": "^4.7.0",
     "graphql": "^16.14.2",
     "monaco-editor": "^0.55.1",
@@ -21,6 +22,7 @@
     "pako": "^2.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-resizable-panels": "^4.11.2",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
