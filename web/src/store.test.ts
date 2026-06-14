@@ -102,6 +102,26 @@ describe("workspace store", () => {
       expect(after.activeQueryTab).toBe(1);
     });
 
+    it("removeQueryTab on a tab BEFORE the active tab shifts activeQueryTab left", () => {
+      useWorkspace.getState().addQueryTab(); // Query 2
+      useWorkspace.getState().addQueryTab(); // Query 3
+      useWorkspace.getState().setActiveQueryTab(2); // active = Query 3
+      useWorkspace.getState().removeQueryTab(0); // remove Query 1
+      const after = useWorkspace.getState();
+      expect(after.queryTabs.map((t) => t.name)).toEqual(["Query 2", "Query 3"]);
+      expect(after.activeQueryTab).toBe(1); // still on Query 3, now at index 1
+    });
+
+    it("removeQueryTab on a tab AFTER the active tab leaves activeQueryTab unchanged", () => {
+      useWorkspace.getState().addQueryTab(); // Query 2
+      useWorkspace.getState().addQueryTab(); // Query 3
+      useWorkspace.getState().setActiveQueryTab(0); // active = Query 1
+      useWorkspace.getState().removeQueryTab(2); // remove Query 3
+      const after = useWorkspace.getState();
+      expect(after.queryTabs.map((t) => t.name)).toEqual(["Query 1", "Query 2"]);
+      expect(after.activeQueryTab).toBe(0); // still on Query 1
+    });
+
     it("removeQueryTab on the only remaining tab replaces it with a default empty tab", () => {
       useWorkspace.getState().removeQueryTab(0);
       const after = useWorkspace.getState();
