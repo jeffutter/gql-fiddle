@@ -1,11 +1,11 @@
 ---
 id: TASK-45
 title: 'Revamp pane sizing: draggable splits, Query Plan default, remove SDL show/hide'
-status: In Progress
+status: Done
 assignee:
   - developer
 created_date: '2026-06-12 20:46'
-updated_date: '2026-06-14 00:44'
+updated_date: '2026-06-14 05:33'
 labels:
   - ux
   - layout
@@ -40,19 +40,9 @@ Prefer a lightweight drag-divider implementation or a small focused library (e.g
 - [x] #3 The vertical split between the top and bottom rows can be dragged to resize.
 - [x] #4 The horizontal split between the subgraph editor and the SDL/plan pane can be dragged to resize.
 - [x] #5 The horizontal splits between the query, variables, and results panes can be dragged to resize.
-- [ ] #6 Drag handles have a visible hover state so they are discoverable.
-- [ ] #7 All existing tests continue to pass.
+- [x] #6 Drag handles have a visible hover state so they are discoverable.
+- [x] #7 All existing tests continue to pass.
 <!-- AC:END -->
-
-
-
-
-
-
-
-
-
-
 
 ## Implementation Plan
 
@@ -264,6 +254,12 @@ From research brief:
 **Risk 4: Panel default sizing for 3-pane bottom row**
 - Three panels need sizes summing to 100: `33.34 + 33.33 + 33.33 = 100`. The library normalizes these, but verify in testing that no panel receives 0% initially.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Completed. Replaced CSS Grid with react-resizable-panels (Group/Panel/Separator) across all three split regions. Removed the supergraphCollapsed Show/Hide toggle (SDL always visible when tab active). Changed default rightTab from "sdl" to "plan" so Query Plan shows on load. Added SEPARATOR_CSS with .resize-handle:hover rule (transparent → #d1d5db) rendered via a <style> tag. Polyfilled ResizeObserver in setupTests.tsx for JSDOM. Updated all 8 tests that previously clicked "▶ Show" to click the Supergraph SDL tab instead; fixed the plan mock to return { ok: false, errors: [] } so the plan tab never crashes; rewrote TASK-45 AC#1 test to assert the SDL content area renders without a toggle gate. All 92 tests pass; pnpm tsc --noEmit, pnpm lint, and prettier all pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Notes
 
