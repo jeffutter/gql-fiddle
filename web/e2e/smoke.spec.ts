@@ -55,8 +55,8 @@ test("compose → query → results smoke test", async ({ page }) => {
   // Set subgraph 1 SDL (users)
   await setMonacoContent(page, "subgraph-editor", SUBGRAPH_USERS);
 
-  // Add a second subgraph (store auto-switches activeSubgraph to the new index)
-  await page.getByRole("button", { name: "+" }).click();
+  // Add a second subgraph (use the testid to avoid ambiguity with the query-tab "+" button)
+  await page.getByTestId("subgraph-add-btn").click();
 
   // Set subgraph 2 SDL (reviews — extends User entity from subgraph 1)
   await setMonacoContent(page, "subgraph-editor", SUBGRAPH_REVIEWS);
