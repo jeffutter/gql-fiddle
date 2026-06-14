@@ -75,6 +75,7 @@ function emitLines(node: PlanNode, flattenPath?: string[]): string[] {
       if (node.requires && node.requires.length > 0) {
         lines.push(`  Note right of ${node.service}: requires: ${formatRequires(node.requires)}`);
       }
+      lines.push(`  ${node.service}-->>Router: ${label}`);
       return lines;
     }
 

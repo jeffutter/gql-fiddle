@@ -25,6 +25,36 @@ describe("planToMermaid", () => {
     expect(result).toContain("Router->>users: me");
   });
 
+  it("single Fetch — emits response arrow back to Router", () => {
+    const result = planToMermaid(FETCH_USERS);
+    expect(result).toContain("users-->>Router: me");
+    const lines = result.split("\n");
+    const reqIdx = lines.findIndex((l) => l.includes("Router->>users:"));
+    const resIdx = lines.findIndex((l) => l.includes("users-->>Router:"));
+    expect(resIdx).toBeGreaterThan(reqIdx);
+  });
+
+  it("Parallel two Fetches — each branch has its own response arrow inside par block", () => {
+    const node: PlanNode = {
+      kind: "Parallel",
+      nodes: [FETCH_USERS, FETCH_REVIEWS],
+    };
+    const result = planToMermaid(node);
+    expect(result).toContain("users-->>Router: me");
+    expect(result).toContain("reviews-->>Router: topProducts");
+    // Response arrows should appear inside the par/end block
+    const lines = result.split("\n");
+    const parIdx = lines.findIndex((l) => l.trimEnd() === "  par");
+    const endIdx =
+      lines.length - 1 - [...lines].reverse().findIndex((l: string) => l.trimEnd() === "  end");
+    const usersResIdx = lines.findIndex((l) => l.includes("users-->>Router:"));
+    const reviewsResIdx = lines.findIndex((l) => l.includes("reviews-->>Router:"));
+    expect(usersResIdx).toBeGreaterThan(parIdx);
+    expect(usersResIdx).toBeLessThan(endIdx);
+    expect(reviewsResIdx).toBeGreaterThan(parIdx);
+    expect(reviewsResIdx).toBeLessThan(endIdx);
+  });
+
   it("Sequence of two Fetches — both arrows appear in order", () => {
     const node: PlanNode = {
       kind: "Sequence",
