@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  check:
+  rust-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,12 +21,47 @@ jobs:
       - name: Rust tests (native)
         run: nix develop -c cargo test
 
-      # WASM build + headless browser tests (CI only — too slow for git hooks).
-      # Use the web build:wasm script so the --out-dir (web/src/wasm) stays in one place.
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # Use the web build:wasm script so the --out-dir (web/src/wasm) stays in
+      # one place. Only needs wasm-pack/cargo — no pnpm install required.
       - name: WASM build
         run: nix develop -c bash -c "cd web && pnpm build:wasm"
+      - name: Upload WASM bindings
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-bindings
+          path: web/src/wasm
+
+  wasm-browser-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # WASM headless browser tests — CI only (too slow for git hooks).
+      # Separate wasm-bindgen-test harness build, independent of wasm-build.
       - name: WASM tests
         run: nix develop -c wasm-pack test --headless --chrome crates/gql-core
+
+  web-checks:
+    needs: wasm-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Download WASM bindings
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-bindings
+          path: web/src/wasm
 
       - name: Web install
         run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
@@ -36,5 +71,21 @@ jobs:
         run: nix develop -c bash -c "cd web && pnpm tsc --noEmit"
       - name: Web tests
         run: nix develop -c bash -c "cd web && pnpm test run"
+
+  e2e:
+    needs: wasm-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Download WASM bindings
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-bindings
+          path: web/src/wasm
+
+      - name: Web install
+        run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
       - name: Web e2e tests
         run: nix develop -c bash -c "cd web && pnpm e2e"
