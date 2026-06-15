@@ -17,7 +17,6 @@ jobs:
           shared-key: rust-checks
           workspaces: ". -> target"
 
-      # Everything runs inside the flake so tool versions match local hooks.
       - name: Rust format
         run: nix develop -c cargo fmt --check
       - name: Rust clippy
@@ -36,8 +35,6 @@ jobs:
           shared-key: wasm-build
           workspaces: ". -> target"
 
-      # Use the web build:wasm script so the --out-dir (web/src/wasm) stays in
-      # one place. Only needs wasm-pack/cargo — no pnpm install required.
       - name: WASM build
         run: nix develop -c bash -c "cd web && pnpm build:wasm"
       - name: Upload WASM bindings
@@ -123,3 +120,52 @@ jobs:
         run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
       - name: Web e2e tests
         run: nix develop -c bash -c "cd web && pnpm e2e"
+
+  deploy:
+    needs: [rust-checks, wasm-build, wasm-browser-tests, web-checks, e2e]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Download WASM bindings
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-bindings
+          path: web/src/wasm
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(nix develop -c bash -c 'cd web && pnpm store path' | tail -n1)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Web install
+        run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
+      - name: Web build
+        run: nix develop -c bash -c "cd web && pnpm build"
+
+      # Idempotent: fails (harmlessly) once the project already exists.
+      - name: Ensure Cloudflare Pages project exists
+        uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create gql-fiddle --production-branch=main
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web/dist --project-name=gql-fiddle --branch=main --commit-dirty=true
