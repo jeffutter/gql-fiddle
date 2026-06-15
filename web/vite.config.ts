@@ -7,6 +7,17 @@ import topLevelAwait from "vite-plugin-top-level-await";
 // `wasm-pack build --target web` emits into web/src/wasm/.
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait()],
+  resolve: {
+    alias: {
+      // Mermaid's source modules use a d3-color pattern that relies on
+      // function-declaration hoisting; Rollup's production bundling emits
+      // it as an assignment instead, breaking the hoist and throwing
+      // "Cannot set properties of undefined (setting 'prototype')" at
+      // runtime. Mermaid's pre-bundled ESM build doesn't have this issue.
+      // https://github.com/mermaid-js/mermaid/issues/5453
+      mermaid: `${import.meta.dirname}/node_modules/mermaid/dist/mermaid.esm.min.mjs`,
+    },
+  },
   // monaco-graphql's worker entry uses code-splitting, which the default
   // "iife" worker format doesn't support — bundle workers as ES modules.
   worker: {
