@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PlanNode } from "./core/types";
 import { planToMermaid } from "./planToMermaid";
+import { MERMAID_THEME_VARIABLES } from "./monacoTheme";
 
 // Rendering approach: Mermaid is dynamically imported on first render so the
 // ~200 KB library stays out of the initial bundle. mermaid.initialize() is
@@ -22,7 +23,11 @@ export function SequenceDiagram({ node }: { node: PlanNode }) {
       try {
         const mermaid = (await import("mermaid")).default;
         if (!mermaidInitialized) {
-          mermaid.initialize({ startOnLoad: false, theme: "default" });
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: "base",
+            themeVariables: MERMAID_THEME_VARIABLES,
+          });
           mermaidInitialized = true;
         }
         const definition = planToMermaid(node);
@@ -46,7 +51,7 @@ export function SequenceDiagram({ node }: { node: PlanNode }) {
 
   if (error) {
     return (
-      <div style={{ color: "#dc2626", fontSize: 13, padding: 8 }}>
+      <div className="callout callout--error" style={{ margin: 8 }}>
         Failed to render sequence diagram: {error}
       </div>
     );

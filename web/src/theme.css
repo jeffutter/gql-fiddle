@@ -1,0 +1,578 @@
+/*
+ * GraphQL Playground — "Ink at Night" theme
+ * ------------------------------------------
+ * A warm-neutral dark theme with a single GraphQL-magenta accent.
+ *
+ * The whole palette lives in the design tokens below. Components reference the
+ * tokens only — never hardcode a color in a component. To re-skin the app (e.g.
+ * swap the accent, or add a light theme), change tokens here, nothing else.
+ */
+
+/* ========================================================================== *
+ * Design tokens
+ * ========================================================================== */
+:root {
+  /* Surfaces — deep "messenger navy", layered light-to-dark */
+  --bg: #0f1826; /* app background (deepest) */
+  --surface: #16243a; /* editors, code blocks, cards */
+  --surface-2: #1e3050; /* raised: active tabs, hover, insets */
+  --surface-3: #294063; /* highest: pressed, notes */
+
+  /* Borders */
+  --border: #26384f; /* default hairline */
+  --border-strong: #3a557a; /* emphasized / interactive */
+
+  /* Text — cool off-white ink on navy */
+  --text: #e7edf6; /* primary */
+  --text-muted: #9aabc4; /* secondary, labels */
+  --text-faint: #607290; /* placeholders, line numbers */
+
+  /* Accent — mustard yellow. Used sparingly: primary action, active, focus. */
+  --accent: #e3b341;
+  --accent-hover: #f1c75a;
+  --accent-contrast: #14223a; /* text on a solid accent fill */
+  --accent-soft: rgba(227, 179, 65, 0.16);
+
+  /* Status colors, each with a soft fill + border for callouts/badges */
+  --success: #57b98a;
+  --danger: #ef7a68;
+  --danger-soft: rgba(239, 122, 104, 0.14);
+  --danger-border: rgba(239, 122, 104, 0.45);
+  --warning: #e3b341;
+  --warning-soft: rgba(227, 179, 65, 0.14);
+  --warning-border: rgba(227, 179, 65, 0.45);
+
+  /* Geometry */
+  --radius: 8px;
+  --radius-sm: 5px;
+
+  /* Elevation */
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.55);
+
+  /* Type */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+}
+
+/* ========================================================================== *
+ * Base
+ * ========================================================================== */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Skeuomorphic touch: a faint paper grain over the whole app. Fixed, behind
+ * content, non-interactive. Subtle enough to feel tactile, not noisy. */
+.app {
+  position: relative;
+}
+.app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* Keep real content above the grain. */
+.app > * {
+  position: relative;
+  z-index: 1;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Scrollbars — slim, theme-matched. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: padding-box;
+}
+
+/* ========================================================================== *
+ * Layout primitives
+ * ========================================================================== */
+
+/* A vertical column: header/label on top, scrollable body filling the rest. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 26px;
+  margin-bottom: 6px;
+}
+
+/* Right-aligned cluster of actions in a panel header. */
+.panel__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* Scrollable region inside a panel. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Section title — small uppercase tracked label, the dev-tool convention. */
+.section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.spacer {
+  margin-left: auto;
+}
+
+/* ========================================================================== *
+ * Buttons
+ * ========================================================================== */
+
+/* Ghost button — the default. Quiet until hovered. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+.btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.btn:disabled {
+  color: var(--text-faint);
+  background: transparent;
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+/* Primary action (Run). Solid accent fill. */
+.btn--primary {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn--primary:hover:not(:disabled) {
+  color: var(--accent-contrast);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btn--primary:disabled {
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+/* Square icon button (e.g. the "+" that adds a tab). */
+.btn--icon {
+  padding: 4px 8px;
+  min-width: 28px;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Transient success feedback (e.g. "Copied!"). */
+.btn.is-success {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+/* ========================================================================== *
+ * Tabs
+ * ========================================================================== */
+.tab-strip {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin: 4px 0;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+.tab:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.tab.is-active {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The "×" close affordance inside a tab. */
+.tab__close {
+  display: inline-flex;
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.tab__close:hover {
+  color: var(--danger);
+}
+.tab.is-active .tab__close {
+  color: var(--text-muted);
+}
+
+/* Inline rename field shown inside a tab. */
+.tab__rename {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: none;
+  outline: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 0 3px;
+}
+
+/* ========================================================================== *
+ * Inputs
+ * ========================================================================== */
+.input {
+  padding: 4px 8px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.input--seed {
+  width: 72px;
+}
+
+.field-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ========================================================================== *
+ * Editors & code surfaces
+ * ========================================================================== */
+
+/* Wrapper around a Monaco editor — gives it a card surface + border so it reads
+ * as a distinct, framed region instead of floating on the background. */
+.editor {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* Monospace block for rendered SDL, JSON results, etc. */
+.code-block {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.code-block--stale {
+  color: var(--text-faint);
+}
+
+/* ========================================================================== *
+ * Callouts, badges, hints
+ * ========================================================================== */
+.callout {
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.callout--error {
+  color: var(--text);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  border-left-width: 3px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.badge--warning {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
+}
+.badge--neutral {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+/* Muted helper text and empty-state placeholders. */
+.hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+.empty-state {
+  height: 100%;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-faint);
+  margin: 0;
+  padding: 16px;
+}
+
+/* Monospace error rendering (preserves box-drawing alignment). */
+.error-pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin: 0;
+  color: var(--text);
+}
+
+/* ========================================================================== *
+ * Query plan tree
+ * ========================================================================== */
+.plan-node {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.plan-node__label {
+  color: var(--text);
+}
+.plan-node__label strong {
+  font-weight: 700;
+}
+.plan-node__service {
+  color: var(--accent);
+}
+.plan-node__meta {
+  color: var(--text-muted);
+}
+.plan-node__op {
+  margin: 3px 0 6px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ========================================================================== *
+ * Resize handles (react-resizable-panels)
+ * ========================================================================== */
+/* Gutters between panels. The library renders zero-size handles, so we give them
+ * a fixed cross-axis size (per aria-orientation) to keep adjacent editor cards
+ * apart, plus a centered grab indicator that lights up on hover/drag. */
+.resize-handle {
+  position: relative;
+  flex: 0 0 auto;
+  background: transparent;
+}
+.resize-handle[aria-orientation="vertical"] {
+  width: 10px;
+}
+.resize-handle[aria-orientation="horizontal"] {
+  height: 10px;
+}
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  background: var(--border);
+  border-radius: 999px;
+  transition: background-color 0.15s ease;
+}
+.resize-handle[aria-orientation="vertical"]::after {
+  width: 2px;
+  height: 30px;
+}
+.resize-handle[aria-orientation="horizontal"]::after {
+  height: 2px;
+  width: 30px;
+}
+.resize-handle:hover::after,
+.resize-handle[data-separator="active"]::after,
+.resize-handle.dragging::after {
+  background: var(--accent);
+}
+
+/* ========================================================================== *
+ * Mobile bottom tab bar
+ * ========================================================================== */
+.mobile-tabbar {
+  display: flex;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.mobile-tab {
+  flex: 1;
+  padding: 12px 4px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-top: 2px solid transparent;
+  cursor: pointer;
+}
+.mobile-tab.is-active {
+  color: var(--text);
+  background: var(--surface-2);
+  border-top-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ========================================================================== *
+ * Full-screen "Select text" overlay (mobile)
+ * ========================================================================== */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: var(--bg);
+}
+.overlay__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+.overlay__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.overlay__textarea {
+  flex: 1;
+  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: none;
+}
+.overlay__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}

@@ -15,21 +15,31 @@ import type { WorkspacePayload } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
 import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
+import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
 
 const COMPOSE_DEBOUNCE_MS = 300;
 
-const SEPARATOR_CSS =
-  ".resize-handle { background: transparent; transition: background-color 0.15s ease; } " +
-  ".resize-handle:hover, .resize-handle.dragging { background: #d1d5db; }";
+// Shared Monaco options for a clean, minimal editor: no minimap clutter,
+// breathing room, theme-matched mono font. Spread and extend per editor.
+const EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions = {
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  overviewRulerLanes: 0,
+  padding: { top: 10, bottom: 10 },
+  fontSize: 13,
+  fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
+  smoothScrolling: true,
+  scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+};
 
 const isBoxDrawingLine = (line: string) => /[─-╿]/.test(line);
 
 function ErrorMessage({ text }: { text: string }) {
   return (
-    <pre style={{ fontFamily: "monospace", fontSize: 13, margin: 0 }}>
+    <pre className="error-pre">
       {text.split("\n").map((line, i) => (
         <span
           key={i}
@@ -89,25 +99,6 @@ function diagnosticToMarker(
         : monacoInstance.MarkerSeverity.Warning,
   };
 }
-
-const SELECT_TEXT_BTN: React.CSSProperties = {
-  padding: "2px 8px",
-  fontSize: 12,
-  border: "1px solid #d1d5db",
-  borderRadius: 4,
-  cursor: "pointer",
-  background: "transparent",
-  color: "#6b7280",
-};
-
-const TAB_BTN = (active: boolean): React.CSSProperties => ({
-  backgroundColor: active ? "#e5e7eb" : "transparent",
-  border: "1px solid #d1d5db",
-  borderRadius: 4,
-  padding: "4px 8px",
-  cursor: "pointer",
-  fontSize: 13,
-});
 
 export default function App() {
   const {
@@ -386,32 +377,13 @@ export default function App() {
 
   // Shared JSX fragments used by both layouts.
   const subgraphTabStrip = (
-    <nav
-      style={{
-        display: "flex",
-        gap: 4,
-        flexShrink: 0,
-        margin: "4px 0",
-        overflowX: "auto",
-      }}
-    >
+    <nav className="tab-strip">
       {subgraphs.map((sg, i) => (
         <button
           key={i}
           onClick={() => setActiveSubgraph(i)}
           aria-pressed={i === activeSubgraph}
-          style={{
-            backgroundColor: i === activeSubgraph ? "#e5e7eb" : "transparent",
-            border: "1px solid #d1d5db",
-            borderRadius: 4,
-            padding: "4px 8px",
-            cursor: "pointer",
-            fontSize: 13,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            flexShrink: 0,
-          }}
+          className={i === activeSubgraph ? "tab is-active" : "tab"}
         >
           {renamingIndex === i ? (
             <input
@@ -435,14 +407,7 @@ export default function App() {
                 }
                 e.stopPropagation();
               }}
-              style={{
-                fontSize: 13,
-                border: "none",
-                outline: "1px solid #2563eb",
-                borderRadius: 2,
-                padding: "0 2px",
-                background: "white",
-              }}
+              className="tab__rename"
             />
           ) : (
             <span
@@ -461,10 +426,7 @@ export default function App() {
               e.stopPropagation();
               removeSubgraph(i);
             }}
-            style={{
-              cursor: "pointer",
-              color: i === activeSubgraph ? "#1f2937" : "#6b7280",
-            }}
+            className="tab__close"
           >
             ×
           </span>
@@ -472,6 +434,7 @@ export default function App() {
       ))}
       <button
         data-testid="subgraph-add-btn"
+        className="btn btn--icon"
         onClick={() => {
           let n = 1;
           while (subgraphs.some((s) => s.name === `subgraph-${n}`)) n++;
@@ -484,12 +447,15 @@ export default function App() {
   );
 
   const subgraphEditor = (
-    <div data-testid="subgraph-editor" style={{ flex: 1, minHeight: 0 }}>
+    <div data-testid="subgraph-editor" className="editor">
       <Editor
         path={`sg-${activeSubgraph}`}
         value={subgraphs[activeSubgraph]?.sdl ?? ""}
-        language="plaintext"
+        language="graphql"
         height="100%"
+        theme={MONACO_THEME}
+        beforeMount={(m) => defineMonacoTheme(m)}
+        options={EDITOR_OPTIONS}
         onChange={(value) => setSubgraphSdl(activeSubgraph, value ?? "")}
         onMount={(ed, m) => {
           setEditor(ed);
@@ -500,24 +466,13 @@ export default function App() {
   );
 
   const queryTabStrip = (
-    <nav style={{ display: "flex", gap: 4, flexShrink: 0, margin: "4px 0", overflowX: "auto" }}>
+    <nav className="tab-strip">
       {queryTabs.map((tab, i) => (
         <button
           key={i}
           onClick={() => setActiveQueryTab(i)}
           aria-pressed={i === activeQueryTab}
-          style={{
-            backgroundColor: i === activeQueryTab ? "#e5e7eb" : "transparent",
-            border: "1px solid #d1d5db",
-            borderRadius: 4,
-            padding: "4px 8px",
-            cursor: "pointer",
-            fontSize: 13,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            flexShrink: 0,
-          }}
+          className={i === activeQueryTab ? "tab is-active" : "tab"}
         >
           {renamingQueryTab === i ? (
             <input
@@ -541,14 +496,7 @@ export default function App() {
                 }
                 e.stopPropagation();
               }}
-              style={{
-                fontSize: 13,
-                border: "none",
-                outline: "1px solid #2563eb",
-                borderRadius: 2,
-                padding: "0 2px",
-                background: "white",
-              }}
+              className="tab__rename"
             />
           ) : (
             <span
@@ -567,42 +515,33 @@ export default function App() {
               e.stopPropagation();
               removeQueryTab(i);
             }}
-            style={{
-              cursor: "pointer",
-              color: i === activeQueryTab ? "#1f2937" : "#6b7280",
-            }}
+            className="tab__close"
           >
             ×
           </span>
         </button>
       ))}
-      <button onClick={() => addQueryTab()}>+</button>
+      <button className="btn btn--icon" onClick={() => addQueryTab()}>
+        +
+      </button>
     </nav>
   );
 
   const sdlContent = (
-    <div style={{ flex: 1, overflow: "auto" }}>
+    <div className="scroll">
       {compose === null ? (
-        <pre style={{ whiteSpace: "pre-wrap" }}>Loading core…</pre>
+        <pre className="code-block">Loading core…</pre>
       ) : compose.ok ? (
         <>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{compose.supergraph_sdl}</pre>
-          <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>
+          <pre className="code-block">{compose.supergraph_sdl}</pre>
+          <p className="hint">
             Composition:{" "}
             {compose.hints.length === 0 ? "0 errors" : `0 errors, ${compose.hints.length} hints`}
           </p>
         </>
       ) : (
         <>
-          <div
-            style={{
-              backgroundColor: "#fee2e2",
-              borderLeft: "3px solid #dc2626",
-              padding: 8,
-              borderRadius: 4,
-              marginBottom: 8,
-            }}
-          >
+          <div className="callout callout--error" style={{ marginBottom: 8 }}>
             {compose.errors.map((e, i) => (
               <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
             ))}
@@ -610,25 +549,15 @@ export default function App() {
           {supergraphSdl !== null ? (
             <>
               <span
-                style={{
-                  backgroundColor: "#fef3c7",
-                  color: "#92400e",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #fcd34d",
-                  marginBottom: 4,
-                }}
+                className="badge badge--warning"
+                style={{ marginBottom: 4, display: "inline-block" }}
               >
                 stale
               </span>
-              <pre style={{ whiteSpace: "pre-wrap", opacity: 0.5, color: "#6b7280" }}>
-                {supergraphSdl}
-              </pre>
+              <pre className="code-block code-block--stale">{supergraphSdl}</pre>
             </>
           ) : (
-            <pre style={{ whiteSpace: "pre-wrap" }}>No valid composition yet</pre>
+            <pre className="code-block">No valid composition yet</pre>
           )}
         </>
       )}
@@ -636,20 +565,13 @@ export default function App() {
   );
 
   const planContent = (
-    <div style={{ flex: 1, overflow: "auto" }}>
+    <div className="scroll">
       {planResult === null ? (
-        <p style={{ fontSize: 13, color: "#6b7280" }}>Run a query to see the plan.</p>
+        <p className="empty-state">Run a query to see the plan.</p>
       ) : planResult.ok ? (
         <PlanTree node={planResult.query_plan} />
       ) : (
-        <div
-          style={{
-            backgroundColor: "#fee2e2",
-            borderLeft: "3px solid #dc2626",
-            padding: 8,
-            borderRadius: 4,
-          }}
-        >
+        <div className="callout callout--error">
           {planResult.errors.map((e, i) => (
             <ErrorMessage key={i} text={e.message} />
           ))}
@@ -659,20 +581,13 @@ export default function App() {
   );
 
   const sequenceContent = (
-    <div style={{ flex: 1, overflow: "auto" }}>
+    <div className="scroll">
       {planResult === null ? (
-        <p style={{ fontSize: 13, color: "#6b7280" }}>Run a query to see the sequence diagram.</p>
+        <p className="empty-state">Run a query to see the sequence diagram.</p>
       ) : planResult.ok ? (
         <SequenceDiagram node={planResult.query_plan} />
       ) : (
-        <div
-          style={{
-            backgroundColor: "#fee2e2",
-            borderLeft: "3px solid #dc2626",
-            padding: 8,
-            borderRadius: 4,
-          }}
-        >
+        <div className="callout callout--error">
           {planResult.errors.map((e, i) => (
             <ErrorMessage key={i} text={e.message} />
           ))}
@@ -682,34 +597,14 @@ export default function App() {
   );
 
   const resultsContent = (
-    <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+    <div className="scroll">
       {mockResult === null ? (
-        <p style={{ fontSize: 13, color: "#6b7280" }}>No results yet. Click Run.</p>
+        <p className="empty-state">No results yet. Click Run.</p>
       ) : (
         <>
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              backgroundColor: "#f9fafb",
-              border: "1px solid #e5e7eb",
-              borderRadius: 4,
-              padding: 8,
-              fontSize: 13,
-              margin: 0,
-            }}
-          >
-            {JSON.stringify(mockResult.data, null, 2)}
-          </pre>
+          <pre className="code-block">{JSON.stringify(mockResult.data, null, 2)}</pre>
           {(mockResult.errors?.length ?? 0) > 0 && (
-            <div
-              style={{
-                backgroundColor: "#fee2e2",
-                borderLeft: "3px solid #dc2626",
-                padding: 8,
-                borderRadius: 4,
-                marginTop: 8,
-              }}
-            >
+            <div className="callout callout--error" style={{ marginTop: 8 }}>
               {mockResult.errors!.map((e, i) => (
                 <ErrorMessage key={i} text={e.message} />
               ))}
@@ -722,7 +617,7 @@ export default function App() {
 
   const seedAndRun = (
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-      <label htmlFor="seed-input" style={{ fontSize: 13 }}>
+      <label htmlFor="seed-input" className="field-label">
         Seed:
       </label>
       <input
@@ -730,27 +625,9 @@ export default function App() {
         type="number"
         value={seed}
         onChange={(e) => setSeed(Number(e.target.value))}
-        style={{
-          width: 80,
-          padding: "4px 6px",
-          border: "1px solid #d1d5db",
-          borderRadius: 4,
-          fontSize: 13,
-        }}
+        className="input input--seed"
       />
-      <button
-        onClick={runQuery}
-        disabled={supergraphSdl === null}
-        style={{
-          padding: "4px 12px",
-          backgroundColor: supergraphSdl === null ? "#d1d5db" : "#2563eb",
-          color: supergraphSdl === null ? "#6b7280" : "white",
-          border: "none",
-          borderRadius: 4,
-          cursor: supergraphSdl === null ? "not-allowed" : "pointer",
-          fontSize: 13,
-        }}
-      >
+      <button onClick={runQuery} disabled={supergraphSdl === null} className="btn btn--primary">
         Run
       </button>
     </div>
@@ -759,8 +636,7 @@ export default function App() {
   if (isMobile) {
     return (
       <>
-        <style>{SEPARATOR_CSS}</style>
-        <div style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
+        <div className="app" style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
           {/* Content area */}
           <div
             style={{
@@ -775,37 +651,13 @@ export default function App() {
               <div
                 style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <h2 style={{ margin: 0 }}>Subgraphs</h2>
-                  <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                    <button
-                      onClick={copyForLLM}
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 12,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        background: "transparent",
-                        color: copied ? "#16a34a" : "#6b7280",
-                        borderColor: copied ? "#86efac" : "#d1d5db",
-                      }}
-                    >
+                <div className="panel__header">
+                  <h2 className="section-title">Subgraphs</h2>
+                  <div className="panel__actions">
+                    <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
                       {copied ? "Copied!" : "Copy for LLM"}
                     </button>
-                    <button
-                      onClick={copyShareUrl}
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 12,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        background: "transparent",
-                        color: copied ? "#16a34a" : "#6b7280",
-                        borderColor: copied ? "#86efac" : "#d1d5db",
-                      }}
-                    >
+                    <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
                       {copied ? "Copied!" : "Share"}
                     </button>
                     <button
@@ -818,15 +670,7 @@ export default function App() {
                           resetToDefaults();
                         }
                       }}
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 12,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        background: "transparent",
-                        color: "#6b7280",
-                      }}
+                      className="btn"
                     >
                       Reset
                     </button>
@@ -842,7 +686,7 @@ export default function App() {
                         onEdit: (v) => setSubgraphSdl(activeSubgraph, v),
                       })
                     }
-                    style={SELECT_TEXT_BTN}
+                    className="btn"
                   >
                     Select text
                   </button>
@@ -861,7 +705,9 @@ export default function App() {
                   gap: 4,
                 }}
               >
-                <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Query</h2>
+                <h2 className="section-title" style={{ flexShrink: 0 }}>
+                  Query
+                </h2>
                 {queryTabStrip}
                 <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
                   <button
@@ -872,25 +718,29 @@ export default function App() {
                         onEdit: (v) => setQueryTabQuery(activeQueryTab, v),
                       })
                     }
-                    style={SELECT_TEXT_BTN}
+                    className="btn"
                   >
                     Select text
                   </button>
                 </div>
-                <div data-testid="query-editor" style={{ height: "42vh", flexShrink: 0 }}>
+                <div
+                  data-testid="query-editor"
+                  className="editor"
+                  style={{ height: "42vh", flexShrink: 0 }}
+                >
                   <Editor
                     language="graphql"
                     path={`query-${activeQueryTab}.graphql`}
                     value={currentQuery}
                     onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
                     height="100%"
+                    options={EDITOR_OPTIONS}
+                    theme={MONACO_THEME}
+                    beforeMount={(m) => defineMonacoTheme(m)}
                   />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <label
-                    htmlFor="variables-editor-label"
-                    style={{ fontSize: 12, color: "#6b7280" }}
-                  >
+                  <label htmlFor="variables-editor-label" className="field-label">
                     Variables (JSON)
                   </label>
                   <button
@@ -901,40 +751,32 @@ export default function App() {
                         onEdit: (v) => setQueryTabVariables(activeQueryTab, v),
                       })
                     }
-                    style={{ ...SELECT_TEXT_BTN, marginLeft: "auto" }}
+                    className="btn"
+                    style={{ marginLeft: "auto" }}
                   >
                     Select text
                   </button>
                 </div>
-                <div style={{ flex: 1, minHeight: 0 }}>
+                <div className="editor">
                   <Editor
                     height="100%"
                     language="json"
                     path={`/variables-query-${activeQueryTab}.json`}
                     value={currentVariables}
                     onChange={(val) => setQueryTabVariables(activeQueryTab, val ?? "")}
-                    options={{ minimap: { enabled: false }, wordWrap: "on" }}
+                    options={{ ...EDITOR_OPTIONS, wordWrap: "on" }}
+                    theme={MONACO_THEME}
+                    beforeMount={(m) => defineMonacoTheme(m)}
                   />
                 </div>
                 {varError !== null && (
-                  <div
-                    role="alert"
-                    style={{
-                      backgroundColor: "#fee2e2",
-                      borderLeft: "3px solid #dc2626",
-                      color: "#991b1b",
-                      padding: "6px 10px",
-                      borderRadius: 4,
-                      fontSize: 13,
-                      flexShrink: 0,
-                    }}
-                  >
+                  <div role="alert" className="callout callout--error" style={{ flexShrink: 0 }}>
                     {varError}
                   </div>
                 )}
                 {seedAndRun}
                 {supergraphSdl === null && (
-                  <p style={{ fontSize: 12, color: "#6b7280", margin: 0, flexShrink: 0 }}>
+                  <p className="hint" style={{ flexShrink: 0 }}>
                     Run is disabled until composition succeeds.
                   </p>
                 )}
@@ -951,40 +793,32 @@ export default function App() {
                   overflow: "hidden",
                 }}
               >
-                <nav
-                  style={{
-                    display: "flex",
-                    gap: 4,
-                    flexShrink: 0,
-                    margin: "0 0 4px",
-                    overflowX: "auto",
-                  }}
-                >
+                <nav className="tab-strip">
                   <button
                     onClick={() => setRightTab("results")}
                     aria-pressed={rightTab === "results"}
-                    style={TAB_BTN(rightTab === "results")}
+                    className={rightTab === "results" ? "tab is-active" : "tab"}
                   >
                     Results
                   </button>
                   <button
                     onClick={() => setRightTab("sdl")}
                     aria-pressed={rightTab === "sdl"}
-                    style={TAB_BTN(rightTab === "sdl")}
+                    className={rightTab === "sdl" ? "tab is-active" : "tab"}
                   >
                     Supergraph SDL
                   </button>
                   <button
                     onClick={() => setRightTab("plan")}
                     aria-pressed={rightTab === "plan"}
-                    style={TAB_BTN(rightTab === "plan")}
+                    className={rightTab === "plan" ? "tab is-active" : "tab"}
                   >
                     Query Plan
                   </button>
                   <button
                     onClick={() => setRightTab("sequence")}
                     aria-pressed={rightTab === "sequence"}
-                    style={TAB_BTN(rightTab === "sequence")}
+                    className={rightTab === "sequence" ? "tab is-active" : "tab"}
                   >
                     Sequence Diagram
                   </button>
@@ -998,28 +832,13 @@ export default function App() {
           </div>
 
           {/* Mobile tab bar */}
-          <nav
-            style={{
-              display: "flex",
-              borderTop: "1px solid #e5e7eb",
-              background: "white",
-              flexShrink: 0,
-            }}
-          >
+          <nav className="mobile-tabbar">
             {(["schema", "query", "output"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setMobileTab(tab)}
                 aria-pressed={mobileTab === tab}
-                style={{
-                  flex: 1,
-                  padding: "12px 4px",
-                  border: "none",
-                  background: mobileTab === tab ? "#e5e7eb" : "transparent",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: mobileTab === tab ? 600 : 400,
-                }}
+                className={mobileTab === tab ? "mobile-tab is-active" : "mobile-tab"}
               >
                 {tab === "schema" ? "Schema" : tab === "query" ? "Query" : "Output"}
               </button>
@@ -1027,39 +846,10 @@ export default function App() {
           </nav>
         </div>
         {viewSource !== null && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 200,
-              background: "white",
-              display: "flex",
-              flexDirection: "column",
-              padding: 12,
-              boxSizing: "border-box",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 8,
-                flexShrink: 0,
-              }}
-            >
-              <span style={{ fontWeight: 600, fontSize: 15 }}>{viewSource.title}</span>
-              <button
-                onClick={() => setViewSource(null)}
-                style={{
-                  padding: "4px 14px",
-                  fontSize: 14,
-                  border: "1px solid #d1d5db",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  background: "transparent",
-                }}
-              >
+          <div className="overlay">
+            <div className="overlay__header">
+              <span className="overlay__title">{viewSource.title}</span>
+              <button onClick={() => setViewSource(null)} className="btn">
                 Done
               </button>
             </div>
@@ -1071,16 +861,7 @@ export default function App() {
                 viewSource.onEdit(v);
                 setViewSource({ ...viewSource, value: v });
               }}
-              style={{
-                flex: 1,
-                fontFamily: "monospace",
-                fontSize: 13,
-                resize: "none",
-                border: "1px solid #d1d5db",
-                borderRadius: 4,
-                padding: 8,
-                boxSizing: "border-box",
-              }}
+              className="overlay__textarea"
             />
           </div>
         )}
@@ -1089,222 +870,153 @@ export default function App() {
   }
 
   return (
-    <>
-      <style>{SEPARATOR_CSS}</style>
-      <Group
-        orientation="vertical"
-        style={{ height: "100vh", padding: 8, boxSizing: "border-box" }}
-      >
-        {/* === Top row: subgraph editor | SDL/plan === */}
-        <Panel defaultSize={50} minSize={200}>
-          <Group orientation="horizontal">
-            <Panel defaultSize={50} minSize={200}>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  minHeight: 0,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <h2 style={{ margin: 0 }}>Subgraphs</h2>
-                  <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                    <button
-                      onClick={copyForLLM}
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 12,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        background: "transparent",
-                        color: copied ? "#16a34a" : "#6b7280",
-                        borderColor: copied ? "#86efac" : "#d1d5db",
-                      }}
-                    >
-                      {copied ? "Copied!" : "Copy for LLM"}
-                    </button>
-                    <button
-                      onClick={copyShareUrl}
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 12,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        background: "transparent",
-                        color: copied ? "#16a34a" : "#6b7280",
-                        borderColor: copied ? "#86efac" : "#d1d5db",
-                      }}
-                    >
-                      {copied ? "Copied!" : "Share"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Reset all subgraphs, query, variables, and seed to defaults?",
-                          )
-                        ) {
-                          resetToDefaults();
-                        }
-                      }}
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: 12,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        background: "transparent",
-                        color: "#6b7280",
-                      }}
-                    >
-                      Reset to defaults
-                    </button>
-                  </div>
-                </div>
-                {subgraphTabStrip}
-                {subgraphEditor}
-              </div>
-            </Panel>
-            <Separator className="resize-handle" />
-            <Panel defaultSize={50} minSize={200}>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  minHeight: 0,
-                  overflow: "hidden",
-                }}
-              >
-                <nav style={{ display: "flex", gap: 4, flexShrink: 0, margin: "0 0 4px" }}>
-                  <button
-                    onClick={() => setRightTab("sdl")}
-                    aria-pressed={rightTab === "sdl"}
-                    style={TAB_BTN(rightTab === "sdl")}
-                  >
-                    Supergraph SDL
+    <Group className="app" orientation="vertical" style={{ height: "100vh", padding: 8 }}>
+      {/* === Top row: subgraph editor | SDL/plan === */}
+      <Panel defaultSize={50} minSize={200}>
+        <Group orientation="horizontal">
+          <Panel defaultSize={50} minSize={200}>
+            <div className="panel">
+              <div className="panel__header">
+                <h2 className="section-title">Subgraphs</h2>
+                <div className="panel__actions">
+                  <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
+                    {copied ? "Copied!" : "Copy for LLM"}
+                  </button>
+                  <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
+                    {copied ? "Copied!" : "Share"}
                   </button>
                   <button
-                    onClick={() => setRightTab("plan")}
-                    aria-pressed={rightTab === "plan"}
-                    style={TAB_BTN(rightTab === "plan")}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Reset all subgraphs, query, variables, and seed to defaults?",
+                        )
+                      ) {
+                        resetToDefaults();
+                      }
+                    }}
+                    className="btn"
                   >
-                    Query Plan
+                    Reset to defaults
                   </button>
-                  <button
-                    onClick={() => setRightTab("sequence")}
-                    aria-pressed={rightTab === "sequence"}
-                    style={TAB_BTN(rightTab === "sequence")}
-                  >
-                    Sequence Diagram
-                  </button>
-                </nav>
-
-                {rightTab === "sdl" && sdlContent}
-                {rightTab === "plan" && planContent}
-                {rightTab === "sequence" && sequenceContent}
-              </div>
-            </Panel>
-          </Group>
-        </Panel>
-
-        <Separator className="resize-handle" />
-
-        {/* === Bottom row: query | variables | results === */}
-        <Panel defaultSize={50} minSize={200}>
-          <Group orientation="horizontal">
-            <Panel defaultSize={33.34} minSize={150}>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  minHeight: 0,
-                }}
-              >
-                <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Query</h2>
-                {queryTabStrip}
-                <div data-testid="query-editor" style={{ flex: 1, minHeight: 0 }}>
-                  <Editor
-                    language="graphql"
-                    path={`query-${activeQueryTab}.graphql`}
-                    value={currentQuery}
-                    onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
-                    height="100%"
-                  />
                 </div>
               </div>
-            </Panel>
-            <Separator className="resize-handle" />
-            <Panel defaultSize={33.33} minSize={150}>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  gap: 8,
-                  minHeight: 0,
-                }}
-              >
-                <h2 style={{ margin: 0, flexShrink: 0 }}>Variables</h2>
-                <label
-                  htmlFor="variables-editor-label"
-                  style={{ fontSize: 12, color: "#6b7280", flexShrink: 0 }}
+              {subgraphTabStrip}
+              {subgraphEditor}
+            </div>
+          </Panel>
+          <Separator className="resize-handle" />
+          <Panel defaultSize={50} minSize={200}>
+            <div className="panel" style={{ overflow: "hidden" }}>
+              <div className="panel__header">
+                <h2 className="section-title">Output</h2>
+              </div>
+              <nav className="tab-strip">
+                <button
+                  onClick={() => setRightTab("sdl")}
+                  aria-pressed={rightTab === "sdl"}
+                  className={rightTab === "sdl" ? "tab is-active" : "tab"}
                 >
-                  Variables (JSON)
-                </label>
+                  Supergraph SDL
+                </button>
+                <button
+                  onClick={() => setRightTab("plan")}
+                  aria-pressed={rightTab === "plan"}
+                  className={rightTab === "plan" ? "tab is-active" : "tab"}
+                >
+                  Query Plan
+                </button>
+                <button
+                  onClick={() => setRightTab("sequence")}
+                  aria-pressed={rightTab === "sequence"}
+                  className={rightTab === "sequence" ? "tab is-active" : "tab"}
+                >
+                  Sequence Diagram
+                </button>
+              </nav>
+
+              {rightTab === "sdl" && sdlContent}
+              {rightTab === "plan" && planContent}
+              {rightTab === "sequence" && sequenceContent}
+            </div>
+          </Panel>
+        </Group>
+      </Panel>
+
+      <Separator className="resize-handle" />
+
+      {/* === Bottom row: query | variables | results === */}
+      <Panel defaultSize={50} minSize={200}>
+        <Group orientation="horizontal">
+          <Panel defaultSize={33.34} minSize={150}>
+            <div className="panel">
+              <h2 className="section-title" style={{ flexShrink: 0 }}>
+                Query
+              </h2>
+              {queryTabStrip}
+              <div data-testid="query-editor" className="editor">
+                <Editor
+                  language="graphql"
+                  path={`query-${activeQueryTab}.graphql`}
+                  value={currentQuery}
+                  onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
+                  height="100%"
+                  options={EDITOR_OPTIONS}
+                  theme={MONACO_THEME}
+                  beforeMount={(m) => defineMonacoTheme(m)}
+                />
+              </div>
+            </div>
+          </Panel>
+          <Separator className="resize-handle" />
+          <Panel defaultSize={33.33} minSize={150}>
+            <div className="panel" style={{ gap: 8 }}>
+              <h2 className="section-title" style={{ flexShrink: 0 }}>
+                Variables
+              </h2>
+              <label
+                htmlFor="variables-editor-label"
+                className="field-label"
+                style={{ flexShrink: 0 }}
+              >
+                Variables (JSON)
+              </label>
+              <div className="editor" style={{ flex: 1, minHeight: 0 }}>
                 <Editor
                   height="100%"
                   language="json"
                   path={`/variables-query-${activeQueryTab}.json`}
                   value={currentVariables}
                   onChange={(val) => setQueryTabVariables(activeQueryTab, val ?? "")}
-                  options={{ minimap: { enabled: false }, wordWrap: "on" }}
+                  options={{ ...EDITOR_OPTIONS, wordWrap: "on" }}
+                  theme={MONACO_THEME}
+                  beforeMount={(m) => defineMonacoTheme(m)}
                 />
-                {varError !== null && (
-                  <div
-                    role="alert"
-                    style={{
-                      backgroundColor: "#fee2e2",
-                      borderLeft: "3px solid #dc2626",
-                      color: "#991b1b",
-                      padding: "6px 10px",
-                      borderRadius: 4,
-                      fontSize: 13,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {varError}
-                  </div>
-                )}
-                {seedAndRun}
-                {supergraphSdl === null && (
-                  <p style={{ fontSize: 12, color: "#6b7280", margin: 0, flexShrink: 0 }}>
-                    Run is disabled until composition succeeds.
-                  </p>
-                )}
               </div>
-            </Panel>
-            <Separator className="resize-handle" />
-            <Panel defaultSize={33.33} minSize={150}>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  minHeight: 0,
-                }}
-              >
-                <h2 style={{ margin: "0 0 4px", flexShrink: 0 }}>Results</h2>
-                {resultsContent}
-              </div>
-            </Panel>
-          </Group>
-        </Panel>
-      </Group>
-    </>
+              {varError !== null && (
+                <div role="alert" className="callout callout--error" style={{ flexShrink: 0 }}>
+                  {varError}
+                </div>
+              )}
+              {seedAndRun}
+              {supergraphSdl === null && (
+                <p className="hint" style={{ flexShrink: 0 }}>
+                  Run is disabled until composition succeeds.
+                </p>
+              )}
+            </div>
+          </Panel>
+          <Separator className="resize-handle" />
+          <Panel defaultSize={33.33} minSize={150}>
+            <div className="panel">
+              <h2 className="section-title" style={{ flexShrink: 0 }}>
+                Results
+              </h2>
+              {resultsContent}
+            </div>
+          </Panel>
+        </Group>
+      </Panel>
+    </Group>
   );
 }

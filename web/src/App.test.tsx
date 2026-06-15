@@ -387,11 +387,12 @@ describe("App", () => {
     // The supergraph SDL should still be visible below the banner.
     expect(screen.getByText("# previous supergraph")).toBeInTheDocument();
 
-    // A <pre> element with opacity in its style attribute (grayed-out).
+    // The stale supergraph <pre> is visually distinguished via the
+    // code-block--stale class (grayed-out styling lives in theme.css).
     const pres = document.querySelectorAll("pre");
     const grayPre = Array.from(pres).find((p) => p.textContent === "# previous supergraph");
     expect(grayPre).toBeDefined();
-    expect(grayPre!.getAttribute("style")).toContain("opacity");
+    expect(grayPre!.classList.contains("code-block--stale")).toBe(true);
   });
 
   it("successful compose removes stale badge and styling (AC#2)", async () => {
@@ -1605,23 +1606,17 @@ describe("App", () => {
 
   // ---- TASK-45 AC#6: Drag handles have a visible hover state ----
 
-  it("TASK-45 AC#6: separator elements carry resize-handle class and hover CSS rule is defined", () => {
+  it("TASK-45 AC#6: separator elements carry resize-handle class for styling", () => {
     render(<App />);
 
-    // All separators must carry the .resize-handle class so CSS can style them.
-    // react-resizable-panels renders separators with role="separator" and passes
-    // through the className prop — it does NOT add its own .rp-Separator class.
+    // All separators must carry the .resize-handle class so theme.css can size
+    // them (the gutter width, per aria-orientation) and style their hover/drag
+    // state. react-resizable-panels renders separators with role="separator" and
+    // passes through the className prop. The hover/sizing rules themselves live in
+    // theme.css (imported in main.tsx, not in this JSDOM render), so we assert the
+    // class hook the CSS depends on rather than the rule text.
     const separators = Array.from(document.querySelectorAll('[role="separator"].resize-handle'));
     expect(separators.length).toBeGreaterThan(0);
-
-    // A <style> block must exist with a .resize-handle:hover rule that changes
-    // the background from transparent to an opaque color (e.g. #d1d5db).
-    const styleEls = document.querySelectorAll("style");
-    const hoverRule = Array.from(styleEls)
-      .map((s) => s.textContent ?? "")
-      .join("\n")
-      .includes(".resize-handle:hover");
-    expect(hoverRule).toBe(true);
   });
 
   // ---- TASK-46: Sequence Diagram tab ----
