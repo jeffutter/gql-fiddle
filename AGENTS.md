@@ -4,100 +4,250 @@ Guidance for AI coding agents working in this repository.
 
 ## What this is
 
-A browser-only GraphQL **federation** playground with no backend. Users author
+A browser-only GraphQL federation playground with no backend. Users author
 multiple subgraph schemas, compose them into a supergraph, inspect the query
-plan, and run queries against deterministic **mock** data — entirely client-side.
-The GraphQL logic is Rust compiled to WASM; the UI is a TypeScript/React shell.
+plan, and run queries against deterministic mock data — entirely client-side.
 
-Read `backlog/docs/doc-1 - GraphQL-Playground-Design.md` (the design) and
-`backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md` (ordered tasks,
-milestones, acceptance criteria) before non-trivial work. Work is tracked as
-Backlog.md tasks under `backlog/tasks/` — see CLAUDE.md for the workflow.
+The GraphQL brain is Rust compiled to WebAssembly (`crates/gql-core`) using
+`apollo-compiler` and `apollo-federation`. The UI is a TypeScript/React shell
+(`web/`). There is no server, no network calls, and no authentication.
 
-## Toolchain: everything runs inside the Nix flake
+---
 
-The C linker, Rust+wasm target, `wasm-bindgen`/`wasm-opt`, Node, pnpm, and
-lefthook only exist inside the dev shell. Run commands via `direnv` (auto-loads
-on `cd`) or prefix with `nix develop -c`. Outside the shell `cargo` fails with
-`linker 'cc' not found`.
+## Getting started
 
-**The flake only sees git-tracked files** — after creating a new file, `git add`
-it before `nix develop` will pick it up, or you get a confusing "not tracked"
-error.
+Everything — Rust toolchain, wasm target, wasm-pack, Node, pnpm, lefthook —
+lives inside the Nix dev shell. Outside the shell `cargo` fails with `linker
+'cc' not found`.
 
-## Common commands
-
-Rust core (`crates/gql-core`):
 ```sh
-cargo test -p gql-core                              # native unit tests
-cargo test -p gql-core <name>                       # single test by name
-cargo fmt --check                                   # pre-commit enforces this
-cargo clippy --all-targets -- -D warnings           # pre-commit enforces this
-wasm-pack test --headless --chrome crates/gql-core  # browser tests (CI only; needs Chrome)
+# Nix + direnv (auto-loads on cd)
+direnv allow      # one time; shell re-activates on every cd
+
+# Or manually
+nix develop
 ```
 
-Web shell (run from `web/`):
+**Critical gotcha:** the Nix flake only sees git-tracked files. After creating
+any new file, `git add` it before running build commands or you get a
+confusing "not tracked" error.
+
+---
+
+## Commands
+
+### Rust core
+
 ```sh
-pnpm install
-pnpm build:wasm           # build the wasm artifact into web/src/wasm/
-pnpm dev                  # initial wasm build + vite dev server + cargo-watch for rust changes
-pnpm tsc --noEmit         # typecheck (pre-commit enforces)
-pnpm lint                 # eslint (pre-commit enforces)
-pnpm test run             # vitest once
-pnpm test run <file>      # single test file
-pnpm prettier --check .   # pre-commit enforces; use --write to fix
+cargo test -p gql-core              # native unit tests (no browser)
+cargo test -p gql-core <name>       # run a single test by name
+cargo fmt --check                   # formatting (pre-commit enforces)
+cargo clippy --all-targets -- -D warnings   # linting (pre-commit enforces)
+
+# WASM browser tests — CI only (requires Chrome)
+wasm-pack test --headless --chrome crates/gql-core
 ```
 
-Git hooks (lefthook, auto-installed via `.envrc`): **pre-commit** = fmt/lint/
-typecheck on staged files; **pre-push** = `cargo test` + `pnpm test`. WASM
-browser tests are CI-only (too slow / need a browser).
+### Web shell (run from `web/`)
+
+```sh
+pnpm install                  # install JS deps
+pnpm build:wasm               # compile Rust → WASM → web/src/wasm/
+pnpm dev                      # build:wasm + Vite dev server + cargo-watch
+pnpm build                    # production build (tsc + vite)
+pnpm test run                 # vitest unit tests (once)
+pnpm test run <file>          # run a single test file
+pnpm tsc --noEmit             # typecheck (pre-commit enforces)
+pnpm lint                     # eslint (pre-commit enforces)
+pnpm prettier --check .       # formatting check; use --write to fix
+pnpm e2e                      # Playwright end-to-end tests
+```
+
+### Git hooks (lefthook)
+
+`pre-commit` runs in parallel: `cargo fmt --check`, `cargo clippy`,
+`prettier`, `eslint`, `tsc --noEmit`, `cargo test`, `pnpm test run` — all
+scoped to staged files where applicable. `pre-push` runs the full test suites.
+
+---
+
+## Repository layout
+
+```
+crates/gql-core/        Rust/WASM library
+  src/
+    lib.rs              WASM exports — thin JSON wrappers only
+    compose.rs          Subgraph composition via apollo-federation
+    validate.rs         SDL + operation validation via apollo-compiler
+    plan.rs             Query plan tree construction (visualization only)
+    mock.rs             Deterministic mock execution
+    api_schema.rs       Derive client-facing API schema from supergraph
+    dto.rs              Serde types for the JS↔Rust boundary
+  tests/
+    wasm.rs             Browser smoke tests (CI only)
+
+web/
+  src/
+    App.tsx             Root component — layout, editors, all UI wiring
+    store.ts            Zustand workspace store (persisted to localStorage)
+    share.ts            URL encode/decode (gzip + base64url)
+    PlanTree.tsx        Query plan tree renderer
+    SequenceDiagram.tsx Mermaid sequence diagram renderer
+    planToMermaid.ts    PlanNode → Mermaid sequenceDiagram text
+    core/
+      index.ts          loadCore() — lazy WASM loader + typed wrapper
+      types.ts          TypeScript mirror of dto.rs types
+    wasm/               Generated by wasm-pack (not committed)
+  e2e/                  Playwright tests
+```
+
+---
 
 ## Architecture
 
-**The JS↔Rust boundary is JSON strings.** Every `#[wasm_bindgen]` export in
-`crates/gql-core/src/lib.rs` takes JSON in and returns a JSON envelope out.
-`lib.rs` functions are thin wrappers; real logic lives in sibling modules
-(`compose`, `validate`, `plan`, `mock`) as plain Rust returning
-`serde_json::Value`, so native `cargo test` exercises it without a browser.
-`dto.rs` holds the boundary serde types; `web/src/core/types.ts` is the TS
-mirror. **The UI depends only on these shapes, never on apollo-federation's
-internal types** — Apollo API churn stays contained in the wrapper modules.
+### JS↔Rust boundary
 
-**No function panics on bad input.** Malformed schemas/queries are normal
-outcomes returned as error envelopes (`{ ok: false, errors }` /
-`{ diagnostics }`), not exceptions. A `console_error_panic_hook` is only a
-last-resort net.
+Every `#[wasm_bindgen]` export takes a JSON string and returns a JSON string.
+The five exports:
 
-**No federated execution.** Because data is mocked, the query plan is *not*
-executed across subgraphs. The flow is: `compose` subgraphs → supergraph →
-derive the client-facing API schema → mock-execute the query against that single
-schema (`mock.rs`, a deterministic field-walker). `plan` exists purely to
-*visualize* how a query federates and is fully decoupled from execution. When
-implementing `plan`, map Apollo's plan into our own slim `QueryPlan` DTO — do not
-expose Apollo's internal type.
+| Export | Input | Output |
+|--------|-------|--------|
+| `validate_subgraph(sdl)` | SDL string | `{ diagnostics: Diagnostic[] }` |
+| `compose(subgraphs_json)` | `[{ name, sdl }]` | `{ ok, supergraph_sdl?, api_schema_sdl?, hints?, errors? }` |
+| `validate_query(supergraph_sdl, operation)` | two strings | `{ diagnostics: Diagnostic[] }` |
+| `plan(supergraph_sdl, operation, op_name?)` | strings | `{ ok, query_plan? }` or `{ ok, errors }` |
+| `execute_mock(supergraph_sdl, operation, variables_json, seed)` | strings + u64 | `{ data, errors? }` |
 
-**Determinism via `seed`.** `execute_mock` generates values from a hash of
-`(seed, path, field)`, so same schema + query + seed = identical output. This is
-what makes shareable URLs and snapshot tests work; preserve it.
+The TypeScript wrapper in `web/src/core/index.ts` parses/stringifies and
+exposes a typed `GqlCore` interface. All UI code calls `loadCore()` and uses
+that interface — never the raw WASM namespace.
 
-## Apollo crates: pinned, unstable, not yet wired
+`dto.rs` owns the canonical Rust shapes. `web/src/core/types.ts` is the
+TypeScript mirror. **These two files must stay in sync.** The UI never imports
+apollo-federation types.
 
-`apollo-compiler` and `apollo-federation` are pinned **exact** (`=1.32.0`,
-`=2.15.0`) and currently **commented out** in `crates/gql-core/Cargo.toml`. The
-module bodies are `UNIMPLEMENTED` stubs. `apollo-federation` has **no semver
-guarantees** (Apollo treats it as Router-internal) — any version may break the
-API, so always read the docs/source for the pinned version, and keep `compose`
-golden tests as the regression net when bumping it.
+### Data flow
 
-Uncommenting these and implementing real composition is **Spike 0** — the
-make-or-break step that proves `apollo-federation` compiles to and runs in wasm.
-If it surfaces a `getrandom` wasm error, enable `getrandom`'s `js` feature
-(already noted in `Cargo.toml`). `tests/wasm.rs` is Spike 0's permanent home.
+1. User edits a subgraph SDL → `validate_subgraph` shows squiggles live.
+2. On change (300 ms debounce) → `compose` → supergraph SDL stored in Zustand.
+   Last good supergraph is kept when composition fails.
+3. User runs a query → `plan` + `execute_mock` called with the supergraph SDL.
+4. Results rendered in Query Plan (tree / sequence diagram) and Output panes.
 
-## Gotchas already encountered
+### No panics
 
-- `wasm-bindgen-cli` (from nixpkgs) must match the `wasm-bindgen` crate version
-  in `Cargo.toml` — the classic Nix/WASM footgun. If nixpkgs lags, override it.
-- pnpm 10+ blocks dependency build scripts; allowed builds live in
-  `web/pnpm-workspace.yaml` under `allowBuilds` (not the `package.json` `pnpm`
-  field, which pnpm 11 ignores).
+No WASM export panics on bad input. Malformed SDL and invalid queries are
+normal outcomes returned as error envelopes. `console_error_panic_hook` is a
+last-resort net for logic bugs only.
+
+### Determinism
+
+`execute_mock` derives field values from `hash(seed, path, field_name)`. Same
+schema + query + seed always produces identical output. Preserve this invariant
+— it underpins shareable URLs and snapshot tests.
+
+### No federated execution
+
+Composition produces a supergraph and an API schema. Mock execution runs against
+the API schema only — there is no subgraph-level execution. The query plan is
+computed and visualised purely for educational value; it does not drive
+execution.
+
+---
+
+## State management
+
+`web/src/store.ts` — a single Zustand store (key `"graphql-playground"`,
+version 1) persisted to `localStorage`. It holds:
+
+- `subgraphs: SubgraphInput[]` — the user's subgraph SDLs
+- `activeSubgraph: number`
+- `queryTabs: QueryTab[]` — each tab has `name`, `query`, `variables`
+- `activeQueryTab: number`
+- `seed: number` — mock execution seed
+- `supergraphSdl: string | null` — last successful compose output
+- `composeErrors / composeHints` — last compose diagnostics
+
+Composition result is *derived* state — recomputed whenever subgraphs change,
+never hand-set by the user.
+
+---
+
+## URL sharing
+
+`web/src/share.ts` encodes/decodes the workspace as a URL fragment:
+
+```
+#w=<base64url(gzip(JSON))>
+```
+
+The `WorkspacePayload` contains subgraphs, queryTabs, activeQueryTab, and seed.
+The Share button writes this fragment and copies the URL to the clipboard;
+navigating to such a URL restores the workspace and then clears the fragment.
+Old single-query URLs (without `queryTabs`) are decoded gracefully on the fly.
+
+---
+
+## UI layout
+
+`App.tsx` is the single root component. There is no routing.
+
+**Desktop** — three vertical panels via `react-resizable-panels`:
+1. Left: subgraph tab bar + Monaco editor (federation SDL)
+2. Middle: query tab bar + Monaco query editor + variables editor + Run controls
+3. Right: tab strip with Plan tree / Sequence Diagram / Supergraph SDL
+
+**Mobile** (≤768 px) — a top tab bar switches between Schema, Query, and Output
+views. A "Select Text" overlay button opens a read-only Monaco view for copy/paste.
+
+**Monaco setup** — workers are configured inline in `App.tsx`. `monaco-graphql`
+is initialized once after first successful composition, supplying the API schema
+for query intellisense. The singleton `MonacoGraphQLAPI` lives in module scope.
+
+---
+
+## Apollo crates
+
+`apollo-compiler = "=1.32.0"` and `apollo-federation = "=2.15.0"` are pinned
+exact in `crates/gql-core/Cargo.toml`. `apollo-federation` has no semver
+guarantees — treat version bumps as deliberate, tested events and verify against
+the compose golden tests.
+
+`getrandom` with `wasm_js` feature is scoped to
+`cfg(target_arch = "wasm32")` so it applies only to WASM builds and does not
+affect `cargo test`.
+
+---
+
+## Testing
+
+| Layer | Tool | Command |
+|-------|------|---------|
+| Rust native | cargo test | `cargo test -p gql-core` |
+| Rust WASM | wasm-bindgen-test + Chrome | `wasm-pack test --headless --chrome crates/gql-core` (CI only) |
+| Rust snapshots | insta | auto-updated with `cargo insta review` |
+| Web unit | vitest + jsdom | `pnpm test run` (from `web/`) |
+| Web e2e | Playwright | `pnpm e2e` (from `web/`) |
+
+Compose golden tests in `compose.rs` are the primary regression net for Apollo
+crate version bumps. Mock determinism tests in `mock.rs` guard the seed/hash
+contract. Web unit tests cover `store.ts`, `share.ts`, and `planToMermaid.ts`.
+
+---
+
+## Gotchas
+
+- **`wasm-bindgen-cli` must match the `wasm-bindgen` crate version** — they
+  are coupled at the binary protocol level. If `pnpm build:wasm` fails with a
+  version mismatch, override `wasm-bindgen-cli` in the flake or pin the crate
+  to match nixpkgs.
+
+- **pnpm 10+ blocks dependency build scripts** — allowed builds are listed in
+  `web/pnpm-workspace.yaml` under `allowBuilds`. The `package.json` `pnpm`
+  field is ignored by pnpm 11+, so keep the list in `pnpm-workspace.yaml`.
+
+- **`RUSTFLAGS` leakage** — the flake's `shellHook` unsets `RUSTFLAGS` to
+  prevent host flags from contaminating WASM builds. Don't set `RUSTFLAGS`
+  globally; use `.cargo/config.toml` target-scoped flags.
+
+- **New files must be `git add`-ed** before the Nix flake can see them.
