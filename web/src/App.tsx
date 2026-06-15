@@ -150,7 +150,11 @@ export default function App() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = useMobile();
   const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output">("schema");
-  const [viewSource, setViewSource] = useState<{ title: string; content: string } | null>(null);
+  const [viewSource, setViewSource] = useState<{
+    title: string;
+    value: string;
+    onEdit: (v: string) => void;
+  } | null>(null);
 
   // Reset 'results' rightTab when returning to desktop (no Results tab there).
   useEffect(() => {
@@ -834,7 +838,8 @@ export default function App() {
                     onClick={() =>
                       setViewSource({
                         title: `${subgraphs[activeSubgraph]?.name ?? "Subgraph"} SDL`,
-                        content: subgraphs[activeSubgraph]?.sdl ?? "",
+                        value: subgraphs[activeSubgraph]?.sdl ?? "",
+                        onEdit: (v) => setSubgraphSdl(activeSubgraph, v),
                       })
                     }
                     style={SELECT_TEXT_BTN}
@@ -860,7 +865,13 @@ export default function App() {
                 {queryTabStrip}
                 <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
                   <button
-                    onClick={() => setViewSource({ title: "Query", content: currentQuery })}
+                    onClick={() =>
+                      setViewSource({
+                        title: "Query",
+                        value: currentQuery,
+                        onEdit: (v) => setQueryTabQuery(activeQueryTab, v),
+                      })
+                    }
                     style={SELECT_TEXT_BTN}
                   >
                     Select text
@@ -883,7 +894,13 @@ export default function App() {
                     Variables (JSON)
                   </label>
                   <button
-                    onClick={() => setViewSource({ title: "Variables", content: currentVariables })}
+                    onClick={() =>
+                      setViewSource({
+                        title: "Variables",
+                        value: currentVariables,
+                        onEdit: (v) => setQueryTabVariables(activeQueryTab, v),
+                      })
+                    }
                     style={{ ...SELECT_TEXT_BTN, marginLeft: "auto" }}
                   >
                     Select text
@@ -1047,9 +1064,13 @@ export default function App() {
               </button>
             </div>
             <textarea
-              readOnly
-              value={viewSource.content}
+              value={viewSource.value}
               onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => {
+                const v = e.target.value;
+                viewSource.onEdit(v);
+                setViewSource({ ...viewSource, value: v });
+              }}
               style={{
                 flex: 1,
                 fontFamily: "monospace",
