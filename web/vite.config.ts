@@ -18,10 +18,17 @@ export default defineConfig({
       mermaid: `${import.meta.dirname}/node_modules/mermaid/dist/mermaid.esm.min.mjs`,
     },
   },
-  // monaco-graphql's worker entry uses code-splitting, which the default
-  // "iife" worker format doesn't support — bundle workers as ES modules.
+  // monaco-graphql's GraphQLWorker dynamically imports prettier/standalone and
+  // prettier/parser-graphql for code formatting. The default "iife" worker
+  // format can't resolve dynamic imports at runtime, so we inline them at
+  // build time. This avoids ES module workers (type:"module"), which fail in
+  // Firefox <114 and produce "Could not create web worker(s)" console errors.
   worker: {
-    format: "es",
+    rollupOptions: {
+      output: {
+        inlineDynamicImports: true,
+      },
+    },
   },
   server: {
     host: "0.0.0.0",
