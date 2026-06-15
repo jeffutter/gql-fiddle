@@ -206,6 +206,63 @@ for query intellisense. The singleton `MonacoGraphQLAPI` lives in module scope.
 
 ---
 
+## Visual design
+
+This project has a **committed aesthetic** — maintain it; don't reinvent it per
+change. It's an IDE-like, dense developer tool, styled accordingly.
+
+**The look:** a dark theme of deep *messenger navy* surfaces (named after a
+Bellroy navy bag) with a single *mustard-yellow* accent. Cool, crisp, not muddy.
+A warm-dark + GraphQL-magenta attempt was explicitly rejected as muddy — don't
+go back there.
+
+**Single source of truth — `web/src/theme.css`.** All color/typography lives in
+design tokens (CSS custom properties) and semantic component classes
+(`.btn`, `.btn--primary`, `.tab`, `.panel`, `.panel__header`, `.panel__actions`,
+`.code-block`, `.callout`, `.badge`, `.editor`, `.section-title`, `.empty-state`,
+`.mobile-tab`, `.overlay`, …). Re-skinning is a one-file change.
+
+- **Never hardcode a color, font, radius, or border in a component.** Reference a
+  class or `var(--token)`. The old `App.tsx` had the same hex repeated across ~50
+  inline styles; that is the anti-pattern this replaced.
+- **Surfaces layer light-to-dark:** `--bg` (app) → `--surface` (editors/cards) →
+  `--surface-2` (active/hover) → `--surface-3`. Borders: `--border`,
+  `--border-strong`. Text: `--text`, `--text-muted`, `--text-faint`. Status:
+  `--success` / `--danger` / `--warning`, each with a soft fill + border variant.
+- **Use the accent sparingly — it's chrome only:** primary action (Run), active
+  tab underline, focus rings, links, plan service names, Mermaid actor borders,
+  editor cursor. Everything else is neutral. **Code syntax colors stay
+  conventional** (blue/cyan/green/orange) — mustard never leaks into token
+  highlighting.
+
+**Matched editor/diagram themes — `web/src/monacoTheme.ts`.** Monaco and Mermaid
+are themed to the same tokens so they blend into panels. Any new Monaco `<Editor>`
+must pass `theme={MONACO_THEME}`, `beforeMount={(m) => defineMonacoTheme(m)}`, and
+`options={EDITOR_OPTIONS}` (shared: no minimap, padding, mono font). Mermaid uses
+`MERMAID_THEME_VARIABLES`.
+
+**Layout conventions:**
+
+- Columns are `.panel` (flex column, full height). Each panel reads top-to-bottom
+  as **header row → tabs/controls row → content**, and panels are kept on a shared
+  grid so those rows align across columns (e.g. the *Subgraphs* and *Output*
+  titles align; their tab strips align below). Don't let a near-miss alignment
+  creep back in.
+- Section titles are small uppercase tracked labels (`.section-title`), not heavy
+  headings.
+- Panel gutters come from sized `.resize-handle`s (the library renders them
+  zero-size; CSS gives them width/height per `aria-orientation` plus a grab
+  indicator). Editor cards must never touch.
+
+**Typography:** system UI sans for chrome, a monospace stack for all code/results
+(`--font-ui`, `--font-mono`). This is a deliberate IDE aesthetic — do **not**
+swap in a decorative display font.
+
+**Skeuomorphic touch:** a faint paper-grain overlay (`.app::before`, ~2.5% SVG
+noise). Subtle by design; keep it understated.
+
+---
+
 ## Apollo crates
 
 `apollo-compiler = "=1.32.0"` and `apollo-federation = "=2.15.0"` are pinned
@@ -253,6 +310,13 @@ contract. Web unit tests cover `store.ts`, `share.ts`, and `planToMermaid.ts`.
 - **New files must be `git add`-ed** before the Nix flake can see them.
 
 # Frontend Aesthetics
+
+> **This project already has a committed aesthetic — see [Visual design](#visual-design) above.**
+> When working on existing UI, extend that system (tokens + classes in
+> `web/src/theme.css`); do not introduce competing themes or fonts. The general
+> guidance below is for greenfield surfaces and for the kind of thinking that
+> produced the current system — not a license to re-skin during maintenance.
+
 You tend to converge toward generic, "on distribution" outputs. In frontend design, this creates what users call the "AI slop" aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight. Focus on:
 
 Typography: Choose fonts that are clean, readable, unique, and interesting. Avoid generic fonts like Arial and Inter; opt instead for distinctive choices that elevate the frontend's aesthetics.
