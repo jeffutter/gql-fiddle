@@ -145,6 +145,13 @@ export const useWorkspace = create<WorkspaceState>()(
         }),
     }),
     {
+      // Legacy internal localStorage key from this project's original name
+      // ("graphql-playground"). Kept stable during the gql-fiddle rebrand to
+      // avoid wiping existing users' saved workspaces — Zustand's `persist`
+      // migrations key off the stored value's `version`, not this string, so
+      // renaming it would require custom storage get/set logic to copy and
+      // delete the old key for no user-visible benefit. Intentionally
+      // decoupled from the product's display name.
       name: "graphql-playground",
       version: 1,
       migrate: (persistedState: unknown, version: number) => {

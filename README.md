@@ -1,4 +1,4 @@
-# GraphQL Playground
+# GQL Fiddle
 
 A browser-only GraphQL federation playground. Author multiple subgraph schemas,
 compose them into a supergraph, inspect the query plan, and run queries against

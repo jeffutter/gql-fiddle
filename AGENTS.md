@@ -158,7 +158,10 @@ execution.
 ## State management
 
 `web/src/store.ts` — a single Zustand store (key `"graphql-playground"`,
-version 1) persisted to `localStorage`. It holds:
+version 1) persisted to `localStorage`. The key is a legacy internal
+identifier predating the gql-fiddle rebrand and is kept stable to avoid
+wiping existing users' saved workspaces — see the comment above `name:
+"graphql-playground"` in `store.ts` for the rationale. It holds:
 
 - `subgraphs: SubgraphInput[]` — the user's subgraph SDLs
 - `activeSubgraph: number`
