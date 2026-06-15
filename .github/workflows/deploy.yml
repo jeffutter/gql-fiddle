@@ -1,0 +1,31 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # Build inside the flake so toolchain versions match local/CI.
+      - name: Web install
+        run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
+      - name: WASM build
+        run: nix develop -c bash -c "cd web && pnpm build:wasm"
+      - name: Web build
+        run: nix develop -c bash -c "cd web && pnpm build"
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web/dist --project-name=gql-fiddle --branch=main
