@@ -7,6 +7,11 @@ import topLevelAwait from "vite-plugin-top-level-await";
 // `wasm-pack build --target web` emits into web/src/wasm/.
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait()],
+  // monaco-graphql's worker entry uses code-splitting, which the default
+  // "iife" worker format doesn't support — bundle workers as ES modules.
+  worker: {
+    format: "es",
+  },
   server: {
     host: "0.0.0.0",
     port: 8001,
