@@ -22,8 +22,9 @@ jobs:
         run: nix develop -c cargo test
 
       # WASM build + headless browser tests (CI only — too slow for git hooks).
+      # Use the web build:wasm script so the --out-dir (web/src/wasm) stays in one place.
       - name: WASM build
-        run: nix develop -c wasm-pack build crates/gql-core --target web
+        run: nix develop -c bash -c "cd web && pnpm build:wasm"
       - name: WASM tests
         run: nix develop -c wasm-pack test --headless --chrome crates/gql-core
 
