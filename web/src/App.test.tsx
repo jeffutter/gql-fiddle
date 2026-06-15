@@ -1487,8 +1487,16 @@ describe("App", () => {
       configurable: true,
     });
 
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     // Should render without throwing.
     expect(() => render(<App />)).not.toThrow();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Failed to restore workspace from URL hash:",
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
 
     // Store must still be in a usable state (defaults from beforeEach).
     const state = useWorkspace.getState();
