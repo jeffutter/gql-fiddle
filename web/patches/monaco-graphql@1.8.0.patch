@@ -1,19 +1,42 @@
 diff --git a/esm/workerManager.js b/esm/workerManager.js
-index 76dfa7ae61873012130dd737a6d509fd3945ed71..d663ef0ace2f21398c97365d7650525e1b9ff645 100644
+index 76dfa7ae61873012130dd737a6d509fd3945ed71..f8c2a314491e02267165764922edfbcb85bab4db 100644
 --- a/esm/workerManager.js
 +++ b/esm/workerManager.js
-@@ -1,4 +1,4 @@
--import { editor } from './monaco-editor';
-+import { createWebWorker } from 'monaco-editor/esm/vs/common/workers.js';
- import { getStringSchema } from './utils';
- const STOP_WHEN_IDLE_FOR = 2 * 60 * 1000;
- export class WorkerManager {
-@@ -41,7 +41,7 @@ export class WorkerManager {
+@@ -41,19 +41,26 @@ export class WorkerManager {
          if (!this._client && !this._worker) {
              try {
                  const { languageId, formattingOptions, schemas, externalFragmentDefinitions, completionSettings, } = this._defaults;
 -                this._worker = editor.createWebWorker({
-+                this._worker = createWebWorker({
-                     moduleId: 'monaco-graphql/esm/GraphQLWorker.js',
-                     label: languageId,
-                     createData: {
+-                    moduleId: 'monaco-graphql/esm/GraphQLWorker.js',
+-                    label: languageId,
+-                    createData: {
+-                        languageId,
+-                        formattingOptions,
+-                        languageConfig: {
+-                            schemas: schemas?.map(getStringSchema),
+-                            externalFragmentDefinitions,
+-                            fillLeafsOnComplete: completionSettings.__experimental__fillLeafsOnComplete,
+-                        },
++                const createData = {
++                    languageId,
++                    formattingOptions,
++                    languageConfig: {
++                        schemas: schemas?.map(getStringSchema),
++                        externalFragmentDefinitions,
++                        fillLeafsOnComplete: completionSettings.__experimental__fillLeafsOnComplete,
+                     },
++                };
++                const monacoEnv = globalThis.MonacoEnvironment;
++                const workerPromise = Promise.resolve(
++                    typeof monacoEnv?.getWorker === 'function'
++                        ? monacoEnv.getWorker('workerMain.js', languageId)
++                        : new Worker(monacoEnv?.getWorkerUrl?.('workerMain.js', languageId), { type: 'module' })
++                ).then(w => {
++                    w.postMessage('ignore');
++                    w.postMessage(createData);
++                    return w;
+                 });
++                this._worker = editor.createWebWorker({ worker: workerPromise, label: languageId });
+                 this._client = this._worker.getProxy();
+             }
+             catch (error) {
