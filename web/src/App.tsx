@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { loader } from "@monaco-editor/react";
 import * as _monaco from "monaco-editor";
@@ -19,6 +19,9 @@ import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges";
 import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subgraphColors";
+import { schemaToEntityGraph } from "./schemaToEntityGraph";
+import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
+import { TypeGraph } from "./TypeGraph";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -158,9 +161,9 @@ export default function App() {
   const [renameQueryValue, setRenameQueryValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
-  const [rightTab, setRightTab] = useState<"sdl" | "plan" | "sequence" | "timeline" | "results">(
-    "plan",
-  );
+  const [rightTab, setRightTab] = useState<
+    "sdl" | "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "results"
+  >("plan");
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -699,6 +702,33 @@ export default function App() {
     </div>
   );
 
+  const entityGraph = useMemo(
+    () => (compose?.ok ? schemaToEntityGraph(compose.supergraph_sdl) : null),
+    [compose],
+  );
+
+  const entitiesContent = (
+    <div className="scroll">
+      {entityGraph === null ? (
+        <p className="empty-state">Compose a valid supergraph to see entity relationships.</p>
+      ) : (
+        <EntityOwnershipGraph graph={entityGraph} />
+      )}
+    </div>
+  );
+
+  const typeGraphSdl = compose?.ok ? compose.supergraph_sdl : null;
+
+  const typeGraphContent = (
+    <div className="scroll" style={{ height: "100%" }}>
+      {typeGraphSdl === null ? (
+        <p className="empty-state">Compose a valid supergraph to see the type graph.</p>
+      ) : (
+        <TypeGraph supergraphSdl={typeGraphSdl} />
+      )}
+    </div>
+  );
+
   const resultsContent = (
     <div className="scroll">
       {mockResult === null ? (
@@ -927,6 +957,20 @@ export default function App() {
                     Timeline
                   </button>
                   <button
+                    onClick={() => setRightTab("entities")}
+                    aria-pressed={rightTab === "entities"}
+                    className={rightTab === "entities" ? "tab is-active" : "tab"}
+                  >
+                    Entities
+                  </button>
+                  <button
+                    onClick={() => setRightTab("type-graph")}
+                    aria-pressed={rightTab === "type-graph"}
+                    className={rightTab === "type-graph" ? "tab is-active" : "tab"}
+                  >
+                    Type Graph
+                  </button>
+                  <button
                     onClick={() => setRightTab("sdl")}
                     aria-pressed={rightTab === "sdl"}
                     className={rightTab === "sdl" ? "tab is-active" : "tab"}
@@ -941,6 +985,8 @@ export default function App() {
                     {rightTab === "plan" && planContent}
                     {rightTab === "sequence" && sequenceContent}
                     {rightTab === "timeline" && timelineContent}
+                    {rightTab === "entities" && entitiesContent}
+                    {rightTab === "type-graph" && typeGraphContent}
                   </>
                 )}
               </div>
@@ -1031,6 +1077,20 @@ export default function App() {
                     Timeline
                   </button>
                   <button
+                    onClick={() => setRightTab("entities")}
+                    aria-pressed={rightTab === "entities"}
+                    className={rightTab === "entities" ? "tab is-active" : "tab"}
+                  >
+                    Entities
+                  </button>
+                  <button
+                    onClick={() => setRightTab("type-graph")}
+                    aria-pressed={rightTab === "type-graph"}
+                    className={rightTab === "type-graph" ? "tab is-active" : "tab"}
+                  >
+                    Type Graph
+                  </button>
+                  <button
                     onClick={() => setRightTab("sdl")}
                     aria-pressed={rightTab === "sdl"}
                     className={rightTab === "sdl" ? "tab is-active" : "tab"}
@@ -1045,6 +1105,8 @@ export default function App() {
                     {rightTab === "plan" && planContent}
                     {rightTab === "sequence" && sequenceContent}
                     {rightTab === "timeline" && timelineContent}
+                    {rightTab === "entities" && entitiesContent}
+                    {rightTab === "type-graph" && typeGraphContent}
                   </>
                 )}
               </div>
