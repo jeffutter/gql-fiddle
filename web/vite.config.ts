@@ -1,11 +1,21 @@
-import { defineConfig } from "vite";
+import { defineConfig, createLogger } from "vite";
 import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 
+const logger = createLogger();
+const originalWarn = logger.warn.bind(logger);
+logger.warn = (msg, options) => {
+  // monaco-graphql ships source maps that reference TS source files not
+  // included in the published package. Suppress these to reduce noise.
+  if (msg.includes("Sourcemap for") && msg.includes("points to missing source files")) return;
+  originalWarn(msg, options);
+};
+
 // wasm + topLevelAwait let us `import` the wasm-bindgen ES module that
 // `wasm-pack build --target web` emits into web/src/wasm/.
 export default defineConfig({
+  customLogger: logger,
   plugins: [react(), wasm(), topLevelAwait()],
   optimizeDeps: {
     // These CJS packages need pre-bundling (CJS→ESM) so that the
