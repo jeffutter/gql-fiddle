@@ -18,7 +18,6 @@ export interface SubgraphInput {
 export interface QueryTab {
   name: string;
   query: string;
-  variables: string;
 }
 
 export type ComposeResult =
@@ -75,10 +74,5 @@ export interface GqlCore {
   compose(subgraphs: SubgraphInput[]): ComposeResult;
   validateQuery(supergraphSdl: string, operation: string): { diagnostics: Diagnostic[] };
   plan(supergraphSdl: string, operation: string, opName?: string): PlanResult;
-  executeMock(
-    supergraphSdl: string,
-    operation: string,
-    variables: Record<string, unknown>,
-    seed: number,
-  ): MockResult;
+  executeMock(supergraphSdl: string, operation: string, seed: number): MockResult;
 }

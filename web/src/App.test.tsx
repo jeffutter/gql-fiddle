@@ -74,7 +74,7 @@ describe("App", () => {
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       activeSubgraph: 0,
-      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "" }],
       activeQueryTab: 0,
       supergraphSdl: null,
       composeErrors: null,
@@ -85,28 +85,13 @@ describe("App", () => {
   it("renders Monaco editors and no plain textareas", () => {
     const { container } = render(<App />);
 
-    // All three editors (subgraph, query, variables) use Monaco — zero plain textareas.
+    // Both editors (subgraph, query) use Monaco — zero plain textareas.
     const textareas = container.querySelectorAll("textarea");
     expect(textareas).toHaveLength(0);
 
     // The Monaco editor mounts a div with class "monaco-editor".
-    // There are two Monaco editors: one for the subgraph SDL and one for the query.
     const monacoEditors = screen.getAllByRole("textbox");
     expect(monacoEditors.length).toBeGreaterThanOrEqual(1);
-  });
-
-  // ---- AC#4: Variables editor is a Monaco JSON editor ----
-
-  it("AC#4: variables editor is a Monaco JSON editor (no <textarea>)", () => {
-    const { container } = render(<App />);
-
-    // There must be zero plain textareas — the variables editor uses Monaco.
-    const textareas = container.querySelectorAll("textarea");
-    expect(textareas).toHaveLength(0);
-
-    // The Monaco editor for variables renders with a json-specific path.
-    const varEditor = container.querySelector('[data-path="/variables-query-0.json"]');
-    expect(varEditor).not.toBeNull();
   });
 
   it("switching subgraph tabs shows that subgraph's SDL in the editor", () => {
@@ -690,44 +675,14 @@ describe("App", () => {
     });
   });
 
-  // ---- TASK-19 AC#1: Invalid variables JSON shows a visible message and blocks Run ----
-
-  it("TASK-19 AC#1: invalid JSON in variables textarea shows error message and does not call executeMock", () => {
-    mockExecuteMock.mockClear();
-
-    // Pre-set the store so supergraphSdl is non-null (Run button is enabled)
-    // and variables contain invalid JSON.
-    useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      supergraphSdl: "# supergraph",
-      composeErrors: null,
-      composeHints: 0,
-      queryTabs: [{ name: "Query 1", query: "", variables: "{invalid json" }],
-      activeQueryTab: 0,
-    });
-
-    render(<App />);
-
-    // Click the Run button.
-    const runButton = screen.getByRole("button", { name: /run/i });
-    fireEvent.click(runButton);
-
-    // The error message must be visible.
-    expect(screen.getByText(/invalid variables json/i)).toBeInTheDocument();
-
-    // executeMock must NOT have been called.
-    expect(mockExecuteMock).not.toHaveBeenCalled();
-  });
-
   // ---- TASK-19 AC#2: Run calls executeMock with correct args and shows pretty-printed results ----
 
-  it("TASK-19 AC#2: clicking Run calls executeMock with schema, query, variables, and seed; shows pretty-printed data", async () => {
+  it("TASK-19 AC#2: clicking Run calls executeMock with schema, query, and seed; shows pretty-printed data", async () => {
     const mockData = { products: [{ id: "1", name: "Widget" }] };
     mockExecuteMock.mockClear();
     mockExecuteMock.mockReturnValueOnce({ data: mockData, errors: [] } as never);
 
     const testQuery = "query { products { id name } }";
-    const testVariables = '{"limit":5}';
     const testSeed = 99;
 
     // Pre-set the store so supergraphSdl is non-null (Run button enabled).
@@ -736,17 +691,12 @@ describe("App", () => {
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
-      queryTabs: [{ name: "Query 1", query: testQuery, variables: testVariables }],
+      queryTabs: [{ name: "Query 1", query: testQuery }],
       activeQueryTab: 0,
       seed: testSeed,
     });
 
     render(<App />);
-
-    // Set the Monaco variables editor to valid JSON.
-    const onChangeVars = globalThis.__editorTestHarness.onChangeByPath["/variables-query-0.json"];
-    expect(onChangeVars).toBeDefined();
-    onChangeVars!(testVariables);
 
     // Click Run.
     const runButton = screen.getByRole("button", { name: /run/i });
@@ -757,8 +707,8 @@ describe("App", () => {
       expect(mockExecuteMock).toHaveBeenCalledTimes(1);
     });
 
-    // executeMock must have been called with the correct arguments.
-    expect(mockExecuteMock).toHaveBeenCalledWith("# supergraph", testQuery, { limit: 5 }, testSeed);
+    // executeMock must have been called with schema, query, and seed.
+    expect(mockExecuteMock).toHaveBeenCalledWith("# supergraph", testQuery, testSeed);
 
     // The pretty-printed data must appear in the Results panel.
     await vi.waitFor(() => {
@@ -787,7 +737,7 @@ describe("App", () => {
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
-      queryTabs: [{ name: "Query 1", query: "query { hello }", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "query { hello }" }],
       activeQueryTab: 0,
       seed: testSeed,
     });
@@ -806,9 +756,9 @@ describe("App", () => {
 
     // Both calls must have been made with the same seed value.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const firstCallSeed = (mockExecuteMock.mock.calls[0] as any[])[3];
+    const firstCallSeed = (mockExecuteMock.mock.calls[0] as any[])[2];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const secondCallSeed = (mockExecuteMock.mock.calls[1] as any[])[3];
+    const secondCallSeed = (mockExecuteMock.mock.calls[1] as any[])[2];
     expect(firstCallSeed).toBe(testSeed);
     expect(secondCallSeed).toBe(testSeed);
     expect(firstCallSeed).toBe(secondCallSeed);
@@ -826,7 +776,7 @@ describe("App", () => {
       supergraphSdl: "# supergraph",
       composeErrors: null,
       composeHints: 0,
-      queryTabs: [{ name: "Query 1", query: "query { hello }", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "query { hello }" }],
       activeQueryTab: 0,
       seed: initialSeed,
     });
@@ -839,7 +789,7 @@ describe("App", () => {
     fireEvent.click(runButton);
     await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(1));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((mockExecuteMock.mock.calls[0] as any[])[3]).toBe(initialSeed);
+    expect((mockExecuteMock.mock.calls[0] as any[])[2]).toBe(initialSeed);
 
     // Change the seed input to 99.
     const seedInput = screen.getByRole("spinbutton");
@@ -849,7 +799,7 @@ describe("App", () => {
     fireEvent.click(runButton);
     await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(2));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((mockExecuteMock.mock.calls[1] as any[])[3]).toBe(changedSeed);
+    expect((mockExecuteMock.mock.calls[1] as any[])[2]).toBe(changedSeed);
   });
 
   // ---- AC#2: Query editor is a Monaco editor wired to the store query ----
@@ -857,7 +807,7 @@ describe("App", () => {
   it("AC#2: query editor renders a Monaco editor showing the store query value", () => {
     const initialQuery = "query {\n  products {\n    id\n    name\n  }\n}\n";
     useWorkspace.setState({
-      queryTabs: [{ name: "Query 1", query: initialQuery, variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: initialQuery }],
       activeQueryTab: 0,
     });
 
@@ -873,7 +823,7 @@ describe("App", () => {
   it("AC#2: onChange on the query editor calls setQueryTabQuery in the store", () => {
     const initialQuery = "query { products { id } }";
     useWorkspace.setState({
-      queryTabs: [{ name: "Query 1", query: initialQuery, variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: initialQuery }],
       activeQueryTab: 0,
     });
 
@@ -892,7 +842,7 @@ describe("App", () => {
 
   it("AC#2: onChange on the query editor with undefined falls back to empty string", () => {
     useWorkspace.setState({
-      queryTabs: [{ name: "Query 1", query: "query { x }", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "query { x }" }],
       activeQueryTab: 0,
     });
 
@@ -986,54 +936,6 @@ describe("App", () => {
 
   // ---- AC#4: Editing subgraphs updates the autocomplete schema to match ----
 
-  // ---- AC#5: setDiagnosticSettings called with validateVariablesJson mapping ----
-
-  it("AC#5: calls setDiagnosticSettings with correct validateVariablesJson after successful compose", async () => {
-    vi.useFakeTimers();
-    mockSetDiagnosticSettings.mockClear();
-
-    mockCompose.mockReturnValueOnce({
-      ok: true,
-      supergraph_sdl: "# supergraph",
-      api_schema_sdl: "type Query { products: [Product] }",
-      hints: [],
-    });
-
-    render(<App />);
-
-    // Advance past the 300ms debounce window so composition fires.
-    await vi.advanceTimersByTimeAsync(350);
-
-    // setDiagnosticSettings must have been called with validateVariablesJson
-    // mapping the query URI to the variables URI.
-    expect(mockSetDiagnosticSettings).toHaveBeenCalledWith({
-      validateVariablesJSON: {
-        "/query-0.graphql": ["/variables-query-0.json"],
-      },
-      jsonDiagnosticSettings: { allowComments: true },
-    });
-
-    vi.useRealTimers();
-  });
-
-  it("AC#5: does not call setDiagnosticSettings when compose fails", async () => {
-    vi.useFakeTimers();
-    mockSetDiagnosticSettings.mockClear();
-
-    mockCompose.mockReturnValueOnce({
-      ok: false,
-      errors: [{ code: "ERR001", message: "bad" }],
-    });
-
-    render(<App />);
-
-    await vi.advanceTimersByTimeAsync(350);
-
-    expect(mockSetDiagnosticSettings).not.toHaveBeenCalled();
-
-    vi.useRealTimers();
-  });
-
   it("AC#4: editing a subgraph triggers re-composition and calls setSchemaConfig with the new api_schema_sdl", async () => {
     vi.useFakeTimers();
     mockSetSchemaConfig.mockClear();
@@ -1094,65 +996,6 @@ describe("App", () => {
     vi.useRealTimers();
   });
 
-  // ---- AC#6: Switching query tabs updates the variables JSON Schema ----
-
-  it("AC#6: switching query tabs calls setDiagnosticSettings with new tab URIs", async () => {
-    vi.useFakeTimers();
-    mockSetDiagnosticSettings.mockClear();
-
-    // Pre-set two query tabs with distinct variable values.
-    useWorkspace.setState({
-      queryTabs: [
-        { name: "Query 1", query: "query { a }", variables: '{"foo":"bar"}' },
-        { name: "Query 2", query: "query { b }", variables: '{"baz":42}' },
-      ],
-      activeQueryTab: 0,
-    });
-
-    mockCompose.mockReturnValueOnce({
-      ok: true,
-      supergraph_sdl: "# supergraph",
-      api_schema_sdl: "type Query { a: Int }",
-      hints: [],
-    });
-
-    render(<App />);
-
-    // Advance past the 300ms debounce window so composition fires and sets up tab-0 URIs.
-    await vi.advanceTimersByTimeAsync(350);
-
-    // First call should be for tab 0 (from the compose effect).
-    expect(mockSetDiagnosticSettings).toHaveBeenCalledTimes(1);
-    expect(mockSetDiagnosticSettings).toHaveBeenLastCalledWith({
-      validateVariablesJSON: {
-        "/query-0.graphql": ["/variables-query-0.json"],
-      },
-      jsonDiagnosticSettings: { allowComments: true },
-    });
-
-    // Click the second query tab button.
-    const allButtons = screen.getAllByRole("button");
-    const secondQueryTabBtn = allButtons.find((b) => b.textContent?.startsWith("Query 2"));
-    expect(secondQueryTabBtn).toBeDefined();
-    fireEvent.click(secondQueryTabBtn!);
-
-    // setActiveQueryTab(1) triggers a re-render; the new useEffect on activeQueryTab
-    // should fire and call setDiagnosticSettings with tab-1 URIs.
-    await vi.waitFor(() => {
-      expect(mockSetDiagnosticSettings).toHaveBeenCalledTimes(2);
-    });
-
-    // The second call must use the new tab's URIs.
-    expect(mockSetDiagnosticSettings).toHaveBeenLastCalledWith({
-      validateVariablesJSON: {
-        "/query-1.graphql": ["/variables-query-1.json"],
-      },
-      jsonDiagnosticSettings: { allowComments: true },
-    });
-
-    vi.useRealTimers();
-  });
-
   // ---- TASK-45 AC#2: Query Plan is the default tab on mount ----
 
   it("TASK-45 AC#2: Query Plan tab is active on initial load without user interaction", () => {
@@ -1172,8 +1015,8 @@ describe("App", () => {
     render(<App />);
 
     // The outer <Group> (orientation="vertical") wraps two Panel children:
-    // the top row (subgraph editor + SDL/plan) and the bottom row (query +
-    // variables + results).  Both must be direct children of the same Group.
+    // the top row (subgraph editor + SDL/plan) and the bottom row (query + results).
+    // Both must be direct children of the same Group.
     const main = document.querySelector("[style*='height: 100vh']");
     expect(main).not.toBeNull();
 
@@ -1233,9 +1076,9 @@ describe("App", () => {
     expect(topSeparator.getAttribute("role")).toBe("separator");
   });
 
-  // ---- TASK-45 AC#5: Horizontal splits between query, variables, and results are draggable ----
+  // ---- TASK-45 AC#5: Horizontal split between query and results is draggable ----
 
-  it("TASK-45 AC#5: bottom row has Group with 3 Panels and 2 Separators for draggable splits", () => {
+  it("TASK-45 AC#5: bottom row has Group with 2 Panels and 1 Separator for draggable split", () => {
     render(<App />);
 
     // The outer <Group> (orientation="vertical") wraps two Panel children:
@@ -1254,25 +1097,21 @@ describe("App", () => {
     //   bottomRow.child[0] = content div (flex column)
     //     └─ child[0] = inner <Group orientation="horizontal">
     //         ├─ child[0] = Query Panel wrapper
-    //         ├─ child[1] = Separator (query | variables)
-    //         ├─ child[2] = Variables Panel wrapper
-    //         ├─ child[3] = Separator (variables | results)
-    //         └─ child[4] = Results Panel wrapper
+    //         ├─ child[1] = Separator (query | results)
+    //         └─ child[2] = Results Panel wrapper
     const contentDiv = bottomRow.children[0];
     expect(contentDiv).not.toBeNull();
 
     const innerGroup = contentDiv.children[0];
     expect(innerGroup).not.toBeNull();
 
-    // The inner horizontal Group must have 5 direct children:
-    // 3 Panel wrappers + 2 Separators.
-    expect(innerGroup.children.length).toBe(5);
+    // The inner horizontal Group must have 3 direct children:
+    // 2 Panel wrappers + 1 Separator.
+    expect(innerGroup.children.length).toBe(3);
 
-    // child[1] and child[3] must be separator elements (draggable dividers).
-    const sepBetweenQueryAndVars = innerGroup.children[1];
-    const sepBetweenVarsAndResults = innerGroup.children[3];
-    expect(sepBetweenQueryAndVars.getAttribute("role")).toBe("separator");
-    expect(sepBetweenVarsAndResults.getAttribute("role")).toBe("separator");
+    // child[1] must be a separator element (the draggable divider).
+    const sepBetweenQueryAndResults = innerGroup.children[1];
+    expect(sepBetweenQueryAndResults.getAttribute("role")).toBe("separator");
   });
 
   // ---- TASK-45 AC#1: Show/Hide toggle removed, SDL always visible ----
@@ -1321,11 +1160,6 @@ describe("App", () => {
     await vi.advanceTimersByTimeAsync(350);
     expect(globalThis.location.hash).toBe(hashAfterMount);
 
-    // Editing variables should NOT change the hash.
-    useWorkspace.getState().setQueryTabVariables(0, '{"a":1}');
-    await vi.advanceTimersByTimeAsync(350);
-    expect(globalThis.location.hash).toBe(hashAfterMount);
-
     // Changing seed should NOT change the hash.
     useWorkspace.getState().setSeed(99);
     await vi.advanceTimersByTimeAsync(350);
@@ -1340,7 +1174,7 @@ describe("App", () => {
     const { encode: encodeShare } = await import("./share");
     const payload = {
       subgraphs: [{ name: "shared", sdl: "type Query { shared: String }" }],
-      queryTabs: [{ name: "Query 1", query: "query { shared }", variables: '{"x":1}' }],
+      queryTabs: [{ name: "Query 1", query: "query { shared }" }],
       activeQueryTab: 0,
       seed: 77,
     };
@@ -1356,7 +1190,6 @@ describe("App", () => {
     expect(state.subgraphs).toHaveLength(1);
     expect(state.subgraphs[0].name).toBe("shared");
     expect(state.queryTabs[0].query).toBe("query { shared }");
-    expect(state.queryTabs[0].variables).toBe('{"x":1}');
     expect(state.seed).toBe(77);
     expect(state.activeSubgraph).toBe(0);
     expect(state.activeQueryTab).toBe(0);
@@ -1368,7 +1201,7 @@ describe("App", () => {
     const { encode: encodeShare } = await import("./share");
     const payload = {
       subgraphs: [{ name: "products", sdl: "type Query { hello: String }" }],
-      queryTabs: [{ name: "Query 1", query: "query { hello }", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "query { hello }" }],
       activeQueryTab: 0,
       seed: 42,
     };
@@ -1532,7 +1365,7 @@ describe("App", () => {
     await vi.waitFor(() => expect(mockExecuteMock).toHaveBeenCalledTimes(1));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const calledSeed = (mockExecuteMock.mock.calls[0] as any[])[3];
+    const calledSeed = (mockExecuteMock.mock.calls[0] as any[])[2];
     expect(calledSeed).toBe(urlSeed);
   });
 
@@ -1564,7 +1397,7 @@ describe("App", () => {
     // Set workspace state to match the payload we'll assert against.
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "" }],
       activeQueryTab: 0,
       seed: 42,
       activeSubgraph: 0,
@@ -1593,7 +1426,7 @@ describe("App", () => {
     // http://localhost — verify the constructed URL matches that fallback.
     const payload = {
       subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "" }],
       activeQueryTab: 0,
       seed: 42,
     };

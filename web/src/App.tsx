@@ -116,7 +116,6 @@ export default function App() {
     removeQueryTab,
     renameQueryTab,
     setQueryTabQuery,
-    setQueryTabVariables,
     supergraphSdl,
     seed,
     setSeed,
@@ -124,7 +123,6 @@ export default function App() {
     renameSubgraph,
   } = useWorkspace();
   const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
-  const currentVariables = queryTabs[activeQueryTab]?.variables ?? "{}";
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -133,7 +131,6 @@ export default function App() {
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [rightTab, setRightTab] = useState<"sdl" | "plan" | "sequence" | "results">("plan");
-  const [varError, setVarError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -181,24 +178,8 @@ export default function App() {
     }
   }, [editor, activeSubgraph]);
 
-  // Update variables JSON Schema when the active query tab changes.
-  const mountedRef = useRef(false);
-  useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      return;
-    }
-    if (!monacoGraphQLAPI) return;
-    const opUri = `/query-${activeQueryTab}.graphql`;
-    const varUri = `/variables-query-${activeQueryTab}.json`;
-    monacoGraphQLAPI.setDiagnosticSettings({
-      validateVariablesJSON: { [opUri]: [varUri] },
-      jsonDiagnosticSettings: { allowComments: true },
-    });
-  }, [activeQueryTab]);
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   // Debounced composition effect.
   useEffect(() => {
     if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
@@ -224,12 +205,6 @@ export default function App() {
             fileMatch: ["**/*.graphql"],
           },
         ]);
-        const opUri = `/query-${activeQueryTab}.graphql`;
-        const varUri = `/variables-query-${activeQueryTab}.json`;
-        monacoGraphQLAPI.setDiagnosticSettings({
-          validateVariablesJSON: { [opUri]: [varUri] },
-          jsonDiagnosticSettings: { allowComments: true },
-        });
       } else {
         useWorkspace.getState().setComposeResult(null, result.errors, 0);
       }
@@ -239,9 +214,7 @@ export default function App() {
       if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
     };
   }, [subgraphs]);
-  /* eslint-enable react-hooks/exhaustive-deps */
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   // Auto-run effect: re-executes the query whenever inputs change.
   useEffect(() => {
     if (supergraphSdl === null) return;
@@ -249,13 +222,12 @@ export default function App() {
     if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
     const sdl = supergraphSdl;
     autoRunTimeoutRef.current = setTimeout(() => {
-      void doRun(currentQuery, currentVariables, sdl, seed);
+      void doRun(currentQuery, sdl, seed);
     }, AUTO_RUN_DEBOUNCE_MS);
     return () => {
       if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
     };
-  }, [currentQuery, currentVariables, supergraphSdl, seed]);
-  /* eslint-enable react-hooks/exhaustive-deps */
+  }, [currentQuery, supergraphSdl, seed]);
 
   // Debounced validation effect.
   useEffect(() => {
@@ -302,11 +274,6 @@ export default function App() {
     }
 
     parts.push(`\n## Query\n\`\`\`graphql\n${currentQuery}\n\`\`\``);
-
-    const trimmedVars = currentVariables.trim();
-    if (trimmedVars && trimmedVars !== "{}") {
-      parts.push(`\n## Variables\n\`\`\`json\n${trimmedVars}\n\`\`\``);
-    }
 
     if (mockResult !== null) {
       parts.push(
@@ -373,19 +340,10 @@ export default function App() {
     }
   }
 
-  async function doRun(query: string, variables: string, sdl: string, s: number) {
-    let parsedVariables: Record<string, unknown>;
-    try {
-      parsedVariables = JSON.parse(variables) as Record<string, unknown>;
-    } catch {
-      setVarError("Invalid variables JSON");
-      setIsRunning(false);
-      return;
-    }
-    setVarError(null);
+  async function doRun(query: string, sdl: string, s: number) {
     const core = await loadCore();
     const [execResult, plan] = await Promise.all([
-      Promise.resolve(core.executeMock(sdl, query, parsedVariables, s)),
+      Promise.resolve(core.executeMock(sdl, query, s)),
       Promise.resolve(core.plan(sdl, query)),
     ]);
     setMockResult(execResult);
@@ -397,7 +355,7 @@ export default function App() {
     if (supergraphSdl === null) return;
     if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
     setIsRunning(true);
-    void doRun(currentQuery, currentVariables, supergraphSdl, seed);
+    void doRun(currentQuery, supergraphSdl, seed);
   }
 
   // Shared JSX fragments used by both layouts.
@@ -752,7 +710,7 @@ export default function App() {
                 <div
                   data-testid="query-editor"
                   className="editor"
-                  style={{ height: "42vh", flexShrink: 0 }}
+                  style={{ flex: 1, minHeight: 0 }}
                 >
                   <Editor
                     language="graphql"
@@ -765,41 +723,6 @@ export default function App() {
                     beforeMount={(m) => defineMonacoTheme(m)}
                   />
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <label htmlFor="variables-editor-label" className="field-label">
-                    Variables (JSON)
-                  </label>
-                  <button
-                    onClick={() =>
-                      setViewSource({
-                        title: "Variables",
-                        value: currentVariables,
-                        onEdit: (v) => setQueryTabVariables(activeQueryTab, v),
-                      })
-                    }
-                    className="btn"
-                    style={{ marginLeft: "auto" }}
-                  >
-                    Select text
-                  </button>
-                </div>
-                <div className="editor">
-                  <Editor
-                    height="100%"
-                    language="json"
-                    path={`/variables-query-${activeQueryTab}.json`}
-                    value={currentVariables}
-                    onChange={(val) => setQueryTabVariables(activeQueryTab, val ?? "")}
-                    options={{ ...EDITOR_OPTIONS, wordWrap: "on" }}
-                    theme={MONACO_THEME}
-                    beforeMount={(m) => defineMonacoTheme(m)}
-                  />
-                </div>
-                {varError !== null && (
-                  <div role="alert" className="callout callout--error" style={{ flexShrink: 0 }}>
-                    {varError}
-                  </div>
-                )}
                 {seedAndRun}
                 {supergraphSdl === null && (
                   <p className="hint" style={{ flexShrink: 0 }}>
@@ -971,10 +894,10 @@ export default function App() {
 
       <Separator className="resize-handle" />
 
-      {/* === Bottom row: query | variables | results === */}
+      {/* === Bottom row: query | results === */}
       <Panel defaultSize={50} minSize={200}>
         <Group orientation="horizontal">
-          <Panel defaultSize={33.34} minSize={150}>
+          <Panel defaultSize={50} minSize={150}>
             <div className="panel">
               <h2 className="section-title" style={{ flexShrink: 0 }}>
                 Query
@@ -992,38 +915,6 @@ export default function App() {
                   beforeMount={(m) => defineMonacoTheme(m)}
                 />
               </div>
-            </div>
-          </Panel>
-          <Separator className="resize-handle" />
-          <Panel defaultSize={33.33} minSize={150}>
-            <div className="panel" style={{ gap: 8 }}>
-              <h2 className="section-title" style={{ flexShrink: 0 }}>
-                Variables
-              </h2>
-              <label
-                htmlFor="variables-editor-label"
-                className="field-label"
-                style={{ flexShrink: 0 }}
-              >
-                Variables (JSON)
-              </label>
-              <div className="editor" style={{ flex: 1, minHeight: 0 }}>
-                <Editor
-                  height="100%"
-                  language="json"
-                  path={`/variables-query-${activeQueryTab}.json`}
-                  value={currentVariables}
-                  onChange={(val) => setQueryTabVariables(activeQueryTab, val ?? "")}
-                  options={{ ...EDITOR_OPTIONS, wordWrap: "on" }}
-                  theme={MONACO_THEME}
-                  beforeMount={(m) => defineMonacoTheme(m)}
-                />
-              </div>
-              {varError !== null && (
-                <div role="alert" className="callout callout--error" style={{ flexShrink: 0 }}>
-                  {varError}
-                </div>
-              )}
               {seedAndRun}
               {supergraphSdl === null && (
                 <p className="hint" style={{ flexShrink: 0 }}>
@@ -1033,7 +924,7 @@ export default function App() {
             </div>
           </Panel>
           <Separator className="resize-handle" />
-          <Panel defaultSize={33.33} minSize={150}>
+          <Panel defaultSize={50} minSize={150}>
             <div className="panel">
               <h2 className="section-title" style={{ flexShrink: 0 }}>
                 Results

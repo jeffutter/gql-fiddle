@@ -2,7 +2,7 @@ import * as pako from "pako";
 
 export interface WorkspacePayload {
   subgraphs: { name: string; sdl: string }[];
-  queryTabs: { name: string; query: string; variables: string }[];
+  queryTabs: { name: string; query: string }[];
   activeQueryTab: number;
   seed: number;
 }
@@ -51,10 +51,9 @@ export function decode(hash: string): WorkspacePayload {
   // fields instead of `queryTabs`. Convert them on the fly.
   if (!Array.isArray(parsed.queryTabs)) {
     const q = typeof parsed.query === "string" ? parsed.query : "";
-    const v = typeof parsed.variables === "string" ? parsed.variables : "{}";
     return {
       subgraphs: parsed.subgraphs as WorkspacePayload["subgraphs"],
-      queryTabs: [{ name: "Query 1", query: q, variables: v }],
+      queryTabs: [{ name: "Query 1", query: q }],
       activeQueryTab: 0,
       seed: typeof parsed.seed === "number" ? parsed.seed : 42,
     };

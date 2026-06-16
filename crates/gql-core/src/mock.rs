@@ -12,12 +12,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// Mock-execute an operation. Deterministic in `seed`.
-pub(crate) fn execute_mock(
-    supergraph_sdl: &str,
-    operation: &str,
-    variables: &Value,
-    seed: u64,
-) -> Value {
+/// Variables are auto-generated from the operation's declared variable
+/// definitions so callers never need to supply them manually.
+pub(crate) fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64) -> Value {
     // Derive the API schema from the supergraph SDL.
     let api_sdl = match crate::api_schema::derive_api_schema(supergraph_sdl) {
         Ok(sdl) => sdl,
@@ -62,16 +59,17 @@ pub(crate) fn execute_mock(
         }
     };
 
-    // Walk the selection set.
+    // Build variable definitions and auto-generate values from declared types.
     let var_defs: Vec<exe::VariableDefinition> =
         op.variables.iter().map(|v| (**v).clone()).collect();
+    let variables = generate_variables(&schema, &var_defs, seed);
     let data = walk_selection_set(
         &schema,
         &doc,
         &op.selection_set,
         op.operation_type,
         &var_defs,
-        variables,
+        &variables,
         seed,
         Vec::new(),
     );
@@ -471,6 +469,41 @@ fn resolve_value_to_bool(
     }
 }
 
+/// Auto-generate a variables map from the operation's declared variable
+/// definitions. Each variable receives a synthetic value appropriate for its
+/// type so `@skip`/`@include` directives behave sensibly without user input.
+fn generate_variables(schema: &Schema, var_defs: &[exe::VariableDefinition], seed: u64) -> Value {
+    let mut map = serde_json::Map::new();
+    for vd in var_defs {
+        let val = gen_value_for_type(schema, &vd.ty, &[vd.name.as_str().to_string()], seed);
+        map.insert(vd.name.as_str().to_string(), val);
+    }
+    Value::Object(map)
+}
+
+/// Produce a synthetic value matching a variable's type.
+fn gen_value_for_type(schema: &Schema, ty: &exe::Type, path: &[String], seed: u64) -> Value {
+    match ty {
+        exe::Type::NonNullNamed(name) | exe::Type::Named(name) => match name.as_str() {
+            "Boolean" => json!(false),
+            "Int" => gen_int(path, seed),
+            "Float" => gen_float(path, seed),
+            "String" => gen_string(path, seed),
+            "ID" => gen_id(path, seed),
+            other => {
+                if is_enum_type(schema, other) {
+                    gen_enum(schema, other, path, seed)
+                } else {
+                    json!(null)
+                }
+            }
+        },
+        exe::Type::NonNullList(inner) | exe::Type::List(inner) => {
+            json!([gen_value_for_type(schema, inner, path, seed)])
+        }
+    }
+}
+
 /// Generate a deterministic Int value for a path.
 fn gen_int(path: &[String], seed: u64) -> Value {
     let hash = hash_path(seed, path);
@@ -599,7 +632,7 @@ mod tests {
     #[test]
     fn valid_query_returns_data_shaped_like_selection_set() {
         let supergraph_sdl = _compose_test_supergraph();
-        let result = execute_mock(&supergraph_sdl, "{ me { id name } }", &json!({}), 42);
+        let result = execute_mock(&supergraph_sdl, "{ me { id name } }", 42);
 
         // Top-level data key must exist and errors must be empty.
         assert!(
@@ -650,7 +683,6 @@ mod tests {
         let result = execute_mock(
             &supergraph_sdl,
             "{ mostRecentReview { id body product { id } } }",
-            &json!({}),
             42,
         );
 
@@ -682,7 +714,6 @@ mod tests {
         let result = execute_mock(
             &supergraph_sdl,
             "{ mostRecentReview { id body product { id reviews { id } } } }",
-            &json!({}),
             42,
         );
 
@@ -713,7 +744,6 @@ mod tests {
         let result = execute_mock(
             &supergraph_sdl,
             "{ me { id } mostRecentReview { id body product { id reviews { id } } } }",
-            &json!({}),
             42,
         );
 
@@ -1001,13 +1031,11 @@ mod tests {
         let result_a = execute_mock(
             &supergraph_sdl,
             "{ me { id name } mostRecentReview { id body product { id title reviews { id } } } }",
-            &json!({}),
             42,
         );
         let result_b = execute_mock(
             &supergraph_sdl,
             "{ me { id name } mostRecentReview { id body product { id title reviews { id } } } }",
-            &json!({}),
             42,
         );
 
@@ -1025,8 +1053,8 @@ mod tests {
     fn ac4_different_seed_produces_different_json() {
         let supergraph_sdl = _compose_test_supergraph();
 
-        let result_42 = execute_mock(&supergraph_sdl, "{ me { id name } }", &json!({}), 42);
-        let result_99 = execute_mock(&supergraph_sdl, "{ me { id name } }", &json!({}), 99);
+        let result_42 = execute_mock(&supergraph_sdl, "{ me { id name } }", 42);
+        let result_99 = execute_mock(&supergraph_sdl, "{ me { id name } }", 99);
 
         // Same inputs except seed → must differ.
         assert_ne!(

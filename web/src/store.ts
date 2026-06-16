@@ -26,7 +26,6 @@ export interface WorkspaceState {
   removeQueryTab: (index: number) => void;
   renameQueryTab: (index: number, name: string) => void;
   setQueryTabQuery: (index: number, query: string) => void;
-  setQueryTabVariables: (index: number, variables: string) => void;
   setActiveQueryTab: (index: number) => void;
   setSeed: (seed: number) => void;
   setComposeResult: (
@@ -45,12 +44,9 @@ const DEFAULT_SUBGRAPHS: SubgraphInput[] = [
 ];
 
 const DEFAULT_QUERY = "query {\n  products {\n    id\n    name\n  }\n}\n";
-const DEFAULT_VARIABLES = "{}";
 const DEFAULT_SEED = 42;
 
-const DEFAULT_QUERY_TABS: QueryTab[] = [
-  { name: "Query 1", query: DEFAULT_QUERY, variables: DEFAULT_VARIABLES },
-];
+const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT_QUERY }];
 
 export const useWorkspace = create<WorkspaceState>()(
   persist(
@@ -90,7 +86,7 @@ export const useWorkspace = create<WorkspaceState>()(
         set((state) => {
           let n = 1;
           while (state.queryTabs.some((t) => t.name === `Query ${n}`)) n++;
-          const newTab: QueryTab = { name: `Query ${n}`, query: "", variables: "{}" };
+          const newTab: QueryTab = { name: `Query ${n}`, query: "" };
           return {
             queryTabs: [...state.queryTabs, newTab],
             activeQueryTab: state.queryTabs.length,
@@ -101,7 +97,7 @@ export const useWorkspace = create<WorkspaceState>()(
           const remaining = state.queryTabs.filter((_, i) => i !== index);
           if (remaining.length === 0) {
             return {
-              queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+              queryTabs: [{ name: "Query 1", query: "" }],
               activeQueryTab: 0,
             };
           }
@@ -122,10 +118,6 @@ export const useWorkspace = create<WorkspaceState>()(
       setQueryTabQuery: (index, query) =>
         set((state) => ({
           queryTabs: state.queryTabs.map((t, i) => (i === index ? { ...t, query } : t)),
-        })),
-      setQueryTabVariables: (index, variables) =>
-        set((state) => ({
-          queryTabs: state.queryTabs.map((t, i) => (i === index ? { ...t, variables } : t)),
         })),
       setActiveQueryTab: (index) => set({ activeQueryTab: index }),
       setSeed: (seed) => set({ seed }),
@@ -156,12 +148,11 @@ export const useWorkspace = create<WorkspaceState>()(
       version: 1,
       migrate: (persistedState: unknown, version: number) => {
         if (version === 0) {
-          const { query, variables, ...rest } = persistedState as Record<string, unknown>;
+          const { query, ...rest } = persistedState as Record<string, unknown>;
           const q = typeof query === "string" ? query : DEFAULT_QUERY;
-          const v = typeof variables === "string" ? variables : DEFAULT_VARIABLES;
           return {
             ...rest,
-            queryTabs: [{ name: "Query 1", query: q, variables: v }],
+            queryTabs: [{ name: "Query 1", query: q }],
             activeQueryTab: 0,
           } as unknown as WorkspaceState;
         }

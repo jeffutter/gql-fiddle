@@ -73,12 +73,11 @@ fn determinism_same_seed_identical_output() {
         }
     "#;
 
-    let variables = "{}";
     let seed = 42u64;
 
     // Run twice with identical inputs.
-    let output_a = execute_mock(supergraph_sdl, operation, variables, seed);
-    let output_b = execute_mock(supergraph_sdl, operation, variables, seed);
+    let output_a = execute_mock(supergraph_sdl, operation, seed);
+    let output_b = execute_mock(supergraph_sdl, operation, seed);
 
     // Parse both as JSON and assert they are equal.
     let val_a: serde_json::Value = serde_json::from_str(&output_a).unwrap();
@@ -155,7 +154,7 @@ fn ac2_nullability_nonnull_fields_are_never_null() {
         }
     "#;
 
-    let output = execute_mock(supergraph_sdl, operation, "{}", 42);
+    let output = execute_mock(supergraph_sdl, operation, 42);
     let result: serde_json::Value = serde_json::from_str(&output).expect("valid JSON envelope");
     let data = result["data"]
         .as_object()
@@ -241,7 +240,7 @@ fn ac2_list_fields_have_length_three() {
         }
     "#;
 
-    let output = execute_mock(supergraph_sdl, operation, "{}", 42);
+    let output = execute_mock(supergraph_sdl, operation, 42);
     let result: serde_json::Value = serde_json::from_str(&output).expect("valid JSON envelope");
     let data = result["data"]
         .as_object()
@@ -255,9 +254,9 @@ fn ac2_list_fields_have_length_three() {
     }
 }
 
-/// AC#2d: @skip/@include directives are honored via variables.
+/// AC#2d: @skip/@include with literal boolean values are honored.
 #[test]
-fn ac2_skip_include_honored_via_variables() {
+fn ac2_skip_include_honored_via_literals() {
     // Minimal subgraph with multiple scalar fields.
     let input = serde_json::json!([
         {
@@ -290,27 +289,22 @@ fn ac2_skip_include_honored_via_variables() {
         .as_str()
         .expect("compose should return supergraph_sdl");
 
-    let operation = r#"
-        query($skipName: Boolean!, $includeEmail: Boolean!) {
+    // @skip(if: true) removes 'name'; @include(if: false) removes 'email'; 'age' always present.
+    let operation_a = r#"
+        query {
             user {
-                name @skip(if: $skipName)
-                email @include(if: $includeEmail)
+                name @skip(if: true)
+                email @include(if: false)
                 age
             }
         }
     "#;
 
-    // Case A: skip name, exclude email — only 'age' should appear.
-    let output_a = execute_mock(
-        supergraph_sdl,
-        operation,
-        "{ \"skipName\": true, \"includeEmail\": false }",
-        42,
-    );
+    let output_a = execute_mock(supergraph_sdl, operation_a, 42);
     let result_a: serde_json::Value = serde_json::from_str(&output_a).expect("valid JSON envelope");
     let user_a = &result_a["data"]["user"];
     assert!(
-        !user_a.get("name").map(|v| v.is_null()).unwrap_or(false) && user_a.get("name").is_none(),
+        user_a.get("name").is_none(),
         "name must be absent when @skip(if: true)"
     );
     assert!(
@@ -322,13 +316,18 @@ fn ac2_skip_include_honored_via_variables() {
         "age (no directive) must always appear"
     );
 
-    // Case B: include name, include email — all three fields should appear.
-    let output_b = execute_mock(
-        supergraph_sdl,
-        operation,
-        "{ \"skipName\": false, \"includeEmail\": true }",
-        42,
-    );
+    // @skip(if: false) keeps 'name'; @include(if: true) keeps 'email'; all three present.
+    let operation_b = r#"
+        query {
+            user {
+                name @skip(if: false)
+                email @include(if: true)
+                age
+            }
+        }
+    "#;
+
+    let output_b = execute_mock(supergraph_sdl, operation_b, 42);
     let result_b: serde_json::Value = serde_json::from_str(&output_b).expect("valid JSON envelope");
     let user_b = &result_b["data"]["user"];
     assert!(

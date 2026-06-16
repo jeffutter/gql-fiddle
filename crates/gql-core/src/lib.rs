@@ -66,17 +66,11 @@ pub fn plan(supergraph_sdl: &str, operation: &str, op_name: Option<String>) -> S
 }
 
 /// Mock-execute an operation against the composed API schema. Deterministic in
-/// `seed`: same schema + operation + seed yields identical data.
+/// `seed`: same schema + operation + seed yields identical data. Variables are
+/// auto-generated from the operation's declared variable definitions.
 #[wasm_bindgen]
-pub fn execute_mock(
-    supergraph_sdl: &str,
-    operation: &str,
-    variables_json: &str,
-    seed: u64,
-) -> String {
-    let variables: serde_json::Value =
-        serde_json::from_str(variables_json).unwrap_or(serde_json::Value::Null);
-    mock::execute_mock(supergraph_sdl, operation, &variables, seed).to_string()
+pub fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64) -> String {
+    mock::execute_mock(supergraph_sdl, operation, seed).to_string()
 }
 
 #[cfg(test)]

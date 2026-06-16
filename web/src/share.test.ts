@@ -10,7 +10,7 @@ const SAMPLE_PAYLOAD: WorkspacePayload = {
     },
     { name: "reviews", sdl: 'type Product @key(fields: "id") { id: ID! review: String }' },
   ],
-  queryTabs: [{ name: "Query 1", query: "query { products { id name } }", variables: "{}" }],
+  queryTabs: [{ name: "Query 1", query: "query { products { id name } }" }],
   activeQueryTab: 0,
   seed: 42,
 };
@@ -31,7 +31,6 @@ describe("share.ts encode/decode", () => {
     expect(decoded.queryTabs).toHaveLength(1);
     expect(decoded.queryTabs[0].name).toBe("Query 1");
     expect(decoded.queryTabs[0].query).toBe("query { products { id name } }");
-    expect(decoded.queryTabs[0].variables).toBe("{}");
     expect(decoded.activeQueryTab).toBe(0);
     expect(decoded.seed).toBe(42);
   });
@@ -45,9 +44,9 @@ describe("share.ts encode/decode", () => {
     const multiTabPayload: WorkspacePayload = {
       subgraphs: [{ name: "products", sdl: "type Query { products: [Product] }" }],
       queryTabs: [
-        { name: "Query 1", query: "query { products { id } }", variables: "{}" },
-        { name: "Query 2", query: "query { products { name } }", variables: '{"limit":5}' },
-        { name: "Named Op", query: "query GetAll { products { id name } }", variables: "{}" },
+        { name: "Query 1", query: "query { products { id } }" },
+        { name: "Query 2", query: "query { products { name } }" },
+        { name: "Named Op", query: "query GetAll { products { id name } }" },
       ],
       activeQueryTab: 1,
       seed: 77,
@@ -55,7 +54,6 @@ describe("share.ts encode/decode", () => {
     const decoded = decode(encode(multiTabPayload));
     expect(decoded).toEqual(multiTabPayload);
     expect(decoded.queryTabs).toHaveLength(3);
-    expect(decoded.queryTabs[1].variables).toBe('{"limit":5}');
     expect(decoded.activeQueryTab).toBe(1);
   });
 
@@ -93,7 +91,6 @@ describe("share.ts encode/decode", () => {
     const decoded = decode(oldHash);
     expect(decoded.queryTabs).toHaveLength(1);
     expect(decoded.queryTabs[0].query).toBe("query { products { id } }");
-    expect(decoded.queryTabs[0].variables).toBe('{"limit":3}');
     expect(decoded.activeQueryTab).toBe(0);
     expect(decoded.seed).toBe(55);
   });

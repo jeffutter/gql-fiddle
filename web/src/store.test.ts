@@ -6,7 +6,7 @@ describe("workspace store", () => {
     useWorkspace.setState({
       subgraphs: [{ name: "products", sdl: "" }],
       activeSubgraph: 0,
-      queryTabs: [{ name: "Query 1", query: "", variables: "{}" }],
+      queryTabs: [{ name: "Query 1", query: "" }],
       activeQueryTab: 0,
     });
   });
@@ -77,7 +77,6 @@ describe("workspace store", () => {
       expect(state.queryTabs).toHaveLength(2);
       expect(state.queryTabs[1].name).toBe("Query 2");
       expect(state.queryTabs[1].query).toBe("");
-      expect(state.queryTabs[1].variables).toBe("{}");
       expect(state.activeQueryTab).toBe(1);
     });
 
@@ -128,7 +127,6 @@ describe("workspace store", () => {
       expect(after.queryTabs).toHaveLength(1);
       expect(after.queryTabs[0].name).toBe("Query 1");
       expect(after.queryTabs[0].query).toBe("");
-      expect(after.queryTabs[0].variables).toBe("{}");
       expect(after.activeQueryTab).toBe(0);
     });
 
@@ -146,14 +144,6 @@ describe("workspace store", () => {
       const state = useWorkspace.getState();
       expect(state.queryTabs[0].query).toBe("query { a }");
       expect(state.queryTabs[1].query).toBe("");
-    });
-
-    it("setQueryTabVariables updates only the targeted tab's variables", () => {
-      useWorkspace.getState().addQueryTab();
-      useWorkspace.getState().setQueryTabVariables(0, '{"id":"1"}');
-      const state = useWorkspace.getState();
-      expect(state.queryTabs[0].variables).toBe('{"id":"1"}');
-      expect(state.queryTabs[1].variables).toBe("{}");
     });
 
     it("setActiveQueryTab changes the active tab index", () => {

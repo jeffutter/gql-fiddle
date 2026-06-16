@@ -125,8 +125,8 @@ describe("loadCore", () => {
     expect(typeof planResult).not.toBe("string");
     expect(typeof planResult).toBe("object");
 
-    // executeMock: variables (stringified) + seed -> object with data
-    const mockResult = core.executeMock("type Query { x: ID }", "{ x }", {}, 42);
+    // executeMock: seed -> object with data
+    const mockResult = core.executeMock("type Query { x: ID }", "{ x }", 42);
     expect(typeof mockResult).toBe("object");
     expect(mockResult.data).toBeDefined();
   });
