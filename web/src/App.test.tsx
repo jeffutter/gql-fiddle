@@ -874,10 +874,11 @@ describe("App", () => {
     // Advance past the 300ms debounce window so composition fires.
     await vi.advanceTimersByTimeAsync(350);
 
-    // setModeConfiguration must have been called with all features enabled.
+    // setModeConfiguration must have been called with diagnostics disabled (WASM core handles validation)
+    // and all other features enabled.
     expect(mockSetModeConfiguration).toHaveBeenCalledWith({
       completionItems: true,
-      diagnostics: true,
+      diagnostics: false,
       hovers: true,
       documentSymbols: true,
       documentFormattingEdits: true,

@@ -34,6 +34,7 @@ const EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions = {
   fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
   smoothScrolling: true,
   scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+  fixedOverflowWidgets: true,
 };
 
 const isBoxDrawingLine = (line: string) => /[─-╿]/.test(line);
@@ -138,6 +139,7 @@ export default function App() {
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = useMobile();
   const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output">("schema");
@@ -193,7 +195,7 @@ export default function App() {
         }
         monacoGraphQLAPI.setModeConfiguration({
           completionItems: true,
-          diagnostics: true,
+          diagnostics: false,
           hovers: true,
           documentSymbols: true,
           documentFormattingEdits: true,
@@ -257,6 +259,30 @@ export default function App() {
       }
     };
   }, [editor, monacoInstance, activeSubgraph, subgraphs]);
+
+  // Debounced query validation effect — uses WASM core so federation directives don't produce false positives.
+  useEffect(() => {
+    if (!monacoInstance || supergraphSdl === null) return;
+    if (queryTimeoutRef.current) clearTimeout(queryTimeoutRef.current);
+    queryTimeoutRef.current = setTimeout(() => {
+      void (async () => {
+        const core = await loadCore();
+        const result = core.validateQuery(supergraphSdl, currentQuery);
+        const uri = monacoInstance.Uri.parse(`inmemory://model/query-${activeQueryTab}.graphql`);
+        const model = monacoInstance.editor.getModel(uri);
+        if (model) {
+          monacoInstance.editor.setModelMarkers(
+            model,
+            "query-validation",
+            result.diagnostics.map((d) => diagnosticToMarker(d, monacoInstance)),
+          );
+        }
+      })();
+    }, 300);
+    return () => {
+      if (queryTimeoutRef.current) clearTimeout(queryTimeoutRef.current);
+    };
+  }, [monacoInstance, supergraphSdl, currentQuery, activeQueryTab]);
 
   function copyForLLM() {
     const parts: string[] = [];
