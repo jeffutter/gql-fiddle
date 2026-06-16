@@ -21,6 +21,7 @@ import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
 
 const COMPOSE_DEBOUNCE_MS = 300;
+const AUTO_RUN_DEBOUNCE_MS = 400;
 
 // Shared Monaco options for a clean, minimal editor: no minimap clutter,
 // breathing room, theme-matched mono font. Spread and extend per editor.
@@ -133,12 +134,14 @@ export default function App() {
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [rightTab, setRightTab] = useState<"sdl" | "plan" | "sequence" | "results">("plan");
   const [varError, setVarError] = useState<string | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = useMobile();
   const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output">("schema");
   const [viewSource, setViewSource] = useState<{
@@ -236,6 +239,22 @@ export default function App() {
       if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
     };
   }, [subgraphs]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  // Auto-run effect: re-executes the query whenever inputs change.
+  useEffect(() => {
+    if (supergraphSdl === null) return;
+    setIsRunning(true);
+    if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+    const sdl = supergraphSdl;
+    autoRunTimeoutRef.current = setTimeout(() => {
+      void doRun(currentQuery, currentVariables, sdl, seed);
+    }, AUTO_RUN_DEBOUNCE_MS);
+    return () => {
+      if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+    };
+  }, [currentQuery, currentVariables, supergraphSdl, seed]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   // Debounced validation effect.
@@ -354,25 +373,31 @@ export default function App() {
     }
   }
 
-  function runQuery() {
+  async function doRun(query: string, variables: string, sdl: string, s: number) {
     let parsedVariables: Record<string, unknown>;
     try {
-      parsedVariables = JSON.parse(currentVariables) as Record<string, unknown>;
+      parsedVariables = JSON.parse(variables) as Record<string, unknown>;
     } catch {
       setVarError("Invalid variables JSON");
+      setIsRunning(false);
       return;
     }
     setVarError(null);
+    const core = await loadCore();
+    const [execResult, plan] = await Promise.all([
+      Promise.resolve(core.executeMock(sdl, query, parsedVariables, s)),
+      Promise.resolve(core.plan(sdl, query)),
+    ]);
+    setMockResult(execResult);
+    setPlanResult(plan);
+    setIsRunning(false);
+  }
+
+  function runQuery() {
     if (supergraphSdl === null) return;
-    void (async () => {
-      const core = await loadCore();
-      const [execResult, plan] = await Promise.all([
-        Promise.resolve(core.executeMock(supergraphSdl, currentQuery, parsedVariables, seed)),
-        Promise.resolve(core.plan(supergraphSdl, currentQuery)),
-      ]);
-      setMockResult(execResult);
-      setPlanResult(plan);
-    })();
+    if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+    setIsRunning(true);
+    void doRun(currentQuery, currentVariables, supergraphSdl, seed);
   }
 
   // Shared JSX fragments used by both layouts.
@@ -630,6 +655,7 @@ export default function App() {
       <button onClick={runQuery} disabled={supergraphSdl === null} className="btn btn--primary">
         Run
       </button>
+      {isRunning && <span className="spinner" aria-label="Computing" />}
     </div>
   );
 
