@@ -63,7 +63,7 @@ test("compose → query → results smoke test", async ({ page }) => {
 
   // Open the Supergraph SDL tab and wait for successful composition
   await page.getByRole("button", { name: "Supergraph SDL" }).click();
-  await expect(page.locator("pre").filter({ hasText: "type Query" })).toBeVisible({
+  await expect(page.locator("pre.code-block").filter({ hasText: "type Query" })).toBeVisible({
     timeout: 20000,
   });
 
