@@ -27,9 +27,6 @@
   --text-muted: #9aabc4; /* secondary, labels */
   --text-faint: #607290; /* placeholders, line numbers */
 
-  /* GraphQL brand pink — logo mark only, not part of the general palette. */
-  --graphql: #e535ab;
-
   /* Accent — mustard yellow. Used sparingly: primary action, active, focus. */
   --accent: #e3b341;
   --accent-hover: #f1c75a;
@@ -558,7 +555,7 @@ body {
 
 .logo__mark {
   flex-shrink: 0;
-  filter: drop-shadow(0 0 5px rgba(229, 53, 171, 0.5));
+  filter: drop-shadow(0 0 5px rgba(227, 179, 65, 0.5));
 }
 
 .logo__text {
@@ -572,7 +569,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--graphql);
+  color: var(--accent);
 }
 
 .logo__name {

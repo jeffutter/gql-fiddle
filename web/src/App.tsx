@@ -630,22 +630,22 @@ export default function App() {
         >
           <polygon
             points="15,3 25.4,21 4.6,21"
-            stroke="var(--graphql)"
+            stroke="var(--accent)"
             strokeWidth="1.5"
             strokeLinejoin="round"
           />
           <polygon
             points="25.4,9 15,27 4.6,9"
-            stroke="var(--graphql)"
+            stroke="var(--accent)"
             strokeWidth="1.5"
             strokeLinejoin="round"
           />
-          <circle cx="15" cy="3" r="1.8" fill="var(--graphql)" />
-          <circle cx="25.4" cy="9" r="1.8" fill="var(--graphql)" />
-          <circle cx="25.4" cy="21" r="1.8" fill="var(--graphql)" />
-          <circle cx="15" cy="27" r="1.8" fill="var(--graphql)" />
-          <circle cx="4.6" cy="21" r="1.8" fill="var(--graphql)" />
-          <circle cx="4.6" cy="9" r="1.8" fill="var(--graphql)" />
+          <circle cx="15" cy="3" r="1.8" fill="var(--accent)" />
+          <circle cx="25.4" cy="9" r="1.8" fill="var(--accent)" />
+          <circle cx="25.4" cy="21" r="1.8" fill="var(--accent)" />
+          <circle cx="15" cy="27" r="1.8" fill="var(--accent)" />
+          <circle cx="4.6" cy="21" r="1.8" fill="var(--accent)" />
+          <circle cx="4.6" cy="9" r="1.8" fill="var(--accent)" />
         </svg>
         <div className="logo__text">
           <span className="logo__gql">GraphQL</span>
