@@ -1,0 +1,19 @@
+diff --git a/esm/workerManager.js b/esm/workerManager.js
+index 76dfa7ae61873012130dd737a6d509fd3945ed71..d663ef0ace2f21398c97365d7650525e1b9ff645 100644
+--- a/esm/workerManager.js
++++ b/esm/workerManager.js
+@@ -1,4 +1,4 @@
+-import { editor } from './monaco-editor';
++import { createWebWorker } from 'monaco-editor/esm/vs/common/workers.js';
+ import { getStringSchema } from './utils';
+ const STOP_WHEN_IDLE_FOR = 2 * 60 * 1000;
+ export class WorkerManager {
+@@ -41,7 +41,7 @@ export class WorkerManager {
+         if (!this._client && !this._worker) {
+             try {
+                 const { languageId, formattingOptions, schemas, externalFragmentDefinitions, completionSettings, } = this._defaults;
+-                this._worker = editor.createWebWorker({
++                this._worker = createWebWorker({
+                     moduleId: 'monaco-graphql/esm/GraphQLWorker.js',
+                     label: languageId,
+                     createData: {

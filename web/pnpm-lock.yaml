@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  monaco-graphql@1.8.0: 0f368c78f4244fdb047fb7db9b5310d8e392a4153e7a2ed5b5fac02c5da296f3
+
 importers:
 
   .:
@@ -22,7 +25,7 @@ importers:
         version: 0.55.1
       monaco-graphql:
         specifier: ^1.8.0
-        version: 1.8.0(graphql@16.14.2)(monaco-editor@0.55.1)(prettier@3.8.3)
+        version: 1.8.0(patch_hash=0f368c78f4244fdb047fb7db9b5310d8e392a4153e7a2ed5b5fac02c5da296f3)(graphql@16.14.2)(monaco-editor@0.55.1)(prettier@3.8.3)
       pako:
         specifier: ^2.1.0
         version: 2.1.0
@@ -3653,7 +3656,7 @@ snapshots:
       dompurify: 3.2.7
       marked: 14.0.0
 
-  monaco-graphql@1.8.0(graphql@16.14.2)(monaco-editor@0.55.1)(prettier@3.8.3):
+  monaco-graphql@1.8.0(patch_hash=0f368c78f4244fdb047fb7db9b5310d8e392a4153e7a2ed5b5fac02c5da296f3)(graphql@16.14.2)(monaco-editor@0.55.1)(prettier@3.8.3):
     dependencies:
       graphql: 16.14.2
       graphql-language-service: 5.5.2(graphql@16.14.2)
