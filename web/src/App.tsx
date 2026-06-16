@@ -15,6 +15,7 @@ import type { WorkspacePayload } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
 import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
+import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
@@ -131,7 +132,9 @@ export default function App() {
   const [renameQueryValue, setRenameQueryValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
-  const [rightTab, setRightTab] = useState<"sdl" | "plan" | "sequence" | "results">("plan");
+  const [rightTab, setRightTab] = useState<"sdl" | "plan" | "sequence" | "timeline" | "results">(
+    "plan",
+  );
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -609,6 +612,22 @@ export default function App() {
     </div>
   );
 
+  const timelineContent = (
+    <div className="scroll">
+      {planResult === null ? (
+        <p className="empty-state">Run a query to see the timeline.</p>
+      ) : planResult.ok ? (
+        <ExecutionTimeline node={planResult.query_plan} />
+      ) : (
+        <div className="callout callout--error">
+          {planResult.errors.map((e, i) => (
+            <ErrorMessage key={i} text={e.message} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   const resultsContent = (
     <div className="scroll">
       {mockResult === null ? (
@@ -826,6 +845,13 @@ export default function App() {
                     Sequence Diagram
                   </button>
                   <button
+                    onClick={() => setRightTab("timeline")}
+                    aria-pressed={rightTab === "timeline"}
+                    className={rightTab === "timeline" ? "tab is-active" : "tab"}
+                  >
+                    Timeline
+                  </button>
+                  <button
                     onClick={() => setRightTab("sdl")}
                     aria-pressed={rightTab === "sdl"}
                     className={rightTab === "sdl" ? "tab is-active" : "tab"}
@@ -839,6 +865,7 @@ export default function App() {
                     {rightTab === "sdl" && sdlContent}
                     {rightTab === "plan" && planContent}
                     {rightTab === "sequence" && sequenceContent}
+                    {rightTab === "timeline" && timelineContent}
                   </>
                 )}
               </div>
@@ -922,6 +949,13 @@ export default function App() {
                     Sequence Diagram
                   </button>
                   <button
+                    onClick={() => setRightTab("timeline")}
+                    aria-pressed={rightTab === "timeline"}
+                    className={rightTab === "timeline" ? "tab is-active" : "tab"}
+                  >
+                    Timeline
+                  </button>
+                  <button
                     onClick={() => setRightTab("sdl")}
                     aria-pressed={rightTab === "sdl"}
                     className={rightTab === "sdl" ? "tab is-active" : "tab"}
@@ -935,6 +969,7 @@ export default function App() {
                     {rightTab === "sdl" && sdlContent}
                     {rightTab === "plan" && planContent}
                     {rightTab === "sequence" && sequenceContent}
+                    {rightTab === "timeline" && timelineContent}
                   </>
                 )}
               </div>
