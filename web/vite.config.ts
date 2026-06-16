@@ -7,6 +7,15 @@ import topLevelAwait from "vite-plugin-top-level-await";
 // `wasm-pack build --target web` emits into web/src/wasm/.
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait()],
+  optimizeDeps: {
+    // These CJS packages need pre-bundling (CJS→ESM) so that the
+    // graphql.worker.js ES-module worker can import them. pnpm doesn't hoist
+    // transitive deps, so we chain the resolution path with '>'.
+    include: [
+      "monaco-graphql > picomatch-browser",
+      "monaco-graphql > graphql-language-service > nullthrows",
+    ],
+  },
   resolve: {
     alias: {
       // Mermaid's source modules use a d3-color pattern that relies on
