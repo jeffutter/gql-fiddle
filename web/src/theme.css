@@ -389,6 +389,15 @@ body {
   border-left-width: 3px;
 }
 
+.composition-error-pane {
+  margin-bottom: 8px;
+}
+.composition-error-pane__title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
 .badge {
   display: inline-block;
   padding: 2px 7px;

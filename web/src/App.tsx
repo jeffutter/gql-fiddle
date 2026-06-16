@@ -522,30 +522,34 @@ export default function App() {
             {compose.hints.length === 0 ? "0 errors" : `0 errors, ${compose.hints.length} hints`}
           </p>
         </>
-      ) : (
-        <>
-          <div className="callout callout--error" style={{ marginBottom: 8 }}>
-            {compose.errors.map((e, i) => (
-              <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
-            ))}
-          </div>
-          {supergraphSdl !== null ? (
-            <>
-              <span
-                className="badge badge--warning"
-                style={{ marginBottom: 4, display: "inline-block" }}
-              >
-                stale
-              </span>
-              <pre className="code-block code-block--stale">{supergraphSdl}</pre>
-            </>
-          ) : (
-            <pre className="code-block">No valid composition yet</pre>
-          )}
-        </>
-      )}
+      ) : null}
     </div>
   );
+
+  const compositionErrorContent =
+    compose !== null && !compose.ok ? (
+      <div className="scroll">
+        <div className="callout callout--error composition-error-pane">
+          <strong className="composition-error-pane__title">Composition failed</strong>
+          {compose.errors.map((e, i) => (
+            <ErrorMessage key={i} text={`${e.code}: ${e.message}`} />
+          ))}
+        </div>
+        {supergraphSdl !== null ? (
+          <>
+            <span
+              className="badge badge--warning"
+              style={{ marginTop: 8, marginBottom: 4, display: "inline-block" }}
+            >
+              stale
+            </span>
+            <pre className="code-block code-block--stale">{supergraphSdl}</pre>
+          </>
+        ) : (
+          <pre className="code-block">No valid composition yet</pre>
+        )}
+      </div>
+    ) : null;
 
   const planContent = (
     <div className="scroll">
@@ -803,10 +807,14 @@ export default function App() {
                     Supergraph SDL
                   </button>
                 </nav>
-                {rightTab === "results" && resultsContent}
-                {rightTab === "sdl" && sdlContent}
-                {rightTab === "plan" && planContent}
-                {rightTab === "sequence" && sequenceContent}
+                {compositionErrorContent ?? (
+                  <>
+                    {rightTab === "results" && resultsContent}
+                    {rightTab === "sdl" && sdlContent}
+                    {rightTab === "plan" && planContent}
+                    {rightTab === "sequence" && sequenceContent}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -896,9 +904,13 @@ export default function App() {
                   </button>
                 </nav>
 
-                {rightTab === "sdl" && sdlContent}
-                {rightTab === "plan" && planContent}
-                {rightTab === "sequence" && sequenceContent}
+                {compositionErrorContent ?? (
+                  <>
+                    {rightTab === "sdl" && sdlContent}
+                    {rightTab === "plan" && planContent}
+                    {rightTab === "sequence" && sequenceContent}
+                  </>
+                )}
               </div>
             </Panel>
           </Group>
