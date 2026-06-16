@@ -72,7 +72,11 @@ vi.mock("monaco-editor", () => ({
 
 declare global {
   var __editorTestHarness: {
+    /** onMount for the subgraph editor (path starts with "sg-"). Kept for
+     *  backward compatibility with existing tests. */
     onMount: ((editor: unknown, monaco: unknown) => void) | null;
+    /** onMount callbacks keyed by editor path. */
+    onMountByPath: Record<string, ((editor: unknown, monaco: unknown) => void) | undefined>;
     // onChange callbacks keyed by editor path so tests can trigger them
     onChangeByPath: Record<string, ((value: string | undefined) => void) | undefined>;
   };
@@ -81,6 +85,7 @@ declare global {
 // Shared test harness so individual tests can supply their own editor/monaco mocks.
 globalThis.__editorTestHarness = {
   onMount: null,
+  onMountByPath: {},
   onChangeByPath: {},
 };
 
@@ -100,7 +105,15 @@ vi.mock("@monaco-editor/react", () => ({
       onChange?: (value: string | undefined) => void;
     }) => {
       if (onMount) {
-        globalThis.__editorTestHarness.onMount = onMount;
+        if (path) {
+          globalThis.__editorTestHarness.onMountByPath[path] = onMount;
+        }
+        // Keep __editorTestHarness.onMount pointing to the subgraph editor
+        // so existing tests that call it to set up the subgraph editor state
+        // continue to work. Subgraph editor paths start with "sg-".
+        if (!path || path.startsWith("sg-")) {
+          globalThis.__editorTestHarness.onMount = onMount;
+        }
       }
       if (path && onChange) {
         globalThis.__editorTestHarness.onChangeByPath[path] = onChange;

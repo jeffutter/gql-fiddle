@@ -42,6 +42,19 @@
   --warning-soft: rgba(227, 179, 65, 0.14);
   --warning-border: rgba(227, 179, 65, 0.45);
 
+  /* Subgraph attribution palette — 10 visually distinct accents, sufficient contrast on --surface (#16243a).
+     Shared by field-attribution decorations and entity ownership graph (TASK-56). */
+  --sg-0: #7aa2f7; /* soft blue */
+  --sg-1: #9ece6a; /* green */
+  --sg-2: #ff9e64; /* orange */
+  --sg-3: #f7768e; /* rose */
+  --sg-4: #2ac3de; /* cyan */
+  --sg-5: #bb9af7; /* lavender */
+  --sg-6: #e0af68; /* sand */
+  --sg-7: #73daca; /* teal */
+  --sg-8: #ff5f8f; /* pink */
+  --sg-9: #41a6b5; /* steel blue */
+
   /* Geometry */
   --radius: 8px;
   --radius-sm: 5px;
@@ -666,4 +679,31 @@ body {
 .overlay__textarea:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* ========================================================================== *
+ * Subgraph legend (field attribution decorations)
+ * ========================================================================== */
+.subgraph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  flex-shrink: 0;
+  padding: 4px 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.subgraph-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.subgraph-legend__swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }

@@ -17,6 +17,8 @@ import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
+import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges";
+import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subgraphColors";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -38,6 +40,13 @@ const EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions = {
   fixedOverflowWidgets: true,
 };
 
+// Query editor options — extends the shared base with glyph margin for
+// per-subgraph colored dots in the left gutter.
+const QUERY_EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions = {
+  ...EDITOR_OPTIONS,
+  glyphMargin: true,
+};
+
 const isBoxDrawingLine = (line: string) => /[─-╿]/.test(line);
 
 function ErrorMessage({ text }: { text: string }) {
@@ -56,6 +65,23 @@ function ErrorMessage({ text }: { text: string }) {
         </span>
       ))}
     </pre>
+  );
+}
+
+function SubgraphLegend({ services }: { services: string[] }) {
+  if (services.length === 0) return null;
+  return (
+    <div className="subgraph-legend" aria-label="Subgraph legend">
+      {services.map((svc) => (
+        <span key={svc} className="subgraph-legend__item">
+          <span
+            className="subgraph-legend__swatch"
+            style={{ backgroundColor: subgraphColorVar(svc) }}
+          />
+          {svc}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -141,6 +167,12 @@ export default function App() {
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
+  // Query editor instance ref — used to apply field-attribution decorations.
+  const queryEditorRef = useRef<_monaco.editor.IStandaloneCodeEditor | null>(null);
+  // Monaco decoration collection for field-attribution highlights.
+  const decorationsRef = useRef<ReturnType<
+    _monaco.editor.IStandaloneCodeEditor["createDecorationsCollection"]
+  > | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -175,6 +207,41 @@ export default function App() {
       console.warn("Failed to restore workspace from URL hash:", err);
     }
   }, []);
+
+  // Inject CSS classes for Monaco inline decoration highlighting (once on mount).
+  useEffect(() => {
+    injectSubgraphStyles();
+  }, []);
+
+  // Apply field-attribution decorations to the query editor whenever the plan
+  // result or query changes. Decorations are cleared when the plan is absent
+  // or failed.
+  useEffect(() => {
+    const queryEditor = queryEditorRef.current;
+    if (!queryEditor || !monacoInstance) {
+      return;
+    }
+
+    // Clear previous decorations.
+    decorationsRef.current?.clear();
+    decorationsRef.current = null;
+
+    if (!planResult || !planResult.ok) return;
+
+    const ranges = planToFieldRanges(planResult.query_plan, currentQuery);
+    if (ranges.length === 0) return;
+
+    const deltaDecorations: _monaco.editor.IModelDeltaDecoration[] = ranges.map((r) => ({
+      range: new monacoInstance.Range(r.line, r.col, r.line, r.col + r.len),
+      options: {
+        inlineClassName: `sg-bg-${hashSubgraphName(r.service)}`,
+        glyphMarginClassName: `sg-glyph-${hashSubgraphName(r.service)}`,
+        hoverMessage: { value: `Resolved by: **${r.service}**` },
+      },
+    }));
+
+    decorationsRef.current = queryEditor.createDecorationsCollection(deltaDecorations);
+  }, [planResult, monacoInstance, currentQuery]);
 
   // Focus the editor whenever the active subgraph changes (e.g. after adding).
   useEffect(() => {
@@ -580,6 +647,10 @@ export default function App() {
       </div>
     ) : null;
 
+  // Unique service names in the active plan — drives the legend and decorations.
+  const activePlanServices =
+    planResult !== null && planResult.ok ? collectServiceNames(planResult.query_plan) : [];
+
   const planContent = (
     <div className="scroll">
       {planResult === null ? (
@@ -798,11 +869,15 @@ export default function App() {
                     value={currentQuery}
                     onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
                     height="100%"
-                    options={EDITOR_OPTIONS}
+                    options={QUERY_EDITOR_OPTIONS}
                     theme={MONACO_THEME}
                     beforeMount={(m) => defineMonacoTheme(m)}
+                    onMount={(ed) => {
+                      queryEditorRef.current = ed;
+                    }}
                   />
                 </div>
+                <SubgraphLegend services={activePlanServices} />
                 {seedAndRun}
                 {supergraphSdl === null && (
                   <p className="hint" style={{ flexShrink: 0 }}>
@@ -995,11 +1070,15 @@ export default function App() {
                     value={currentQuery}
                     onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
                     height="100%"
-                    options={EDITOR_OPTIONS}
+                    options={QUERY_EDITOR_OPTIONS}
                     theme={MONACO_THEME}
                     beforeMount={(m) => defineMonacoTheme(m)}
+                    onMount={(ed) => {
+                      queryEditorRef.current = ed;
+                    }}
                   />
                 </div>
+                <SubgraphLegend services={activePlanServices} />
               </div>
             </Panel>
             <Separator className="resize-handle" />
