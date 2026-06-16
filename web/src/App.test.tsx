@@ -1057,13 +1057,14 @@ describe("App", () => {
     const main = document.querySelector("[style*='height: 100vh']");
     expect(main).not.toBeNull();
 
-    // Outer group: top Panel | Separator | bottom Panel
-    expect(main!.children.length).toBe(3);
+    // The outer app div has 3 children: page header, panel Group, page footer.
+    // The panel Group (children[1]) has: top Panel | Separator | bottom Panel.
+    const panelGroup = main!.children[1];
+    expect(panelGroup.children.length).toBe(3);
 
-    // The inner horizontal Group sits at main.child[0].child[0].child[0]
-    // and has the subgraph editor Panel, a Separator, and the SDL/plan Panel
-    // as direct children (plus more for the bottom row, but we only check 5).
-    const innerGroup = main!.children[0].children[0].children[0];
+    // The inner horizontal Group sits at panelGroup.child[0].child[0].child[0]
+    // and has the subgraph editor Panel, a Separator, and the SDL/plan Panel.
+    const innerGroup = panelGroup.children[0].children[0].children[0];
     expect(innerGroup).not.toBeNull();
 
     // The inner horizontal Group has at least 3 direct children: subgraph editor,
@@ -1086,11 +1087,13 @@ describe("App", () => {
     const main = document.querySelector("[style*='height: 100vh']");
     expect(main).not.toBeNull();
 
-    // Outer group: top Panel | Separator | bottom Panel (3 children).
-    expect(main!.children.length).toBe(3);
+    // The outer app div has 3 children: page header, panel Group, page footer.
+    // The panel Group (children[1]) has: top Panel | Separator | bottom Panel.
+    const panelGroup = main!.children[1];
+    expect(panelGroup.children.length).toBe(3);
 
-    // Bottom row is main.child[2] — an outer <Panel> wrapper.
-    const bottomRow = main!.children[2];
+    // Bottom row is panelGroup.children[2] — an outer <Panel> wrapper.
+    const bottomRow = panelGroup.children[2];
     expect(bottomRow).not.toBeNull();
 
     // The bottom row Panel wraps:

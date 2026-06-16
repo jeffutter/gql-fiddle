@@ -600,6 +600,10 @@ export default function App() {
 
   const seedAndRun = (
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+      <button onClick={runQuery} disabled={supergraphSdl === null} className="btn btn--primary">
+        Run
+      </button>
+      {isRunning && <span className="spinner" aria-label="Computing" />}
       <label htmlFor="seed-input" className="field-label">
         Seed:
       </label>
@@ -610,17 +614,35 @@ export default function App() {
         onChange={(e) => setSeed(Number(e.target.value))}
         className="input input--seed"
       />
-      <button onClick={runQuery} disabled={supergraphSdl === null} className="btn btn--primary">
-        Run
-      </button>
-      {isRunning && <span className="spinner" aria-label="Computing" />}
     </div>
+  );
+
+  const globalHeader = (
+    <header className="page-header">
+      <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
+        {copied ? "Copied!" : "Copy for LLM"}
+      </button>
+      <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
+        {copied ? "Copied!" : "Share"}
+      </button>
+      <button
+        onClick={() => {
+          if (window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")) {
+            resetToDefaults();
+          }
+        }}
+        className="btn"
+      >
+        Reset to defaults
+      </button>
+    </header>
   );
 
   if (isMobile) {
     return (
       <>
         <div className="app" style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
+          <div style={{ padding: "8px 8px 0" }}>{globalHeader}</div>
           {/* Content area */}
           <div
             style={{
@@ -635,31 +657,7 @@ export default function App() {
               <div
                 style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
               >
-                <div className="panel__header">
-                  <h2 className="section-title">Subgraphs</h2>
-                  <div className="panel__actions">
-                    <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
-                      {copied ? "Copied!" : "Copy for LLM"}
-                    </button>
-                    <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
-                      {copied ? "Copied!" : "Share"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Reset all subgraphs, query, variables, and seed to defaults?",
-                          )
-                        ) {
-                          resetToDefaults();
-                        }
-                      }}
-                      className="btn"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </div>
+                <h2 className="section-title">Subgraphs</h2>
                 {subgraphTabStrip}
                 <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
                   <button
@@ -751,13 +749,6 @@ export default function App() {
                     Results
                   </button>
                   <button
-                    onClick={() => setRightTab("sdl")}
-                    aria-pressed={rightTab === "sdl"}
-                    className={rightTab === "sdl" ? "tab is-active" : "tab"}
-                  >
-                    Supergraph SDL
-                  </button>
-                  <button
                     onClick={() => setRightTab("plan")}
                     aria-pressed={rightTab === "plan"}
                     className={rightTab === "plan" ? "tab is-active" : "tab"}
@@ -770,6 +761,13 @@ export default function App() {
                     className={rightTab === "sequence" ? "tab is-active" : "tab"}
                   >
                     Sequence Diagram
+                  </button>
+                  <button
+                    onClick={() => setRightTab("sdl")}
+                    aria-pressed={rightTab === "sdl"}
+                    className={rightTab === "sdl" ? "tab is-active" : "tab"}
+                  >
+                    Supergraph SDL
                   </button>
                 </nav>
                 {rightTab === "results" && resultsContent}
@@ -819,121 +817,116 @@ export default function App() {
   }
 
   return (
-    <Group className="app" orientation="vertical" style={{ height: "100vh", padding: 8 }}>
-      {/* === Top row: subgraph editor | SDL/plan === */}
-      <Panel defaultSize={50} minSize={200}>
-        <Group orientation="horizontal">
-          <Panel defaultSize={50} minSize={200}>
-            <div className="panel">
-              <div className="panel__header">
+    <div
+      className="app"
+      style={{ height: "100vh", display: "flex", flexDirection: "column", padding: 8 }}
+    >
+      {globalHeader}
+      <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+        {/* === Top row: subgraph editor | SDL/plan === */}
+        <Panel defaultSize={50} minSize={200}>
+          <Group orientation="horizontal">
+            <Panel defaultSize={50} minSize={200}>
+              <div className="panel">
                 <h2 className="section-title">Subgraphs</h2>
-                <div className="panel__actions">
-                  <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
-                    {copied ? "Copied!" : "Copy for LLM"}
-                  </button>
-                  <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
-                    {copied ? "Copied!" : "Share"}
+                {subgraphTabStrip}
+                {subgraphEditor}
+              </div>
+            </Panel>
+            <Separator className="resize-handle" />
+            <Panel defaultSize={50} minSize={200}>
+              <div className="panel" style={{ overflow: "hidden" }}>
+                <div className="panel__header">
+                  <h2 className="section-title">Output</h2>
+                </div>
+                <nav className="tab-strip">
+                  <button
+                    onClick={() => setRightTab("plan")}
+                    aria-pressed={rightTab === "plan"}
+                    className={rightTab === "plan" ? "tab is-active" : "tab"}
+                  >
+                    Query Plan
                   </button>
                   <button
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          "Reset all subgraphs, query, variables, and seed to defaults?",
-                        )
-                      ) {
-                        resetToDefaults();
-                      }
-                    }}
-                    className="btn"
+                    onClick={() => setRightTab("sequence")}
+                    aria-pressed={rightTab === "sequence"}
+                    className={rightTab === "sequence" ? "tab is-active" : "tab"}
                   >
-                    Reset to defaults
+                    Sequence Diagram
                   </button>
+                  <button
+                    onClick={() => setRightTab("sdl")}
+                    aria-pressed={rightTab === "sdl"}
+                    className={rightTab === "sdl" ? "tab is-active" : "tab"}
+                  >
+                    Supergraph SDL
+                  </button>
+                </nav>
+
+                {rightTab === "sdl" && sdlContent}
+                {rightTab === "plan" && planContent}
+                {rightTab === "sequence" && sequenceContent}
+              </div>
+            </Panel>
+          </Group>
+        </Panel>
+
+        <Separator className="resize-handle" />
+
+        {/* === Bottom row: query | results === */}
+        <Panel defaultSize={50} minSize={200}>
+          <Group orientation="horizontal">
+            <Panel defaultSize={50} minSize={150}>
+              <div className="panel">
+                <h2 className="section-title" style={{ flexShrink: 0 }}>
+                  Query
+                </h2>
+                {queryTabStrip}
+                <div data-testid="query-editor" className="editor">
+                  <Editor
+                    language="graphql"
+                    path={`query-${activeQueryTab}.graphql`}
+                    value={currentQuery}
+                    onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
+                    height="100%"
+                    options={EDITOR_OPTIONS}
+                    theme={MONACO_THEME}
+                    beforeMount={(m) => defineMonacoTheme(m)}
+                  />
                 </div>
               </div>
-              {subgraphTabStrip}
-              {subgraphEditor}
-            </div>
-          </Panel>
-          <Separator className="resize-handle" />
-          <Panel defaultSize={50} minSize={200}>
-            <div className="panel" style={{ overflow: "hidden" }}>
-              <div className="panel__header">
-                <h2 className="section-title">Output</h2>
+            </Panel>
+            <Separator className="resize-handle" />
+            <Panel defaultSize={50} minSize={150}>
+              <div className="panel">
+                <h2 className="section-title" style={{ flexShrink: 0 }}>
+                  Results
+                </h2>
+                {resultsContent}
               </div>
-              <nav className="tab-strip">
-                <button
-                  onClick={() => setRightTab("sdl")}
-                  aria-pressed={rightTab === "sdl"}
-                  className={rightTab === "sdl" ? "tab is-active" : "tab"}
-                >
-                  Supergraph SDL
-                </button>
-                <button
-                  onClick={() => setRightTab("plan")}
-                  aria-pressed={rightTab === "plan"}
-                  className={rightTab === "plan" ? "tab is-active" : "tab"}
-                >
-                  Query Plan
-                </button>
-                <button
-                  onClick={() => setRightTab("sequence")}
-                  aria-pressed={rightTab === "sequence"}
-                  className={rightTab === "sequence" ? "tab is-active" : "tab"}
-                >
-                  Sequence Diagram
-                </button>
-              </nav>
-
-              {rightTab === "sdl" && sdlContent}
-              {rightTab === "plan" && planContent}
-              {rightTab === "sequence" && sequenceContent}
-            </div>
-          </Panel>
-        </Group>
-      </Panel>
-
-      <Separator className="resize-handle" />
-
-      {/* === Bottom row: query | results === */}
-      <Panel defaultSize={50} minSize={200}>
-        <Group orientation="horizontal">
-          <Panel defaultSize={50} minSize={150}>
-            <div className="panel">
-              <h2 className="section-title" style={{ flexShrink: 0 }}>
-                Query
-              </h2>
-              {queryTabStrip}
-              <div data-testid="query-editor" className="editor">
-                <Editor
-                  language="graphql"
-                  path={`query-${activeQueryTab}.graphql`}
-                  value={currentQuery}
-                  onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
-                  height="100%"
-                  options={EDITOR_OPTIONS}
-                  theme={MONACO_THEME}
-                  beforeMount={(m) => defineMonacoTheme(m)}
-                />
-              </div>
-              {seedAndRun}
-              {supergraphSdl === null && (
-                <p className="hint" style={{ flexShrink: 0 }}>
-                  Run is disabled until composition succeeds.
-                </p>
-              )}
-            </div>
-          </Panel>
-          <Separator className="resize-handle" />
-          <Panel defaultSize={50} minSize={150}>
-            <div className="panel">
-              <h2 className="section-title" style={{ flexShrink: 0 }}>
-                Results
-              </h2>
-              {resultsContent}
-            </div>
-          </Panel>
-        </Group>
-      </Panel>
-    </Group>
+            </Panel>
+          </Group>
+        </Panel>
+      </Group>
+      <footer className="page-footer">
+        <button onClick={runQuery} disabled={supergraphSdl === null} className="btn btn--primary">
+          Run
+        </button>
+        {isRunning && <span className="spinner" aria-label="Computing" />}
+        {supergraphSdl === null && (
+          <span className="hint">Run is disabled until composition succeeds.</span>
+        )}
+        <label htmlFor="seed-input" className="field-label">
+          Seed:
+        </label>
+        <input
+          id="seed-input"
+          type="number"
+          value={seed}
+          onChange={(e) => setSeed(Number(e.target.value))}
+          className="input input--seed"
+        />
+      </footer>
+    </div>
   );
 }
