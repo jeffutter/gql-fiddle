@@ -619,6 +619,39 @@ export default function App() {
 
   const globalHeader = (
     <header className="page-header">
+      <div className="logo" aria-label="GraphQL Fiddle">
+        <svg
+          className="logo__mark"
+          width="28"
+          height="28"
+          viewBox="0 0 30 30"
+          fill="none"
+          aria-hidden="true"
+        >
+          <polygon
+            points="15,3 25.4,21 4.6,21"
+            stroke="var(--graphql)"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <polygon
+            points="25.4,9 15,27 4.6,9"
+            stroke="var(--graphql)"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <circle cx="15" cy="3" r="1.8" fill="var(--graphql)" />
+          <circle cx="25.4" cy="9" r="1.8" fill="var(--graphql)" />
+          <circle cx="25.4" cy="21" r="1.8" fill="var(--graphql)" />
+          <circle cx="15" cy="27" r="1.8" fill="var(--graphql)" />
+          <circle cx="4.6" cy="21" r="1.8" fill="var(--graphql)" />
+          <circle cx="4.6" cy="9" r="1.8" fill="var(--graphql)" />
+        </svg>
+        <div className="logo__text">
+          <span className="logo__gql">GraphQL</span>
+          <span className="logo__name">Fiddle</span>
+        </div>
+      </div>
       <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
         {copied ? "Copied!" : "Copy for LLM"}
       </button>
