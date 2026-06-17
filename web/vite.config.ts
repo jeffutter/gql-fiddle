@@ -1,7 +1,6 @@
 import { defineConfig, createLogger } from "vite";
 import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
-import topLevelAwait from "vite-plugin-top-level-await";
 
 const logger = createLogger();
 const originalWarn = logger.warn.bind(logger);
@@ -12,11 +11,12 @@ logger.warn = (msg, options) => {
   originalWarn(msg, options);
 };
 
-// wasm + topLevelAwait let us `import` the wasm-bindgen ES module that
+// wasm lets us `import` the wasm-bindgen ES module that
 // `wasm-pack build --target web` emits into web/src/wasm/.
+// Top-level await is handled natively by Vite 8 (Rolldown).
 export default defineConfig({
   customLogger: logger,
-  plugins: [react(), wasm(), topLevelAwait()],
+  plugins: [react(), wasm()],
   optimizeDeps: {
     // These CJS packages need pre-bundling (CJS→ESM) so that the
     // graphql.worker.js ES-module worker can import them. pnpm doesn't hoist
@@ -29,7 +29,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // Mermaid's source modules use a d3-color pattern that relies on
-      // function-declaration hoisting; Rollup's production bundling emits
+      // function-declaration hoisting; Rolldown's production bundling emits
       // it as an assignment instead, breaking the hoist and throwing
       // "Cannot set properties of undefined (setting 'prototype')" at
       // runtime. Mermaid's pre-bundled ESM build doesn't have this issue.
@@ -43,7 +43,7 @@ export default defineConfig({
   // build time. This avoids ES module workers (type:"module"), which fail in
   // Firefox <114 and produce "Could not create web worker(s)" console errors.
   worker: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         inlineDynamicImports: true,
       },
@@ -58,5 +58,19 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/setupTests.tsx", "@testing-library/jest-dom/vitest"],
     exclude: ["e2e/**", "node_modules/**"],
+    // Vitest 3+ fakes performance.now() by default, which breaks React 19's
+    // scheduler (it uses performance.now() for time-slicing). Explicitly limit
+    // faked APIs to the timer subset.
+    fakeTimers: {
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "setImmediate",
+        "clearImmediate",
+        "Date",
+      ],
+    },
   },
 });

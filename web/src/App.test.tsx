@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import App from "./App";
 import { useWorkspace } from "./store";
 import * as monaco from "monaco-editor";
@@ -65,6 +65,9 @@ vi.mock("./core", () => ({
 describe("App", () => {
   beforeEach(() => {
     cleanup();
+    // Vitest 3+ reuses spies across tests instead of creating new ones, so
+    // accumulated call counts from prior tests must be cleared explicitly.
+    vi.clearAllMocks();
     validateSubgraphCallCount = 0;
     Object.defineProperty(globalThis, "location", {
       value: { hash: "" },
@@ -200,6 +203,11 @@ describe("App", () => {
 
     await vi.waitFor(() => expect(composeCallCount).toBeGreaterThan(0));
 
+    // Vitest 3+ advances fake timers inside vi.waitFor, which fires the initial
+    // 300ms validation debounce. Reset the counter so we only measure calls from
+    // the rapid-keystroke sequence below.
+    validateSubgraphCallCount = 0;
+
     const setModelMarkersSpy = vi.spyOn(monaco.editor, "setModelMarkers");
     const mockModel = {};
     const mockEditor = { getModel: vi.fn(() => mockModel), focus: vi.fn() };
@@ -212,6 +220,10 @@ describe("App", () => {
     useWorkspace.getState().setSubgraphSdl(0, "ty");
     useWorkspace.getState().setSubgraphSdl(0, "typ");
     useWorkspace.getState().setSubgraphSdl(0, "type");
+
+    // Flush pending React renders so effect cleanups run and cancel
+    // intermediate timeouts before we advance the clock.
+    await act(async () => {});
 
     // Wait for the debounce timeout to fire once.
     await vi.advanceTimersByTimeAsync(350);
@@ -1296,22 +1308,34 @@ describe("App", () => {
     const shareBtn = screen.getByRole("button", { name: /share/i });
     expect(shareBtn.textContent).toBe("Share");
 
-    // Click the Share button.
-    fireEvent.click(shareBtn);
+    // Click the Share button inside act() so that when the clipboard Promise
+    // resolves (a microtask), the resulting setCopied(true) state update is
+    // captured and flushed before act() exits.
+    await act(async () => {
+      fireEvent.click(shareBtn);
+      // Yield twice: once to resolve the clipboard Promise, once more to let
+      // React 19 flush the batched state update from the .then() callback.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
     // The clipboard write should have been triggered.
     expect(mockWriteText).toHaveBeenCalledTimes(1);
-
-    // Advance 1ms to let React flush its internal timer-driven state update.
-    await vi.advanceTimersByTimeAsync(1);
 
     // The button text should now be "Copied!" (green feedback).
     const allBtns = screen.getAllByRole("button");
     const copiedText = allBtns.find((b) => b.textContent === "Copied!");
     expect(copiedText).toBeDefined();
 
-    // Advance 1499ms more — the setTimeout callback should fire and revert.
+    // Advance 1ms short of the revert timeout — button should still say "Copied!".
     await vi.advanceTimersByTimeAsync(1499);
+    const copiedStill = screen.getAllByRole("button").find((b) => b.textContent === "Copied!");
+    expect(copiedStill).toBeDefined();
+
+    // Advance 2ms more (1501ms total) — the 1500ms setCopied(false) fires.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2);
+    });
 
     // The button text should be back to "Share".
     const shareBtnAfter = screen.getAllByRole("button").find((b) => b.textContent === "Share");

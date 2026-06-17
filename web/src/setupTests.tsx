@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 // Suppress unhandled rejections from the WASM loader (fetches from localhost
 // in jsdom where no server is running).  This keeps test output clean.
+// @ts-expect-error -- process exists at runtime in Vitest's Node.js host; @types/node not installed
 process.on("unhandledRejection", () => {});
 
 // Polyfill localStorage for zustand persist middleware.
