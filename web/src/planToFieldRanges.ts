@@ -117,44 +117,62 @@ function walkSelectionSet(
   service: string,
   fragments: Record<string, FragmentDefinitionNode>,
   results: Map<string, FieldRange>,
+  // For entity fetches: maps typeName → fields the entity fetch resolves for
+  // that type. When entering `... on TypeName` in the original query, the
+  // walk switches to those type-specific fields so only the fields the entity
+  // fetch actually resolves are attributed to it (not generic keys like `id`
+  // that the root fetch also selects).
+  entityFragmentFields?: Map<string, Set<string>>,
 ): void {
   for (const sel of selectionSet.selections) {
     switch (sel.kind) {
       case Kind.FIELD: {
         const fieldSel = sel as FieldNode;
-        // A field matches if the Fetch operation contains its underlying field
-        // name OR its alias name (routers typically use the field name, not
-        // the alias, in sub-operations).
         const responseName = fieldSel.alias?.value ?? fieldSel.name.value;
         const fieldName = fieldSel.name.value;
         const isMatch = matchedFieldNames.has(responseName) || matchedFieldNames.has(fieldName);
         if (isMatch && fieldSel.loc) {
-          // Position points to the alias keyword when an alias exists, so the
-          // highlight starts at the same visual token the user sees in the editor.
           const startToken = fieldSel.loc.startToken;
-          // First fetch wins: the root fetch owns the field; entity fetches add only new fields.
-          if (!results.has(`${startToken.line}:${startToken.column}`))
-            results.set(`${startToken.line}:${startToken.column}`, {
-              line: startToken.line,
-              col: startToken.column,
-              len: startToken.end - startToken.start,
-              service,
-            });
+          // Last fetch wins: entity fetches (which come after the root fetch) override
+          // the root fetch's generic attribution for shared fields like `id`/`__typename`.
+          results.set(`${startToken.line}:${startToken.column}`, {
+            line: startToken.line,
+            col: startToken.column,
+            len: startToken.end - startToken.start,
+            service,
+          });
         }
-        // Always recurse into sub-selections so nested fields are found.
         if (fieldSel.selectionSet) {
-          // For nested fields we don't filter by matchedFieldNames — the Fetch
-          // sub-operation may not reflect the full nesting depth (the router
-          // injects entity keys). Instead, record every sub-field as belonging
-          // to this service too when it appears in the matched Fetch.
-          walkSelectionSet(fieldSel.selectionSet, matchedFieldNames, service, fragments, results);
+          walkSelectionSet(
+            fieldSel.selectionSet,
+            matchedFieldNames,
+            service,
+            fragments,
+            results,
+            entityFragmentFields,
+          );
         }
         break;
       }
       case Kind.INLINE_FRAGMENT: {
         const inlineSel = sel as InlineFragmentNode;
         if (inlineSel.selectionSet) {
-          walkSelectionSet(inlineSel.selectionSet, matchedFieldNames, service, fragments, results);
+          const typeName = inlineSel.typeCondition?.name.value;
+          // If this entity fetch has type-specific fields for this fragment,
+          // use those instead of the general set so nested fields like `id` are
+          // only attributed to this service when it actually resolves them.
+          const typeFields =
+            typeName && entityFragmentFields?.has(typeName)
+              ? entityFragmentFields.get(typeName)!
+              : matchedFieldNames;
+          walkSelectionSet(
+            inlineSel.selectionSet,
+            typeFields,
+            service,
+            fragments,
+            results,
+            entityFragmentFields,
+          );
         }
         break;
       }
@@ -162,7 +180,14 @@ function walkSelectionSet(
         const spreadSel = sel as FragmentSpreadNode;
         const fragment = fragments[spreadSel.name.value];
         if (fragment) {
-          walkSelectionSet(fragment.selectionSet, matchedFieldNames, service, fragments, results);
+          walkSelectionSet(
+            fragment.selectionSet,
+            matchedFieldNames,
+            service,
+            fragments,
+            results,
+            entityFragmentFields,
+          );
         }
         break;
       }
@@ -229,20 +254,56 @@ export function planToFieldRanges(root: PlanNode, originalQuery: string): FieldR
       continue;
     }
 
-    // Collect field names from the Fetch's top-level operation.
     const matchedNames = new Set<string>();
+    // For entity fetches: typeName → fields the fetch resolves for that type.
+    const entityFragmentFields = new Map<string, Set<string>>();
+    let isEntityFetch = false;
+
     for (const def of fetchDoc.definitions) {
-      if (def.kind === Kind.OPERATION_DEFINITION || def.kind === Kind.FRAGMENT_DEFINITION) {
+      if (def.kind === Kind.OPERATION_DEFINITION) {
+        // Detect entity fetch by looking for a top-level `_entities` field.
+        for (const sel of def.selectionSet.selections) {
+          if (sel.kind === Kind.FIELD && (sel as FieldNode).name.value === "_entities") {
+            isEntityFetch = true;
+            const entitiesField = sel as FieldNode;
+            if (entitiesField.selectionSet) {
+              for (const fragSel of entitiesField.selectionSet.selections) {
+                if (
+                  fragSel.kind === Kind.INLINE_FRAGMENT &&
+                  fragSel.typeCondition &&
+                  fragSel.selectionSet
+                ) {
+                  entityFragmentFields.set(
+                    fragSel.typeCondition.name.value,
+                    fetchFieldNames(fragSel.selectionSet),
+                  );
+                }
+              }
+            }
+            break;
+          }
+        }
+        if (!isEntityFetch) {
+          fetchFieldNames(def.selectionSet).forEach((n) => matchedNames.add(n));
+        }
+      } else if (def.kind === Kind.FRAGMENT_DEFINITION) {
         fetchFieldNames(def.selectionSet).forEach((n) => matchedNames.add(n));
       }
     }
 
-    if (matchedNames.size === 0) continue;
+    if (matchedNames.size === 0 && entityFragmentFields.size === 0) continue;
 
     // Walk original query definitions and record positions.
     for (const def of originalDoc.definitions) {
       if (def.kind === Kind.OPERATION_DEFINITION && def.selectionSet) {
-        walkSelectionSet(def.selectionSet, matchedNames, fetch.service, fragments, results);
+        walkSelectionSet(
+          def.selectionSet,
+          matchedNames,
+          fetch.service,
+          fragments,
+          results,
+          isEntityFetch ? entityFragmentFields : undefined,
+        );
       }
     }
   }

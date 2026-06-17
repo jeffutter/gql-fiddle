@@ -6,7 +6,7 @@ import { planToTimeline } from "./planToTimeline";
 const ROW_HEIGHT = 36;
 const ROW_PADDING = 6;
 const BAR_HEIGHT = ROW_HEIGHT - ROW_PADDING * 2;
-const COL_WIDTH = 120;
+const COL_WIDTH = 180;
 const LABEL_WIDTH = 110;
 const CHART_PADDING = 12;
 // Horizontal gap on each side of a bar within its column
@@ -176,7 +176,12 @@ export function ExecutionTimeline({ node }: { node: PlanNode }) {
                 dominantBaseline="middle"
                 style={{ pointerEvents: "none", userSelect: "none" }}
               >
-                {item.label.length > 14 ? item.label.slice(0, 13) + "…" : item.label}
+                {(() => {
+                  const maxChars = Math.max(3, Math.floor(w / 6.5));
+                  return item.label.length > maxChars
+                    ? item.label.slice(0, maxChars - 1) + "…"
+                    : item.label;
+                })()}
               </text>
             </g>
           );
