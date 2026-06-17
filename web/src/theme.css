@@ -55,6 +55,10 @@
   --sg-8: #ff5f8f; /* pink */
   --sg-9: #41a6b5; /* steel blue */
 
+  /* Entity fetch highlight — used in the Timeline tab to distinguish _entities bars */
+  --entity-fetch: #2ac3de; /* cyan — same hue as --sg-4 */
+  --entity-fetch-contrast: #0f1826; /* text on a solid entity-fetch fill */
+
   /* Geometry */
   --radius: 8px;
   --radius-sm: 5px;
@@ -809,4 +813,23 @@ body {
   overflow: auto;
   /* TypeGraph uses height: 100% — give the body a fixed context */
   position: relative;
+}
+
+/* ========================================================================== *
+ * Timeline legend (execution timeline tab)
+ * ========================================================================== */
+.timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  flex-shrink: 0;
+  padding: 6px 2px 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.timeline-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }

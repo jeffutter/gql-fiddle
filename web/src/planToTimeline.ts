@@ -6,12 +6,31 @@ function topLevelField(operation: string): string {
   return m ? m[1] : "…";
 }
 
+/**
+ * If `operation` is an _entities fetch, return the inline-fragment type names
+ * found in its selection set (e.g. ["Product", "Review"]).
+ * Returns an empty array for non-entity operations.
+ *
+ * Pattern matched: { _entities(...) { ... on TypeName { ... } } }
+ */
+function extractEntityTypes(operation: string): string[] {
+  if (topLevelField(operation) !== "_entities") return [];
+  const types: string[] = [];
+  const re = /\bon\s+([_A-Za-z][_0-9A-Za-z]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(operation)) !== null) {
+    types.push(m[1]);
+  }
+  // Deduplicate while preserving first-encounter order.
+  return [...new Set(types)];
+}
+
 export interface TimelineItem {
   /** Stable React key, e.g. "users-0". */
   id: string;
   /** Subgraph name — determines which row the bar occupies. */
   service: string;
-  /** First top-level field from the fetch's operation string. */
+  /** First top-level field from the fetch's operation string, or entity type names for entity fetches. */
   label: string;
   /** 0-based column where the bar begins. */
   depthStart: number;
@@ -19,6 +38,8 @@ export interface TimelineItem {
   depthEnd: number;
   /** True when this item lies on the critical (longest sequential) path. */
   isOnCriticalPath: boolean;
+  /** True when this fetch is an _entities call (federation entity resolution). */
+  isEntityFetch: boolean;
 }
 
 export interface TimelineData {
@@ -48,12 +69,17 @@ export function planToTimeline(root: PlanNode): TimelineData {
     switch (node.kind) {
       case "Fetch": {
         const id = `${node.service}-${counter++}`;
+        const isEntityFetch = topLevelField(node.operation) === "_entities";
+        const label = isEntityFetch
+          ? extractEntityTypes(node.operation).join(", ") || "_entities"
+          : topLevelField(node.operation);
         items.push({
           id,
           service: node.service,
-          label: topLevelField(node.operation),
+          label,
           depthStart,
           depthEnd: depthStart + 1,
+          isEntityFetch,
         });
         return depthStart + 1;
       }
