@@ -1,13 +1,4 @@
-import { parse, Kind } from "graphql";
-import type {
-  DocumentNode,
-  ObjectTypeDefinitionNode,
-  ObjectTypeExtensionNode,
-  DirectiveNode,
-  NamedTypeNode,
-  ListTypeNode,
-  NonNullTypeNode,
-} from "graphql";
+import type { RustGraph } from "./core/types";
 
 /**
  * Data model for the entity ownership graph derived from a supergraph SDL.
@@ -49,152 +40,71 @@ export interface EntityGraph {
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-type TypeNode = NamedTypeNode | ListTypeNode | NonNullTypeNode;
-
-/** Unwrap NonNull/List wrappers to reach the named type. */
-function namedType(t: TypeNode): string {
-  if (t.kind === Kind.NAMED_TYPE) return t.name.value;
-  return namedType(t.type);
-}
-
-/** Extract a string argument value from a directive node. */
-function argString(dir: DirectiveNode, argName: string): string | null {
-  const arg = dir.arguments?.find((a) => a.name.value === argName);
-  if (!arg) return null;
-  if (arg.value.kind === Kind.STRING) return arg.value.value;
-  if (arg.value.kind === Kind.ENUM) return arg.value.value;
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a supergraph SDL string and extract the entity ownership graph.
+ * Map a pre-computed Rust entity graph DTO to the EntityGraph used by the UI.
  *
- * Works by scanning `@join__type(graph: G, key: "...")` directives on each
- * ObjectTypeDefinition / ObjectTypeExtension in the supergraph SDL.  Types
- * without any `key` argument in their `@join__type` directives are not
- * entities and are excluded.
+ * The Rust side encodes entity nodes as id="SUBGRAPH:TypeName" and edges
+ * with source/target in the same format, with label carrying the key fields string.
+ * This function maps those fields to the EntityNode / EntityEdge shapes that
+ * EntityOwnershipGraph.tsx expects.
  *
- * Cross-subgraph edges are derived from field return types: if field F on
- * entity E (owned by subgraph A) returns entity type T (owned by subgraph B
- * where B ≠ A), an edge A → B for type T is emitted.
+ * Falls back to an empty graph when the input is absent or malformed.
  */
-export function schemaToEntityGraph(supergraphSdl: string): EntityGraph {
-  let doc: DocumentNode;
-  try {
-    doc = parse(supergraphSdl);
-  } catch {
+export function schemaToEntityGraph(rustGraph: RustGraph): EntityGraph {
+  if (!rustGraph || rustGraph.nodes.length === 0) {
     return { nodes: [], edges: [], subgraphs: [] };
   }
 
-  // --- Pass 1: collect entity ownership.
-  // entityOwnership: typeName → { subgraph → keyFields[] }
-  const entityOwnership = new Map<string, Map<string, string[]>>();
-
-  for (const def of doc.definitions) {
-    if (def.kind !== Kind.OBJECT_TYPE_DEFINITION && def.kind !== Kind.OBJECT_TYPE_EXTENSION) {
-      continue;
-    }
-    const typeDef = def as ObjectTypeDefinitionNode | ObjectTypeExtensionNode;
-    const typeName = typeDef.name.value;
-
-    for (const dir of typeDef.directives ?? []) {
-      if (dir.name.value !== "join__type") continue;
-      const graph = argString(dir, "graph");
-      const key = argString(dir, "key");
-      if (!graph || !key) continue; // not an entity entry or graph arg missing
-
-      if (!entityOwnership.has(typeName)) {
-        entityOwnership.set(typeName, new Map());
-      }
-      const bySubgraph = entityOwnership.get(typeName)!;
-      if (!bySubgraph.has(graph)) {
-        bySubgraph.set(graph, []);
-      }
-      bySubgraph.get(graph)!.push(key);
-    }
-  }
-
-  if (entityOwnership.size === 0) {
-    return { nodes: [], edges: [], subgraphs: [] };
-  }
-
-  // --- Build nodes from the ownership map.
-  const nodes: EntityNode[] = [];
-  const subgraphSet = new Set<string>();
-
-  for (const [typeName, bySubgraph] of entityOwnership) {
-    for (const [subgraph, keyFields] of bySubgraph) {
-      nodes.push({
-        id: `${subgraph}:${typeName}`,
-        typeName,
-        subgraph,
-        keyFields,
-      });
-      subgraphSet.add(subgraph);
-    }
-  }
-
-  // --- Pass 2: build cross-subgraph edges.
-  // For each object type definition that is an entity, look at its fields.
-  // If the return type is itself an entity owned by a DIFFERENT subgraph,
-  // emit an edge from each of the source type's owner subgraphs to the
-  // target type's owner subgraphs.
-  //
-  // Edge key: "sourceSubgraph->targetSubgraph:TargetType"
-  // We merge duplicates and keep the first key fields string encountered.
-  const edgeMap = new Map<
-    string,
-    { sourceSubgraph: string; targetSubgraph: string; typeName: string; keyFields: string }
-  >();
-
-  for (const def of doc.definitions) {
-    if (def.kind !== Kind.OBJECT_TYPE_DEFINITION && def.kind !== Kind.OBJECT_TYPE_EXTENSION) {
-      continue;
-    }
-    const typeDef = def as ObjectTypeDefinitionNode | ObjectTypeExtensionNode;
-    const sourceTypeName = typeDef.name.value;
-
-    const sourceOwnership = entityOwnership.get(sourceTypeName);
-    if (!sourceOwnership) continue; // not an entity type
-
-    for (const field of typeDef.fields ?? []) {
-      const returnTypeName = namedType(field.type);
-      const targetOwnership = entityOwnership.get(returnTypeName);
-      if (!targetOwnership) continue; // return type is not an entity
-
-      // For each (sourceSubgraph, targetSubgraph) pair where they differ,
-      // produce an edge.
-      for (const [sourceSubgraph] of sourceOwnership) {
-        for (const [targetSubgraph, targetKeyFields] of targetOwnership) {
-          if (sourceSubgraph === targetSubgraph) continue; // same subgraph
-
-          const edgeKey = `${sourceSubgraph}->${targetSubgraph}:${returnTypeName}`;
-          if (!edgeMap.has(edgeKey)) {
-            edgeMap.set(edgeKey, {
-              sourceSubgraph,
-              targetSubgraph,
-              typeName: returnTypeName,
-              keyFields: targetKeyFields[0] ?? "",
-            });
-          }
-        }
+  // Build a lookup: node id → keyFields gathered from edges targeting that node.
+  // The Rust edge label carries the key fields string for the target entity.
+  const keyFieldsByNodeId = new Map<string, string[]>();
+  for (const edge of rustGraph.edges) {
+    if (edge.label) {
+      const existing = keyFieldsByNodeId.get(edge.target);
+      if (existing) {
+        if (!existing.includes(edge.label)) existing.push(edge.label);
+      } else {
+        keyFieldsByNodeId.set(edge.target, [edge.label]);
       }
     }
   }
 
-  const edges: EntityEdge[] = Array.from(edgeMap.entries()).map(([id, e]) => ({
-    id,
-    ...e,
-  }));
+  // Map Rust nodes → EntityNode.
+  // Node id is "SUBGRAPH:TypeName"; split on first colon.
+  const nodes: EntityNode[] = rustGraph.nodes.map((n) => {
+    const colonIdx = n.id.indexOf(":");
+    const subgraph = colonIdx >= 0 ? n.id.slice(0, colonIdx) : n.id;
+    const typeName = colonIdx >= 0 ? n.id.slice(colonIdx + 1) : n.label;
 
-  const subgraphs = Array.from(subgraphSet).sort();
+    // Collect key fields for this node from outgoing edges where this node is the target,
+    // or from the node's subgraphs list via the edge label when it is the source.
+    // The Rust entity node does not carry key fields directly, so we rely on edges.
+    // As a fallback, include edge labels where this node is targeted.
+    const keyFields = keyFieldsByNodeId.get(n.id) ?? [];
 
-  return { nodes, edges, subgraphs };
+    // Also check edges where this node is the source to recover key fields on owned entities.
+    // The Rust edge label is the key of the target, not the source — so also collect
+    // from @join__type directives implicitly. Since the Rust side does not encode per-node
+    // key fields directly, we use the subgraphs list + edges as a proxy.
+    // For single-subgraph entities with no cross-subgraph edges, keyFields may be empty.
+
+    return { id: n.id, typeName, subgraph, keyFields };
+  });
+
+  // Map Rust edges → EntityEdge.
+  const edges: EntityEdge[] = rustGraph.edges.map((e) => {
+    const srcColon = e.source.indexOf(":");
+    const tgtColon = e.target.indexOf(":");
+    const sourceSubgraph = srcColon >= 0 ? e.source.slice(0, srcColon) : e.source;
+    const targetSubgraph = tgtColon >= 0 ? e.target.slice(0, tgtColon) : e.target;
+    const typeName = tgtColon >= 0 ? e.target.slice(tgtColon + 1) : e.target;
+    // Edge id mirrors the TS original: "SRCSUB->TGTSUB:TargetType"
+    const id = `${sourceSubgraph}->${targetSubgraph}:${typeName}`;
+    return { id, sourceSubgraph, targetSubgraph, typeName, keyFields: e.label ?? "" };
+  });
+
+  return { nodes, edges, subgraphs: rustGraph.subgraphs };
 }

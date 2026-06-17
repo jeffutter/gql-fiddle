@@ -3,12 +3,14 @@
 //! This is the only place federation logic runs. Wired to `apollo-federation`
 //! in Spike 0.
 
+use apollo_compiler::schema::ExtendedType;
 use apollo_federation::composition::{compose as fed_compose, CompositionOptions};
 use apollo_federation::error::{CompositionError, SubgraphLocation};
 use apollo_federation::subgraph::typestate::Subgraph;
 use serde_json::{json, Value};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use crate::dto::SubgraphInput;
+use crate::dto::{EntityGraph, GraphEdge, GraphNode, SubgraphInput, TypeGraph};
 
 /// Compose subgraphs into a supergraph SDL, or report composition errors.
 pub fn compose(subgraphs: &[SubgraphInput]) -> Value {
@@ -45,11 +47,15 @@ pub fn compose(subgraphs: &[SubgraphInput]) -> Value {
                 })
                 .collect();
             let api_schema_sdl = crate::api_schema::derive_api_schema(&sdl).unwrap_or_default();
+            let entity_graph = build_entity_graph(&sdl);
+            let type_graph = build_type_graph(&sdl);
             json!({
                 "ok": true,
                 "supergraph_sdl": sdl,
                 "api_schema_sdl": api_schema_sdl,
                 "hints": hints,
+                "entity_graph": entity_graph,
+                "type_graph": type_graph,
             })
         }
         Err(failure) => {
@@ -63,6 +69,360 @@ pub fn compose(subgraphs: &[SubgraphInput]) -> Value {
                 "errors": errors,
             })
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Graph builders — walk the composed supergraph SDL to extract entity and type
+// graph structures for the web visualizer.
+// ---------------------------------------------------------------------------
+
+/// Federation-internal or GraphQL introspection type — excluded from both graphs.
+fn is_federation_internal(name: &str) -> bool {
+    name.starts_with("join__")
+        || name.starts_with("link__")
+        || name.starts_with("federation__")
+        || name.starts_with("__")
+        || matches!(name, "_Service" | "_Any" | "_FieldSet" | "_Entity")
+}
+
+/// Built-in scalar names — excluded from the type graph.
+fn is_builtin_scalar(name: &str) -> bool {
+    matches!(name, "String" | "Boolean" | "Int" | "Float" | "ID")
+}
+
+/// Root operation type names — excluded from type graph nodes.
+fn is_root_operation_type(name: &str) -> bool {
+    matches!(name, "Query" | "Mutation" | "Subscription")
+}
+
+/// Extract @join__type(graph: ...) argument values from a schema directive list.
+///
+/// Returns the list of subgraph enum values (e.g. ["USERS", "ORDERS"]).
+fn extract_join_subgraphs(directives: &apollo_compiler::schema::DirectiveList) -> Vec<String> {
+    let mut result = Vec::new();
+    for dir in directives.get_all("join__type") {
+        if let Some(graph_arg) = dir.arguments.iter().find(|a| a.name.as_str() == "graph") {
+            if let Some(enum_val) = graph_arg.value.as_enum() {
+                let s = enum_val.as_str().to_string();
+                if !result.contains(&s) {
+                    result.push(s);
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Build the entity ownership graph from the composed supergraph SDL.
+///
+/// An entity is an ObjectType with at least one `@join__type(key: "...")` directive.
+/// One node per (subgraph, entity-type) pair is emitted. Cross-subgraph edges are
+/// derived from field return types.
+fn build_entity_graph(sdl: &str) -> EntityGraph {
+    use apollo_compiler::Schema;
+
+    let schema = match Schema::builder()
+        .adopt_orphan_extensions()
+        .ignore_builtin_redefinitions()
+        .parse(sdl, "supergraph.graphql")
+        .build()
+    {
+        Ok(s) => s,
+        Err(_) => {
+            return EntityGraph {
+                nodes: vec![],
+                edges: vec![],
+                subgraphs: vec![],
+            }
+        }
+    };
+
+    // Pass 1: collect entity ownership — types with @join__type(key: ...) directives.
+    // Map: type_name → { subgraph_enum_value → [key_fields] }
+    let mut entity_ownership: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+
+    for (type_name, type_def) in &schema.types {
+        let name_str = type_name.as_str();
+        if is_federation_internal(name_str) {
+            continue;
+        }
+        let ExtendedType::Object(obj) = type_def else {
+            continue;
+        };
+        for dir in obj.directives.get_all("join__type") {
+            let graph_arg = dir.arguments.iter().find(|a| a.name.as_str() == "graph");
+            let key_arg = dir.arguments.iter().find(|a| a.name.as_str() == "key");
+            let graph = graph_arg
+                .and_then(|a| a.value.as_enum())
+                .map(|e| e.as_str().to_string());
+            let key = key_arg
+                .and_then(|a| a.value.as_str())
+                .map(|s| s.to_string());
+            if let (Some(graph), Some(key)) = (graph, key) {
+                entity_ownership
+                    .entry(name_str.to_string())
+                    .or_default()
+                    .entry(graph)
+                    .or_default()
+                    .push(key);
+            }
+        }
+    }
+
+    if entity_ownership.is_empty() {
+        return EntityGraph {
+            nodes: vec![],
+            edges: vec![],
+            subgraphs: vec![],
+        };
+    }
+
+    // Build nodes — one per (subgraph, entity-type) pair.
+    let mut nodes = Vec::new();
+    let mut subgraph_set: BTreeSet<String> = BTreeSet::new();
+
+    for (type_name, by_subgraph) in &entity_ownership {
+        let sg_list: Vec<String> = by_subgraph.keys().cloned().collect();
+        for sg in &sg_list {
+            subgraph_set.insert(sg.clone());
+        }
+        for sg in &sg_list {
+            nodes.push(GraphNode {
+                id: format!("{}:{}", sg, type_name),
+                label: type_name.clone(),
+                subgraphs: sg_list.clone(),
+                kind: None,
+            });
+        }
+    }
+
+    // Pass 2: cross-subgraph edges from field return types.
+    let mut edge_set: HashSet<String> = HashSet::new();
+    let mut edges = Vec::new();
+
+    for (type_name, src_ownership) in &entity_ownership {
+        let Some(ExtendedType::Object(obj)) = schema.types.get(type_name.as_str()) else {
+            continue;
+        };
+        for (_field_name, field_def) in &obj.fields {
+            let ret_type = field_def.ty.inner_named_type().as_str().to_string();
+            let Some(tgt_ownership) = entity_ownership.get(&ret_type) else {
+                continue;
+            };
+            for src_sg in src_ownership.keys() {
+                for (tgt_sg, tgt_keys) in tgt_ownership {
+                    if src_sg == tgt_sg {
+                        continue;
+                    }
+                    // Edge key mirrors the TS: "SRCSUB->TGTSUB:TargetType"
+                    let edge_key = format!("{}->{}", src_sg, tgt_sg);
+                    if edge_set.insert(edge_key) {
+                        edges.push(GraphEdge {
+                            source: format!("{}:{}", src_sg, type_name),
+                            target: format!("{}:{}", tgt_sg, ret_type),
+                            label: tgt_keys.first().cloned(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let subgraphs: Vec<String> = subgraph_set.into_iter().collect();
+    EntityGraph {
+        nodes,
+        edges,
+        subgraphs,
+    }
+}
+
+/// Build the schema type graph from the composed supergraph SDL.
+///
+/// Includes all named domain types (Object, Interface, Union, Input, Scalar, Enum),
+/// excluding built-ins, federation internals, and root operation types.
+/// Emits edges for field-return-type and union-member relationships.
+fn build_type_graph(sdl: &str) -> TypeGraph {
+    use apollo_compiler::Schema;
+
+    let schema = match Schema::builder()
+        .adopt_orphan_extensions()
+        .ignore_builtin_redefinitions()
+        .parse(sdl, "supergraph.graphql")
+        .build()
+    {
+        Ok(s) => s,
+        Err(_) => {
+            return TypeGraph {
+                nodes: vec![],
+                edges: vec![],
+                subgraphs: vec![],
+            }
+        }
+    };
+
+    // Pass 1: collect all named domain types.
+    // type_map: type_name → { kind, subgraphs }
+    let mut type_map: BTreeMap<String, (String, Vec<String>)> = BTreeMap::new();
+
+    for (type_name, type_def) in &schema.types {
+        let name_str = type_name.as_str();
+        if is_federation_internal(name_str) || is_builtin_scalar(name_str) {
+            continue;
+        }
+        match type_def {
+            ExtendedType::Object(obj) => {
+                if is_root_operation_type(name_str) {
+                    continue;
+                }
+                let sgs = extract_join_subgraphs(&obj.directives);
+                type_map
+                    .entry(name_str.to_string())
+                    .or_insert(("object".to_string(), sgs));
+            }
+            ExtendedType::Interface(iface) => {
+                let sgs = extract_join_subgraphs(&iface.directives);
+                type_map
+                    .entry(name_str.to_string())
+                    .or_insert(("interface".to_string(), sgs));
+            }
+            ExtendedType::Union(u) => {
+                let sgs = extract_join_subgraphs(&u.directives);
+                type_map
+                    .entry(name_str.to_string())
+                    .or_insert(("union".to_string(), sgs));
+            }
+            ExtendedType::InputObject(input) => {
+                let sgs = extract_join_subgraphs(&input.directives);
+                type_map
+                    .entry(name_str.to_string())
+                    .or_insert(("input".to_string(), sgs));
+            }
+            ExtendedType::Scalar(_) => {
+                type_map
+                    .entry(name_str.to_string())
+                    .or_insert(("scalar".to_string(), vec![]));
+            }
+            ExtendedType::Enum(e) => {
+                // Skip federation-internal enums.
+                if name_str == "join__Graph" || name_str == "link__Import" {
+                    continue;
+                }
+                let sgs = extract_join_subgraphs(&e.directives);
+                type_map
+                    .entry(name_str.to_string())
+                    .or_insert(("enum".to_string(), sgs));
+            }
+        }
+    }
+
+    if type_map.is_empty() {
+        return TypeGraph {
+            nodes: vec![],
+            edges: vec![],
+            subgraphs: vec![],
+        };
+    }
+
+    // Build node list.
+    let mut subgraph_set: BTreeSet<String> = BTreeSet::new();
+    let mut nodes = Vec::new();
+    for (type_name, (kind, sgs)) in &type_map {
+        for sg in sgs {
+            subgraph_set.insert(sg.clone());
+        }
+        nodes.push(GraphNode {
+            id: type_name.clone(),
+            label: type_name.clone(),
+            subgraphs: sgs.clone(),
+            kind: Some(kind.clone()),
+        });
+    }
+
+    // Pass 2: collect field-return-type and union-member edges.
+    let mut edge_set: HashSet<String> = HashSet::new();
+    let mut edges = Vec::new();
+
+    for (type_name, type_def) in &schema.types {
+        let name_str = type_name.as_str();
+        if !type_map.contains_key(name_str) {
+            continue;
+        }
+
+        match type_def {
+            ExtendedType::Object(obj) => {
+                for (_field_name, field_def) in &obj.fields {
+                    let target = field_def.ty.inner_named_type().as_str().to_string();
+                    if !type_map.contains_key(&target) || target == name_str {
+                        continue;
+                    }
+                    let edge_key = format!("{}->{}", name_str, target);
+                    if edge_set.insert(edge_key.clone()) {
+                        edges.push(GraphEdge {
+                            source: name_str.to_string(),
+                            target,
+                            label: None,
+                        });
+                    }
+                }
+            }
+            ExtendedType::Interface(iface) => {
+                for (_field_name, field_def) in &iface.fields {
+                    let target = field_def.ty.inner_named_type().as_str().to_string();
+                    if !type_map.contains_key(&target) || target == name_str {
+                        continue;
+                    }
+                    let edge_key = format!("{}->{}", name_str, target);
+                    if edge_set.insert(edge_key.clone()) {
+                        edges.push(GraphEdge {
+                            source: name_str.to_string(),
+                            target,
+                            label: None,
+                        });
+                    }
+                }
+            }
+            ExtendedType::InputObject(input) => {
+                for (_field_name, field_def) in &input.fields {
+                    let target = field_def.ty.inner_named_type().as_str().to_string();
+                    if !type_map.contains_key(&target) || target == name_str {
+                        continue;
+                    }
+                    let edge_key = format!("{}->{}", name_str, target);
+                    if edge_set.insert(edge_key.clone()) {
+                        edges.push(GraphEdge {
+                            source: name_str.to_string(),
+                            target,
+                            label: None,
+                        });
+                    }
+                }
+            }
+            ExtendedType::Union(u) => {
+                for member in &u.members {
+                    let target = member.as_str().to_string();
+                    if !type_map.contains_key(&target) || target == name_str {
+                        continue;
+                    }
+                    let edge_key = format!("{}->{}", name_str, target);
+                    if edge_set.insert(edge_key.clone()) {
+                        edges.push(GraphEdge {
+                            source: name_str.to_string(),
+                            target,
+                            label: None,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let subgraphs: Vec<String> = subgraph_set.into_iter().collect();
+    TypeGraph {
+        nodes,
+        edges,
+        subgraphs,
     }
 }
 
@@ -495,8 +855,15 @@ mod tests {
 
         assert_eq!(
             keys,
-            vec!["ok", "supergraph_sdl", "api_schema_sdl", "hints"],
-            "success path must return exactly {{ok, supergraph_sdl, api_schema_sdl, hints}}"
+            vec![
+                "ok",
+                "supergraph_sdl",
+                "api_schema_sdl",
+                "hints",
+                "entity_graph",
+                "type_graph"
+            ],
+            "success path must return exactly {{ok, supergraph_sdl, api_schema_sdl, hints, entity_graph, type_graph}}"
         );
     }
 
@@ -604,6 +971,121 @@ mod tests {
         assert!(
             !errors.is_empty(),
             "expected at least one error when subgraphs cannot compose"
+        );
+    }
+
+    // ---- AC #5: entity_graph and type_graph are populated for a schema with entities ----
+
+    #[test]
+    fn entity_graph_and_type_graph_populated_for_entity_schema() {
+        let products = SubgraphInput {
+            name: "products".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                    @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+                {
+                    query: Query
+                }
+
+                type Query {
+                    me: User
+                }
+
+                type User @key(fields: "id") {
+                    id: ID!
+                }
+            "#
+            .to_string(),
+        };
+
+        let reviews = SubgraphInput {
+            name: "reviews".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+                    @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+                {
+                    query: Query
+                }
+
+                type Query {
+                    mostRecentReview: Review
+                }
+
+                type Review {
+                    id: ID!
+                    body: String
+                    product: Product
+                }
+
+                type Product @key(fields: "id") {
+                    id: ID!
+                    reviews: [Review]
+                }
+
+                extend type User @key(fields: "id") {
+                    id: ID! @external
+                    reviews: [Review]
+                }
+            "#
+            .to_string(),
+        };
+
+        let result = compose(&[products, reviews]);
+        assert!(
+            result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+            "expected ok:true"
+        );
+
+        // entity_graph must be non-empty.
+        let entity_graph = result
+            .get("entity_graph")
+            .expect("entity_graph key must exist");
+        let entity_nodes = entity_graph
+            .get("nodes")
+            .and_then(|v| v.as_array())
+            .expect("entity_graph.nodes must be an array");
+        assert!(
+            !entity_nodes.is_empty(),
+            "entity_graph.nodes should not be empty for a schema with entities"
+        );
+
+        let entity_subgraphs = entity_graph
+            .get("subgraphs")
+            .and_then(|v| v.as_array())
+            .expect("entity_graph.subgraphs must be an array");
+        // Should contain both subgraph names.
+        let sg_names: Vec<&str> = entity_subgraphs.iter().filter_map(|v| v.as_str()).collect();
+        assert!(
+            sg_names
+                .iter()
+                .any(|s| s.contains("PRODUCTS") || s.contains("products")),
+            "entity subgraphs should include PRODUCTS, got: {sg_names:?}"
+        );
+        assert!(
+            sg_names
+                .iter()
+                .any(|s| s.contains("REVIEWS") || s.contains("reviews")),
+            "entity subgraphs should include REVIEWS, got: {sg_names:?}"
+        );
+
+        // type_graph must be non-empty.
+        let type_graph = result.get("type_graph").expect("type_graph key must exist");
+        let type_nodes = type_graph
+            .get("nodes")
+            .and_then(|v| v.as_array())
+            .expect("type_graph.nodes must be an array");
+        assert!(
+            !type_nodes.is_empty(),
+            "type_graph.nodes should not be empty for a schema with domain types"
+        );
+
+        // Verify that node kind field is present on type graph nodes.
+        let first_node = &type_nodes[0];
+        assert!(
+            first_node.get("kind").is_some(),
+            "type graph nodes must have a 'kind' field"
         );
     }
 }

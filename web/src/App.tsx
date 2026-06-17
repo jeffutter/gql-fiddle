@@ -719,7 +719,7 @@ export default function App() {
   );
 
   const entityGraph = useMemo(
-    () => (compose?.ok ? schemaToEntityGraph(compose.supergraph_sdl) : null),
+    () => (compose?.ok && compose.entity_graph ? schemaToEntityGraph(compose.entity_graph) : null),
     [compose],
   );
 
@@ -733,24 +733,25 @@ export default function App() {
     </div>
   );
 
-  const typeGraphSdl = compose?.ok ? compose.supergraph_sdl : null;
+  const typeGraphData = compose?.ok ? (compose.type_graph ?? null) : null;
+  const supergraphSdlForTree = compose?.ok ? compose.supergraph_sdl : null;
 
   const typeGraphContent = (
     <div className="scroll" style={{ height: "100%" }}>
-      {typeGraphSdl === null ? (
+      {typeGraphData === null ? (
         <p className="empty-state">Compose a valid supergraph to see the type graph.</p>
       ) : (
-        <TypeGraph supergraphSdl={typeGraphSdl} />
+        <TypeGraph typeGraph={typeGraphData} />
       )}
     </div>
   );
 
   const schemaTreeContent = (
     <div className="scroll">
-      {typeGraphSdl === null ? (
+      {supergraphSdlForTree === null ? (
         <p className="empty-state">Compose a valid supergraph to see the schema tree.</p>
       ) : (
-        <SchemaTree supergraphSdl={typeGraphSdl} />
+        <SchemaTree supergraphSdl={supergraphSdlForTree} />
       )}
     </div>
   );
