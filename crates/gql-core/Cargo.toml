@@ -22,11 +22,9 @@ console_error_panic_hook = "0.1"
 
 # --- Apollo GraphQL ---------------------------------------------------------
 # Pinned EXACT. apollo-federation has NO semver guarantees (Apollo treats it as
-# Router-internal), so any version may break the API. These are wired up in
-# Spike 0 — uncomment, then prove they compile to wasm32 and that compose()
-# runs in a browser. Versions confirmed latest as of 2026-06-06.
+# Router-internal), so any version may break the API.
 apollo-compiler = "=1.32.0"
-apollo-federation = "=2.15.0"
+apollo-federation = "=2.15.1"
 # The usual wasm fix when a transitive dep needs randomness:
 # enable getrandom's wasm_js feature for wasm builds.
 # Required for apollo-federation which pulls in getrandom v0.3.
