@@ -10,6 +10,7 @@ import type {
   ObjectTypeExtensionNode,
   InterfaceTypeDefinitionNode,
   InputObjectTypeDefinitionNode,
+  UnionTypeDefinitionNode,
 } from "graphql";
 
 /**
@@ -280,6 +281,21 @@ export function schemaToTypeGraph(supergraphSdl: string): TypeGraph {
       if (isFederationInternal(d.name.value)) continue;
       sourceTypeName = d.name.value;
       fields = d.fields ?? [];
+    } else if (def.kind === Kind.UNION_TYPE_DEFINITION) {
+      const d = def as UnionTypeDefinitionNode;
+      if (isFederationInternal(d.name.value)) continue;
+      if (!typeMap.has(d.name.value)) continue;
+
+      for (const memberType of d.types ?? []) {
+        const targetTypeName = memberType.name.value;
+        if (!typeMap.has(targetTypeName)) continue;
+        const edgeKey = `${d.name.value}->${targetTypeName}`;
+        if (!edgeSet.has(edgeKey)) {
+          edgeSet.add(edgeKey);
+          edges.push({ id: edgeKey, sourceType: d.name.value, targetType: targetTypeName });
+        }
+      }
+      continue;
     } else {
       continue;
     }
