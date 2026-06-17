@@ -3,7 +3,7 @@ id: TASK-61
 title: >-
   refactor(rust): move entity graph & type graph analysis into compose() Rust
   layer
-status: In Progress
+status: Done
 assignee:
   - '@ralph'
 created_date: '2026-06-17 04:31'
@@ -20,6 +20,9 @@ references:
   - crates/gql-core/src/compose.rs
   - crates/gql-core/src/dto.rs
   - web/src/core/types.ts
+modified_files:
+  - web/src/schemaToTypeGraph.ts
+  - web/src/TypeGraph.tsx
 priority: medium
 ordinal: 60000
 ---
@@ -54,8 +57,6 @@ Extend the `compose()` return value with pre-computed `entity_graph` and `type_g
 - [x] #3 The Entities and Type Graph tabs render correctly end-to-end
 - [x] #4 No graphql-js import in schemaToEntityGraph.ts or schemaToTypeGraph.ts
 <!-- AC:END -->
-
-
 
 ## Implementation Plan
 
@@ -93,3 +94,23 @@ TASK-61.1 should add a `kind?: String` field to `GraphNode` in `dto.rs` so the T
 
 The existing Rust test `success_path_keys_match_contract` asserts the compose success payload has exactly `{ok, supergraph_sdl, api_schema_sdl, hints}`. Adding `entity_graph` and `type_graph` will break this test. TASK-61.1 must update it.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved merge conflicts in `schemaToTypeGraph.ts` and `TypeGraph.tsx` that had left git conflict markers in the codebase. The conflicts arose between the old graphql-js SDL-parsing approach (upstream) and the new RustGraph-based approach (stashed). Both files were rewritten cleanly to use the new RustGraph approach.
+
+The Rust side (dto.rs, compose.rs) was already fully implemented with `EntityGraph`, `TypeGraph`, `GraphNode` (with `kind` field), `GraphEdge` DTO types and `build_entity_graph`/`build_type_graph` functions wired into the compose success path. The `success_path_keys_match_contract` test was already updated to include `entity_graph` and `type_graph` in the expected keys.
+
+All quality gates passed:
+- `cargo test -p gql-core`: 53 tests passed
+- `pnpm test run` from web/: 193 tests passed (10 files)
+- `pnpm tsc --noEmit`: no type errors
+- Neither `schemaToEntityGraph.ts` nor `schemaToTypeGraph.ts` imports from `"graphql"`
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Resolved git merge conflicts in `web/src/schemaToTypeGraph.ts` and `web/src/TypeGraph.tsx` that had left conflict markers preventing compilation. Both files were rewritten to use the new RustGraph-based approach (consuming pre-computed graph data from the Rust compose result) rather than re-parsing the supergraph SDL via graphql-js. The Rust side (dto.rs, compose.rs) was already complete. All 53 Rust tests and 193 web tests pass; TypeScript type-checks clean; no graphql-js imports remain in the two utility files.
+<!-- SECTION:FINAL_SUMMARY:END -->

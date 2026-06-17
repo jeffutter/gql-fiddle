@@ -70,13 +70,15 @@ TASK-61.2 consumes this output.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Successful compose result includes `entity_graph` and `type_graph` fields in the JSON payload
-- [ ] #2 Entity graph nodes include one node per (type, subgraph) pair with correct ids and labels
-- [ ] #3 Type graph includes all domain types and field-return-type edges, excluding built-ins and federation internals
-- [ ] #4 The `success_path_keys_match_contract` test is updated to include the new fields
-- [ ] #5 A new test verifies entity_graph and type_graph are populated for a schema with entities
-- [ ] #6 `cargo test -p gql-core` passes
+- [x] #1 Successful compose result includes `entity_graph` and `type_graph` fields in the JSON payload
+- [x] #2 Entity graph nodes include one node per (type, subgraph) pair with correct ids and labels
+- [x] #3 Type graph includes all domain types and field-return-type edges, excluding built-ins and federation internals
+- [x] #4 The `success_path_keys_match_contract` test is updated to include the new fields
+- [x] #5 A new test verifies entity_graph and type_graph are populated for a schema with entities
+- [x] #6 `cargo test -p gql-core` passes
 <!-- AC:END -->
+
+
 
 ## Implementation Plan
 
