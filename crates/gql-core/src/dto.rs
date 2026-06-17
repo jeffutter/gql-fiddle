@@ -12,6 +12,16 @@ pub struct SubgraphInput {
     pub sdl: String,
 }
 
+/// A field resolved by a single Fetch node, including its type condition when
+/// the fetch is an entity fetch (i.e., the field lives inside `... on TypeName`).
+#[derive(Debug, serde::Serialize)]
+pub struct ResolvedField {
+    pub field_name: String,
+    /// Set to the inline-fragment type name for entity fetches; `None` for root fetches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_condition: Option<String>,
+}
+
 /// A field or inline fragment in a `@requires` selection set.
 #[derive(Debug, serde::Serialize)]
 #[serde(tag = "kind")]
@@ -45,6 +55,8 @@ pub enum PlanNode {
         operation_kind: String,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         requires: Vec<RequiresSelection>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        resolved_fields: Vec<ResolvedField>,
     },
     Sequence {
         nodes: Vec<PlanNode>,

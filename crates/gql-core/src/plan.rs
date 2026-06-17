@@ -3,7 +3,7 @@
 use apollo_compiler::Name;
 use serde_json::{json, Value};
 
-use crate::dto::{DeferredBranch, PlanNode, RequiresSelection};
+use crate::dto::{DeferredBranch, PlanNode, RequiresSelection, ResolvedField};
 
 /// Produce a slim, stable query-plan DTO for an operation.
 ///
@@ -99,11 +99,96 @@ fn map_fetch(fetch: apollo_federation::query_plan::FetchNode) -> PlanNode {
     let op_str = serde_json::to_string(&fetch.operation_document).unwrap_or_default();
     let op_kind = format!("{}", fetch.operation_kind);
     let requires = map_requires(fetch.requires);
+    let resolved_fields = extract_resolved_fields(&fetch.operation_document);
     PlanNode::Fetch {
         service,
         operation_str: op_str,
         operation_kind: op_kind,
         requires,
+        resolved_fields,
+    }
+}
+
+/// Walk the Fetch sub-operation AST and return a `ResolvedField` for every
+/// field the Fetch resolves.  Entity fetches (those with a top-level
+/// `_entities` field) record type conditions from the inline fragments;
+/// root fetches record `type_condition: None`.
+fn extract_resolved_fields(
+    doc: &apollo_federation::query_plan::serializable_document::SerializableDocument,
+) -> Vec<ResolvedField> {
+    use apollo_compiler::executable::Selection;
+
+    // as_parsed() is infallible here: the planner builds with from_parsed().
+    let executable = match doc.as_parsed() {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
+
+    let mut fields = Vec::new();
+    for op in executable.operations.iter() {
+        for sel in &op.selection_set.selections {
+            match sel {
+                Selection::Field(f) if f.name == "_entities" => {
+                    // Entity fetch: fields are inside `... on TypeName { field1 field2 }`
+                    for inner in &f.selection_set.selections {
+                        if let Selection::InlineFragment(frag) = inner {
+                            let type_condition =
+                                frag.type_condition.as_ref().map(|t| t.to_string());
+                            collect_leaf_fields(
+                                &frag.selection_set.selections,
+                                type_condition,
+                                &mut fields,
+                            );
+                        }
+                    }
+                }
+                Selection::Field(f) => {
+                    fields.push(ResolvedField {
+                        field_name: f.name.to_string(),
+                        type_condition: None,
+                    });
+                    // Recurse into sub-selections to capture nested fields
+                    collect_leaf_fields(&f.selection_set.selections, None, &mut fields);
+                }
+                Selection::InlineFragment(frag) => {
+                    let type_condition = frag.type_condition.as_ref().map(|t| t.to_string());
+                    collect_leaf_fields(
+                        &frag.selection_set.selections,
+                        type_condition,
+                        &mut fields,
+                    );
+                }
+                Selection::FragmentSpread(_) => {} // sub-operations don't use fragment spreads
+            }
+        }
+    }
+    fields
+}
+
+fn collect_leaf_fields(
+    selections: &[apollo_compiler::executable::Selection],
+    type_condition: Option<String>,
+    out: &mut Vec<ResolvedField>,
+) {
+    use apollo_compiler::executable::Selection;
+    for sel in selections {
+        match sel {
+            Selection::Field(f) => {
+                out.push(ResolvedField {
+                    field_name: f.name.to_string(),
+                    type_condition: type_condition.clone(),
+                });
+            }
+            Selection::InlineFragment(frag) => {
+                let tc = frag
+                    .type_condition
+                    .as_ref()
+                    .map(|t| t.to_string())
+                    .or_else(|| type_condition.clone());
+                collect_leaf_fields(&frag.selection_set.selections, tc, out);
+            }
+            Selection::FragmentSpread(_) => {}
+        }
     }
 }
 

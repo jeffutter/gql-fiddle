@@ -1,6 +1,5 @@
 ---
 source: crates/gql-core/tests/plan.rs
-assertion_line: 35
 expression: result
 ---
-{"ok":true,"query_plan":{"kind":"Fetch","service":"user","operation":"\"{ user(id: \\\"1\\\") { id name } }\"","operation_kind":"query"}}
+{"ok":true,"query_plan":{"kind":"Fetch","service":"user","operation":"\"{ user(id: \\\"1\\\") { id name } }\"","operation_kind":"query","resolved_fields":[{"field_name":"user"},{"field_name":"id"},{"field_name":"name"}]}}
