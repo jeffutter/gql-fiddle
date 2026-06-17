@@ -85,6 +85,7 @@ export type PlanNode =
       operation: string;
       operation_kind: string;
       requires?: RequiresSelection[];
+      resolved_fields?: Array<{ field_name: string; type_condition: string | null }>;
     }
   | { kind: "Sequence"; nodes: PlanNode[] }
   | { kind: "Parallel"; nodes: PlanNode[] }

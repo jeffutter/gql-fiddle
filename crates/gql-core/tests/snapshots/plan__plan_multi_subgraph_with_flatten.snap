@@ -1,6 +1,5 @@
 ---
 source: crates/gql-core/tests/plan.rs
-assertion_line: 42
 expression: result
 ---
-{"ok":true,"query_plan":{"kind":"Sequence","nodes":[{"kind":"Fetch","service":"user","operation":"\"{ user(id: \\\"1\\\") { __typename id name } }\"","operation_kind":"query"},{"kind":"Flatten","path":["user"],"node":{"kind":"Fetch","service":"profile","operation":"\"query($representations: [_Any!]!) { _entities(representations: $representations) { ... on User { bio } } }\"","operation_kind":"query","requires":[{"kind":"InlineFragment","typeCondition":"User","selections":[{"kind":"Field","name":"__typename"},{"kind":"Field","name":"id"}]}]}}]}}
+{"ok":true,"query_plan":{"kind":"Sequence","nodes":[{"kind":"Fetch","service":"user","operation":"\"{ user(id: \\\"1\\\") { __typename id name } }\"","operation_kind":"query","resolved_fields":[{"field_name":"user"},{"field_name":"__typename"},{"field_name":"id"},{"field_name":"name"}]},{"kind":"Flatten","path":["user"],"node":{"kind":"Fetch","service":"profile","operation":"\"query($representations: [_Any!]!) { _entities(representations: $representations) { ... on User { bio } } }\"","operation_kind":"query","requires":[{"kind":"InlineFragment","typeCondition":"User","selections":[{"kind":"Field","name":"__typename"},{"kind":"Field","name":"id"}]}],"resolved_fields":[{"field_name":"bio","type_condition":"User"}]}}]}}
