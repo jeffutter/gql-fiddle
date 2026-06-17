@@ -219,4 +219,63 @@ describe("planToTimeline", () => {
     const data = planToTimeline(fetch);
     expect(data.items[0].label).toBe("…");
   });
+
+  it("non-entity fetch — isEntityFetch is false", () => {
+    const data = planToTimeline(FETCH_USERS);
+    expect(data.items[0].isEntityFetch).toBe(false);
+  });
+
+  it("entity fetch — multiple types — label shows type names, isEntityFetch true", () => {
+    const fetch: PlanNode = {
+      kind: "Fetch",
+      service: "products",
+      operation:
+        "{ _entities(representations: $representations) { ... on Product { id } ... on Review { id } } }",
+      operation_kind: "query",
+    };
+    const data = planToTimeline(fetch);
+    const [item] = data.items;
+    expect(item.isEntityFetch).toBe(true);
+    expect(item.label).toBe("Product, Review");
+  });
+
+  it("entity fetch — single type — label shows single type name, isEntityFetch true", () => {
+    const fetch: PlanNode = {
+      kind: "Fetch",
+      service: "users",
+      operation: "{ _entities(representations: $representations) { ... on User { id name } } }",
+      operation_kind: "query",
+    };
+    const data = planToTimeline(fetch);
+    const [item] = data.items;
+    expect(item.isEntityFetch).toBe(true);
+    expect(item.label).toBe("User");
+  });
+
+  it("entity fetch — no inline fragments — label falls back to _entities", () => {
+    const fetch: PlanNode = {
+      kind: "Fetch",
+      service: "products",
+      operation: "{ _entities(representations: $representations) { id } }",
+      operation_kind: "query",
+    };
+    const data = planToTimeline(fetch);
+    const [item] = data.items;
+    expect(item.isEntityFetch).toBe(true);
+    expect(item.label).toBe("_entities");
+  });
+
+  it("entity fetch — duplicate types are deduplicated in label", () => {
+    const fetch: PlanNode = {
+      kind: "Fetch",
+      service: "products",
+      operation:
+        "{ _entities(representations: $representations) { ... on Product { id ... on Product { title } } } }",
+      operation_kind: "query",
+    };
+    const data = planToTimeline(fetch);
+    const [item] = data.items;
+    expect(item.isEntityFetch).toBe(true);
+    expect(item.label).toBe("Product");
+  });
 });
