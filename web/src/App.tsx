@@ -162,8 +162,9 @@ export default function App() {
   const [renameQueryValue, setRenameQueryValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
-  const [rightTab, setRightTab] = useState<
-    "sdl" | "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | "results"
+  const [outputTab, setOutputTab] = useState<"type-graph" | "entities" | "sdl">("type-graph");
+  const [resultsTab, setResultsTab] = useState<
+    "plan" | "sequence" | "timeline" | "schema-tree" | "output"
   >("plan");
   const [fullscreenTab, setFullscreenTab] = useState<
     "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | null
@@ -184,18 +185,12 @@ export default function App() {
   const queryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = useMobile();
-  const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output">("schema");
+  const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output" | "results">("schema");
   const [viewSource, setViewSource] = useState<{
     title: string;
     value: string;
     onEdit: (v: string) => void;
   } | null>(null);
-
-  // Reset 'results' rightTab when returning to desktop (no Results tab there).
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!isMobile && rightTab === "results") setRightTab("plan");
-  }, [isMobile, rightTab]);
 
   // Close fullscreen modal on Escape key.
   useEffect(() => {
@@ -956,88 +951,109 @@ export default function App() {
               >
                 <nav className="tab-strip">
                   <button
-                    onClick={() => setRightTab("results")}
-                    aria-pressed={rightTab === "results"}
-                    className={rightTab === "results" ? "tab is-active" : "tab"}
-                  >
-                    Results
-                  </button>
-                  <button
-                    onClick={() => setRightTab("plan")}
-                    aria-pressed={rightTab === "plan"}
-                    className={rightTab === "plan" ? "tab is-active" : "tab"}
-                  >
-                    Query Plan
-                  </button>
-                  <button
-                    onClick={() => setRightTab("sequence")}
-                    aria-pressed={rightTab === "sequence"}
-                    className={rightTab === "sequence" ? "tab is-active" : "tab"}
-                  >
-                    Sequence Diagram
-                  </button>
-                  <button
-                    onClick={() => setRightTab("timeline")}
-                    aria-pressed={rightTab === "timeline"}
-                    className={rightTab === "timeline" ? "tab is-active" : "tab"}
-                  >
-                    Timeline
-                  </button>
-                  <button
-                    onClick={() => setRightTab("entities")}
-                    aria-pressed={rightTab === "entities"}
-                    className={rightTab === "entities" ? "tab is-active" : "tab"}
-                  >
-                    Entities
-                  </button>
-                  <button
-                    onClick={() => setRightTab("type-graph")}
-                    aria-pressed={rightTab === "type-graph"}
-                    className={rightTab === "type-graph" ? "tab is-active" : "tab"}
+                    onClick={() => setOutputTab("type-graph")}
+                    aria-pressed={outputTab === "type-graph"}
+                    className={outputTab === "type-graph" ? "tab is-active" : "tab"}
                   >
                     Type Graph
                   </button>
                   <button
-                    onClick={() => setRightTab("schema-tree")}
-                    aria-pressed={rightTab === "schema-tree"}
-                    className={rightTab === "schema-tree" ? "tab is-active" : "tab"}
+                    onClick={() => setOutputTab("entities")}
+                    aria-pressed={outputTab === "entities"}
+                    className={outputTab === "entities" ? "tab is-active" : "tab"}
                   >
-                    Schema Tree
+                    Entities
                   </button>
                   <button
-                    onClick={() => setRightTab("sdl")}
-                    aria-pressed={rightTab === "sdl"}
-                    className={rightTab === "sdl" ? "tab is-active" : "tab"}
+                    onClick={() => setOutputTab("sdl")}
+                    aria-pressed={outputTab === "sdl"}
+                    className={outputTab === "sdl" ? "tab is-active" : "tab"}
                   >
                     Supergraph SDL
                   </button>
                 </nav>
                 {compositionErrorContent ?? (
                   <>
-                    {rightTab === "results" && resultsContent}
-                    {rightTab === "sdl" && sdlContent}
-                    {rightTab === "plan" && planContent}
-                    {rightTab === "sequence" && sequenceContent}
-                    {rightTab === "timeline" && timelineContent}
-                    {rightTab === "entities" && entitiesContent}
-                    {rightTab === "type-graph" && typeGraphContent}
-                    {rightTab === "schema-tree" && schemaTreeContent}
+                    {outputTab === "type-graph" && typeGraphContent}
+                    {outputTab === "entities" && entitiesContent}
+                    {outputTab === "sdl" && sdlContent}
                   </>
                 )}
+              </div>
+            )}
+
+            {mobileTab === "results" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  height: "100%",
+                  minHeight: 0,
+                  overflow: "hidden",
+                }}
+              >
+                <nav className="tab-strip">
+                  <button
+                    onClick={() => setResultsTab("plan")}
+                    aria-pressed={resultsTab === "plan"}
+                    className={resultsTab === "plan" ? "tab is-active" : "tab"}
+                  >
+                    Query Plan
+                  </button>
+                  <button
+                    onClick={() => setResultsTab("sequence")}
+                    aria-pressed={resultsTab === "sequence"}
+                    className={resultsTab === "sequence" ? "tab is-active" : "tab"}
+                  >
+                    Sequence Diagram
+                  </button>
+                  <button
+                    onClick={() => setResultsTab("timeline")}
+                    aria-pressed={resultsTab === "timeline"}
+                    className={resultsTab === "timeline" ? "tab is-active" : "tab"}
+                  >
+                    Timeline
+                  </button>
+                  <button
+                    onClick={() => setResultsTab("schema-tree")}
+                    aria-pressed={resultsTab === "schema-tree"}
+                    className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
+                  >
+                    Schema Tree
+                  </button>
+                  <button
+                    onClick={() => setResultsTab("output")}
+                    aria-pressed={resultsTab === "output"}
+                    className={resultsTab === "output" ? "tab is-active" : "tab"}
+                  >
+                    Output
+                  </button>
+                </nav>
+                {resultsTab === "plan" && planContent}
+                {resultsTab === "sequence" && sequenceContent}
+                {resultsTab === "timeline" && timelineContent}
+                {resultsTab === "schema-tree" && schemaTreeContent}
+                {resultsTab === "output" && resultsContent}
               </div>
             )}
           </div>
 
           {/* Mobile tab bar */}
           <nav className="mobile-tabbar">
-            {(["schema", "query", "output"] as const).map((tab) => (
+            {(["schema", "query", "output", "results"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setMobileTab(tab)}
                 aria-pressed={mobileTab === tab}
                 className={mobileTab === tab ? "mobile-tab is-active" : "mobile-tab"}
               >
-                {tab === "schema" ? "Schema" : tab === "query" ? "Query" : "Output"}
+                {tab === "schema"
+                  ? "Schema"
+                  : tab === "query"
+                    ? "Query"
+                    : tab === "output"
+                      ? "Output"
+                      : "Results"}
               </button>
             ))}
           </nav>
@@ -1098,114 +1114,61 @@ export default function App() {
               <Separator className="resize-handle" />
               <Panel defaultSize={50} minSize={200}>
                 <div className="panel" style={{ overflow: "hidden" }}>
-                  <div className="panel__header">
-                    <h2 className="section-title">Output</h2>
-                    {(
-                      ["sequence", "timeline", "entities", "type-graph", "schema-tree"] as const
-                    ).includes(
-                      rightTab as
-                        | "sequence"
-                        | "timeline"
-                        | "entities"
-                        | "type-graph"
-                        | "schema-tree",
-                    ) && (
-                      <div className="panel__actions">
-                        <button
-                          className="btn btn--icon"
-                          title="Expand to full screen"
-                          aria-label="Expand to full screen"
-                          onClick={() =>
-                            setFullscreenTab(
-                              rightTab as
-                                | "sequence"
-                                | "timeline"
-                                | "entities"
-                                | "type-graph"
-                                | "schema-tree",
-                            )
-                          }
-                        >
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 14 14"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <h2 className="section-title">Output</h2>
                   <nav className="tab-strip">
                     <button
-                      onClick={() => setRightTab("plan")}
-                      aria-pressed={rightTab === "plan"}
-                      className={rightTab === "plan" ? "tab is-active" : "tab"}
-                    >
-                      Query Plan
-                    </button>
-                    <button
-                      onClick={() => setRightTab("sequence")}
-                      aria-pressed={rightTab === "sequence"}
-                      className={rightTab === "sequence" ? "tab is-active" : "tab"}
-                    >
-                      Sequence Diagram
-                    </button>
-                    <button
-                      onClick={() => setRightTab("timeline")}
-                      aria-pressed={rightTab === "timeline"}
-                      className={rightTab === "timeline" ? "tab is-active" : "tab"}
-                    >
-                      Timeline
-                    </button>
-                    <button
-                      onClick={() => setRightTab("entities")}
-                      aria-pressed={rightTab === "entities"}
-                      className={rightTab === "entities" ? "tab is-active" : "tab"}
-                    >
-                      Entities
-                    </button>
-                    <button
-                      onClick={() => setRightTab("type-graph")}
-                      aria-pressed={rightTab === "type-graph"}
-                      className={rightTab === "type-graph" ? "tab is-active" : "tab"}
+                      onClick={() => setOutputTab("type-graph")}
+                      aria-pressed={outputTab === "type-graph"}
+                      className={outputTab === "type-graph" ? "tab is-active" : "tab"}
                     >
                       Type Graph
                     </button>
                     <button
-                      onClick={() => setRightTab("schema-tree")}
-                      aria-pressed={rightTab === "schema-tree"}
-                      className={rightTab === "schema-tree" ? "tab is-active" : "tab"}
+                      onClick={() => setOutputTab("entities")}
+                      aria-pressed={outputTab === "entities"}
+                      className={outputTab === "entities" ? "tab is-active" : "tab"}
                     >
-                      Schema Tree
+                      Entities
                     </button>
                     <button
-                      onClick={() => setRightTab("sdl")}
-                      aria-pressed={rightTab === "sdl"}
-                      className={rightTab === "sdl" ? "tab is-active" : "tab"}
+                      onClick={() => setOutputTab("sdl")}
+                      aria-pressed={outputTab === "sdl"}
+                      className={outputTab === "sdl" ? "tab is-active" : "tab"}
                     >
                       Supergraph SDL
                     </button>
+                    {(outputTab === "type-graph" || outputTab === "entities") && (
+                      <button
+                        className="btn btn--icon"
+                        style={{ marginLeft: "auto" }}
+                        title="Expand to full screen"
+                        aria-label="Expand to full screen"
+                        onClick={() => setFullscreenTab(outputTab)}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 14 14"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    )}
                   </nav>
 
                   {compositionErrorContent ?? (
                     <>
-                      {rightTab === "sdl" && sdlContent}
-                      {rightTab === "plan" && planContent}
-                      {rightTab === "sequence" && sequenceContent}
-                      {rightTab === "timeline" && timelineContent}
-                      {rightTab === "entities" && entitiesContent}
-                      {rightTab === "type-graph" && typeGraphContent}
-                      {rightTab === "schema-tree" && schemaTreeContent}
+                      {outputTab === "type-graph" && typeGraphContent}
+                      {outputTab === "entities" && entitiesContent}
+                      {outputTab === "sdl" && sdlContent}
                     </>
                   )}
                 </div>
@@ -1244,11 +1207,77 @@ export default function App() {
               </Panel>
               <Separator className="resize-handle" />
               <Panel defaultSize={50} minSize={150}>
-                <div className="panel">
-                  <h2 className="section-title" style={{ flexShrink: 0 }}>
-                    Results
-                  </h2>
-                  {resultsContent}
+                <div className="panel" style={{ overflow: "hidden" }}>
+                  <h2 className="section-title">Results</h2>
+                  <nav className="tab-strip">
+                    <button
+                      onClick={() => setResultsTab("plan")}
+                      aria-pressed={resultsTab === "plan"}
+                      className={resultsTab === "plan" ? "tab is-active" : "tab"}
+                    >
+                      Query Plan
+                    </button>
+                    <button
+                      onClick={() => setResultsTab("sequence")}
+                      aria-pressed={resultsTab === "sequence"}
+                      className={resultsTab === "sequence" ? "tab is-active" : "tab"}
+                    >
+                      Sequence Diagram
+                    </button>
+                    <button
+                      onClick={() => setResultsTab("timeline")}
+                      aria-pressed={resultsTab === "timeline"}
+                      className={resultsTab === "timeline" ? "tab is-active" : "tab"}
+                    >
+                      Timeline
+                    </button>
+                    <button
+                      onClick={() => setResultsTab("schema-tree")}
+                      aria-pressed={resultsTab === "schema-tree"}
+                      className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
+                    >
+                      Schema Tree
+                    </button>
+                    <button
+                      onClick={() => setResultsTab("output")}
+                      aria-pressed={resultsTab === "output"}
+                      className={resultsTab === "output" ? "tab is-active" : "tab"}
+                    >
+                      Output
+                    </button>
+                    {(resultsTab === "sequence" ||
+                      resultsTab === "timeline" ||
+                      resultsTab === "schema-tree") && (
+                      <button
+                        className="btn btn--icon"
+                        style={{ marginLeft: "auto" }}
+                        title="Expand to full screen"
+                        aria-label="Expand to full screen"
+                        onClick={() => setFullscreenTab(resultsTab)}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 14 14"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                  </nav>
+                  {resultsTab === "plan" && planContent}
+                  {resultsTab === "sequence" && sequenceContent}
+                  {resultsTab === "timeline" && timelineContent}
+                  {resultsTab === "schema-tree" && schemaTreeContent}
+                  {resultsTab === "output" && resultsContent}
                 </div>
               </Panel>
             </Group>

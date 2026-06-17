@@ -722,6 +722,9 @@ describe("App", () => {
     // executeMock must have been called with schema, query, and seed.
     expect(mockExecuteMock).toHaveBeenCalledWith("# supergraph", testQuery, testSeed);
 
+    // Navigate to the Output tab in the Results panel to see the JSON.
+    fireEvent.click(screen.getByRole("button", { name: /^Output$/ }));
+
     // The pretty-printed data must appear in the Results panel.
     await vi.waitFor(() => {
       expect(screen.getByText(/"Widget"/)).toBeInTheDocument();
@@ -1499,12 +1502,16 @@ describe("App", () => {
 
   it("TASK-58 AC#1: expand button appears when Timeline tab is active", () => {
     render(<App />);
+    // Switch Output panel to SDL (no expand) so only the Results panel button is present.
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
     expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
   });
 
   it("TASK-58 AC#1: expand button appears when Sequence Diagram tab is active", () => {
     render(<App />);
+    // Switch Output panel to SDL (no expand) so only the Results panel button is present.
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Sequence Diagram/ }));
     expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
   });
@@ -1521,20 +1528,23 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
   });
 
-  it("TASK-58 AC#5: expand button absent when Query Plan tab is active", () => {
+  it("TASK-58 AC#5: expand button absent when both panels show non-visual tabs", () => {
     render(<App />);
-    // Query Plan is the default — no expand button should be present.
+    // Switch Output panel to SDL (no expand) while Results stays on Query Plan (no expand).
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     expect(screen.queryByRole("button", { name: /Expand to full screen/ })).not.toBeInTheDocument();
   });
 
-  it("TASK-58 AC#5: expand button absent when Supergraph SDL tab is active", () => {
+  it("TASK-58 AC#5: expand button absent when Supergraph SDL tab is active in Output and Output tab in Results", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Output$/ }));
     expect(screen.queryByRole("button", { name: /Expand to full screen/ })).not.toBeInTheDocument();
   });
 
   it("TASK-58 AC#2: clicking expand button opens modal dialog", () => {
     render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
     fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
     const dialog = screen.getByRole("dialog");
@@ -1545,6 +1555,7 @@ describe("App", () => {
 
   it("TASK-58 AC#3: clicking close button in modal closes it", () => {
     render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
     fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -1555,6 +1566,7 @@ describe("App", () => {
 
   it("TASK-58 AC#3: pressing Escape key closes the modal", () => {
     render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
     fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -1565,6 +1577,7 @@ describe("App", () => {
 
   it("TASK-58 AC#3: clicking the backdrop closes the modal", () => {
     const { container } = render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
     fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -1578,6 +1591,7 @@ describe("App", () => {
 
   it("TASK-58 AC#4: modal renders the Timeline content (same component as embedded tab)", () => {
     render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
     fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
 
@@ -1588,6 +1602,7 @@ describe("App", () => {
 
   it("TASK-58 AC#4: modal renders the Sequence Diagram content", () => {
     render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
     fireEvent.click(screen.getByRole("button", { name: /Sequence Diagram/ }));
     fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
 
