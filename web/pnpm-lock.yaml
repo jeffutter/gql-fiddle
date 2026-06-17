@@ -21,8 +21,8 @@ importers:
         specifier: ^0.11.1
         version: 0.11.1
       graphql:
-        specifier: ^16.14.2
-        version: 16.14.2
+        specifier: ^17.0.0
+        version: 17.0.0
       mermaid:
         specifier: ^11.15.0
         version: 11.15.0
@@ -31,7 +31,7 @@ importers:
         version: 0.55.1
       monaco-graphql:
         specifier: ^1.8.0
-        version: 1.8.0(patch_hash=7246ce4ba6bc31a973a4fd2fe0d48a77c2f75cd1328a343377fd3507b120167f)(graphql@16.14.2)(monaco-editor@0.55.1)(prettier@3.8.4)
+        version: 1.8.0(patch_hash=7246ce4ba6bc31a973a4fd2fe0d48a77c2f75cd1328a343377fd3507b120167f)(graphql@17.0.0)(monaco-editor@0.55.1)(prettier@3.8.4)
       pako:
         specifier: ^2.1.0
         version: 2.1.0
@@ -1483,9 +1483,9 @@ packages:
     peerDependencies:
       graphql: ^15.5.0 || ^16.0.0 || ^17.0.0
 
-  graphql@16.14.2:
-    resolution: {integrity: sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA==}
-    engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
+  graphql@17.0.0:
+    resolution: {integrity: sha512-RSEgqrRNqHVGa46w2pmL9uTFkYPJiJbD5kksOvOaPLrKvBIidX/ttQVlWsR3+Ee8l+mNroC6darpcPIZeElbNg==}
+    engines: {node: ^22.0.0 || ^24.0.0 || ^25.0.0 || >=26.0.0}
 
   hachure-fill@0.5.2:
     resolution: {integrity: sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg==}
@@ -3438,14 +3438,14 @@ snapshots:
     dependencies:
       is-glob: 4.0.3
 
-  graphql-language-service@5.5.2(graphql@16.14.2):
+  graphql-language-service@5.5.2(graphql@17.0.0):
     dependencies:
       debounce-promise: 3.1.2
-      graphql: 16.14.2
+      graphql: 17.0.0
       nullthrows: 1.1.1
       vscode-languageserver-types: 3.18.0
 
-  graphql@16.14.2: {}
+  graphql@17.0.0: {}
 
   hachure-fill@0.5.2: {}
 
@@ -3611,10 +3611,10 @@ snapshots:
       dompurify: 3.2.7
       marked: 14.0.0
 
-  monaco-graphql@1.8.0(patch_hash=7246ce4ba6bc31a973a4fd2fe0d48a77c2f75cd1328a343377fd3507b120167f)(graphql@16.14.2)(monaco-editor@0.55.1)(prettier@3.8.4):
+  monaco-graphql@1.8.0(patch_hash=7246ce4ba6bc31a973a4fd2fe0d48a77c2f75cd1328a343377fd3507b120167f)(graphql@17.0.0)(monaco-editor@0.55.1)(prettier@3.8.4):
     dependencies:
-      graphql: 16.14.2
-      graphql-language-service: 5.5.2(graphql@16.14.2)
+      graphql: 17.0.0
+      graphql-language-service: 5.5.2(graphql@17.0.0)
       monaco-editor: 0.55.1
       picomatch-browser: 2.2.6
       prettier: 3.8.4
