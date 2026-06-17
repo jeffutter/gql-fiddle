@@ -12,7 +12,7 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { useCallback, useEffect, useRef, useState, memo } from "react";
+import { useCallback, useEffect, useMemo, useState, memo } from "react";
 import {
   ReactFlow,
   useNodesState,
@@ -150,35 +150,32 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showScalarsEnums, setShowScalarsEnums] = useState(false);
   const [subgraphFilters, setSubgraphFilters] = useState<Set<string>>(new Set());
-  const [layoutReady, setLayoutReady] = useState(false);
+  const [layoutReady, setLayoutReady] = useState(
+    () => schemaToTypeGraph(supergraphSdl).nodes.length === 0,
+  );
   const { fitView } = useReactFlow();
 
-  // Parse the SDL into our TypeGraph data model once.
-  const rawGraph = useRef(schemaToTypeGraph(supergraphSdl));
-  useEffect(() => {
-    rawGraph.current = schemaToTypeGraph(supergraphSdl);
-    // Reset selection and filters when the SDL changes.
+  const graph = useMemo(() => schemaToTypeGraph(supergraphSdl), [supergraphSdl]);
+
+  const [prevSdl, setPrevSdl] = useState(supergraphSdl);
+  if (prevSdl !== supergraphSdl) {
+    setPrevSdl(supergraphSdl);
     setSelectedNodeId(null);
     setSubgraphFilters(new Set());
-  }, [supergraphSdl]);
-
-  // Re-parse when SDL changes.
-  const graph = rawGraph.current;
+  }
 
   // ---------------------------------------------------------------------------
   // Filter and layout effect — fires when filters or graph data changes.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    const typeGraph = schemaToTypeGraph(supergraphSdl);
-    if (typeGraph.nodes.length === 0) {
+    if (graph.nodes.length === 0) {
       setNodes([]);
       setEdges([]);
-      setLayoutReady(true);
       return;
     }
 
     // Step 1: Apply scalar/enum toggle.
-    let filteredNodes = typeGraph.nodes;
+    let filteredNodes = graph.nodes;
     if (!showScalarsEnums) {
       filteredNodes = filteredNodes.filter((n) => n.kind !== "scalar" && n.kind !== "enum");
     }
@@ -192,7 +189,7 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
       );
       // Include direct neighbors (one hop away via edges).
       const neighbors = new Set<string>(inSubgraph);
-      for (const edge of typeGraph.edges) {
+      for (const edge of graph.edges) {
         if (inSubgraph.has(edge.sourceType)) neighbors.add(edge.targetType);
         if (inSubgraph.has(edge.targetType)) neighbors.add(edge.sourceType);
       }
@@ -202,14 +199,15 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
     const nodeIds = new Set(filteredNodes.map((n) => n.id));
 
     // Filter edges — only keep edges where both source and target are in the filtered set.
-    const filteredEdges = typeGraph.edges.filter(
+    const filteredEdges = graph.edges.filter(
       (e) => nodeIds.has(e.sourceType) && nodeIds.has(e.targetType),
     );
 
-    setLayoutReady(false);
+    let cancelled = false;
 
     // Step 3: Run ELK layout.
     void (async () => {
+      setLayoutReady(false);
       try {
         const elk = await getElk();
 
@@ -272,18 +270,24 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
           animated: false,
         }));
 
-        setNodes(rfNodes);
-        setEdges(rfEdges);
-        setLayoutReady(true);
-
-        // Fit after layout is applied.
-        setTimeout(() => fitView({ duration: 300, padding: 0.1 }), 50);
+        if (!cancelled) {
+          setNodes(rfNodes);
+          setEdges(rfEdges);
+          setLayoutReady(true);
+          // Fit after layout is applied.
+          setTimeout(() => fitView({ duration: 300, padding: 0.1 }), 50);
+        }
       } catch (err) {
         console.error("ELK layout error:", err);
-        setLayoutReady(true);
+        if (!cancelled) setLayoutReady(true);
       }
     })();
-  }, [supergraphSdl, showScalarsEnums, subgraphFilters, setNodes, setEdges, fitView]);
+
+    return () => {
+      cancelled = true;
+      setLayoutReady(true);
+    };
+  }, [graph, showScalarsEnums, subgraphFilters, setNodes, setEdges, fitView]);
 
   // ---------------------------------------------------------------------------
   // Node click → highlight neighbors / dim others

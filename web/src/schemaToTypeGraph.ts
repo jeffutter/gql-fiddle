@@ -261,8 +261,8 @@ export function schemaToTypeGraph(supergraphSdl: string): TypeGraph {
   const edges: TypeGraphEdge[] = [];
 
   for (const def of doc.definitions) {
-    let sourceTypeName: string | null = null;
-    let fields: readonly { type: TypeNode }[] = [];
+    let sourceTypeName: string | null;
+    let fields: readonly { type: TypeNode }[];
 
     if (def.kind === Kind.OBJECT_TYPE_DEFINITION || def.kind === Kind.OBJECT_TYPE_EXTENSION) {
       const d = def as ObjectTypeDefinitionNode | ObjectTypeExtensionNode;
