@@ -1470,4 +1470,113 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sequence Diagram/ }));
     expect(screen.getByText(/Run a query to see the sequence diagram/)).toBeInTheDocument();
   });
+
+  // ---- TASK-58: Fullscreen expand button for visual tabs ----
+
+  it("TASK-58 AC#1: expand button appears when Timeline tab is active", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
+    expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#1: expand button appears when Sequence Diagram tab is active", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Sequence Diagram/ }));
+    expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#1: expand button appears when Entities tab is active", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /^Entities$/ }));
+    expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#1: expand button appears when Type Graph tab is active", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Type Graph/ }));
+    expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#5: expand button absent when Query Plan tab is active", () => {
+    render(<App />);
+    // Query Plan is the default — no expand button should be present.
+    expect(screen.queryByRole("button", { name: /Expand to full screen/ })).not.toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#5: expand button absent when Supergraph SDL tab is active", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    expect(screen.queryByRole("button", { name: /Expand to full screen/ })).not.toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#2: clicking expand button opens modal dialog", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    // Modal title element (span) within the dialog header should say "Timeline".
+    expect(dialog.querySelector(".fullscreen-modal__title")?.textContent).toBe("Timeline");
+  });
+
+  it("TASK-58 AC#3: clicking close button in modal closes it", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Close full screen/ }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#3: pressing Escape key closes the modal", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#3: clicking the backdrop closes the modal", () => {
+    const { container } = render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    // Click the backdrop (the element with class fullscreen-modal-backdrop).
+    const backdrop = container.querySelector(".fullscreen-modal-backdrop")!;
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("TASK-58 AC#4: modal renders the Timeline content (same component as embedded tab)", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+
+    const dialog = screen.getByRole("dialog");
+    // The modal body should contain the timeline placeholder text.
+    expect(dialog.textContent).toContain("Run a query to see the timeline");
+  });
+
+  it("TASK-58 AC#4: modal renders the Sequence Diagram content", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Sequence Diagram/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("Run a query to see the sequence diagram");
+  });
+
+  it("TASK-58: modal aria-label reflects the active tab name", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Type Graph/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-label")).toMatch(/Type Graph/);
+  });
 });
