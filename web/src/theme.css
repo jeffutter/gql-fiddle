@@ -833,3 +833,111 @@ body {
   align-items: center;
   gap: 5px;
 }
+
+/* ========================================================================== *
+ * Schema Tree (schema containment hierarchy tab)
+ * ========================================================================== */
+.schema-tree {
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.schema-tree__root {
+  margin-bottom: 20px;
+}
+
+.schema-tree__root-header {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0 0 6px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.03em;
+}
+
+/* Reset list styles for the tree. */
+.schema-tree__children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 1px solid var(--border);
+}
+
+.schema-tree__item {
+  margin: 0;
+  padding: 0;
+}
+
+.schema-tree__row {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.schema-tree__row--expandable {
+  cursor: pointer;
+}
+
+.schema-tree__row--expandable:hover {
+  background: var(--surface-2);
+}
+
+.schema-tree__row--expandable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.schema-tree__toggle {
+  display: inline-block;
+  width: 14px;
+  font-size: 9px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* Placeholder to align rows that have no toggle button. */
+.schema-tree__toggle-placeholder {
+  display: inline-block;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.schema-tree__field-name {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.schema-tree__field-name--union-member {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.schema-tree__field-name--cycle {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.schema-tree__colon {
+  color: var(--text-faint);
+}
+
+.schema-tree__type-name {
+  color: var(--text-muted);
+}
+
+.schema-tree__type-name--leaf {
+  color: var(--text-faint);
+}
+
+.schema-tree__type-name--cycle {
+  color: var(--text-faint);
+  font-style: italic;
+}

@@ -22,6 +22,7 @@ import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subg
 import { schemaToEntityGraph } from "./schemaToEntityGraph";
 import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
 import { TypeGraph } from "./TypeGraph";
+import { SchemaTree } from "./SchemaTree";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -162,10 +163,10 @@ export default function App() {
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [rightTab, setRightTab] = useState<
-    "sdl" | "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "results"
+    "sdl" | "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | "results"
   >("plan");
   const [fullscreenTab, setFullscreenTab] = useState<
-    "sequence" | "timeline" | "entities" | "type-graph" | null
+    "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | null
   >(null);
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -192,6 +193,7 @@ export default function App() {
 
   // Reset 'results' rightTab when returning to desktop (no Results tab there).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!isMobile && rightTab === "results") setRightTab("plan");
   }, [isMobile, rightTab]);
 
@@ -306,6 +308,7 @@ export default function App() {
   // Auto-run effect: re-executes the query whenever inputs change.
   useEffect(() => {
     if (supergraphSdl === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsRunning(true);
     if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
     const sdl = supergraphSdl;
@@ -742,6 +745,16 @@ export default function App() {
     </div>
   );
 
+  const schemaTreeContent = (
+    <div className="scroll">
+      {typeGraphSdl === null ? (
+        <p className="empty-state">Compose a valid supergraph to see the schema tree.</p>
+      ) : (
+        <SchemaTree supergraphSdl={typeGraphSdl} />
+      )}
+    </div>
+  );
+
   const resultsContent = (
     <div className="scroll">
       {mockResult === null ? (
@@ -984,6 +997,13 @@ export default function App() {
                     Type Graph
                   </button>
                   <button
+                    onClick={() => setRightTab("schema-tree")}
+                    aria-pressed={rightTab === "schema-tree"}
+                    className={rightTab === "schema-tree" ? "tab is-active" : "tab"}
+                  >
+                    Schema Tree
+                  </button>
+                  <button
                     onClick={() => setRightTab("sdl")}
                     aria-pressed={rightTab === "sdl"}
                     className={rightTab === "sdl" ? "tab is-active" : "tab"}
@@ -1000,6 +1020,7 @@ export default function App() {
                     {rightTab === "timeline" && timelineContent}
                     {rightTab === "entities" && entitiesContent}
                     {rightTab === "type-graph" && typeGraphContent}
+                    {rightTab === "schema-tree" && schemaTreeContent}
                   </>
                 )}
               </div>
@@ -1044,11 +1065,15 @@ export default function App() {
     );
   }
 
-  const VISUAL_TAB_LABELS: Record<"sequence" | "timeline" | "entities" | "type-graph", string> = {
+  const VISUAL_TAB_LABELS: Record<
+    "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree",
+    string
+  > = {
     sequence: "Sequence Diagram",
     timeline: "Timeline",
     entities: "Entity Ownership Graph",
     "type-graph": "Type Graph",
+    "schema-tree": "Schema Tree",
   };
 
   return (
@@ -1074,8 +1099,15 @@ export default function App() {
                 <div className="panel" style={{ overflow: "hidden" }}>
                   <div className="panel__header">
                     <h2 className="section-title">Output</h2>
-                    {(["sequence", "timeline", "entities", "type-graph"] as const).includes(
-                      rightTab as "sequence" | "timeline" | "entities" | "type-graph",
+                    {(
+                      ["sequence", "timeline", "entities", "type-graph", "schema-tree"] as const
+                    ).includes(
+                      rightTab as
+                        | "sequence"
+                        | "timeline"
+                        | "entities"
+                        | "type-graph"
+                        | "schema-tree",
                     ) && (
                       <div className="panel__actions">
                         <button
@@ -1084,7 +1116,12 @@ export default function App() {
                           aria-label="Expand to full screen"
                           onClick={() =>
                             setFullscreenTab(
-                              rightTab as "sequence" | "timeline" | "entities" | "type-graph",
+                              rightTab as
+                                | "sequence"
+                                | "timeline"
+                                | "entities"
+                                | "type-graph"
+                                | "schema-tree",
                             )
                           }
                         >
@@ -1144,6 +1181,13 @@ export default function App() {
                       Type Graph
                     </button>
                     <button
+                      onClick={() => setRightTab("schema-tree")}
+                      aria-pressed={rightTab === "schema-tree"}
+                      className={rightTab === "schema-tree" ? "tab is-active" : "tab"}
+                    >
+                      Schema Tree
+                    </button>
+                    <button
                       onClick={() => setRightTab("sdl")}
                       aria-pressed={rightTab === "sdl"}
                       className={rightTab === "sdl" ? "tab is-active" : "tab"}
@@ -1160,6 +1204,7 @@ export default function App() {
                       {rightTab === "timeline" && timelineContent}
                       {rightTab === "entities" && entitiesContent}
                       {rightTab === "type-graph" && typeGraphContent}
+                      {rightTab === "schema-tree" && schemaTreeContent}
                     </>
                   )}
                 </div>
@@ -1259,6 +1304,7 @@ export default function App() {
               {fullscreenTab === "timeline" && timelineContent}
               {fullscreenTab === "entities" && entitiesContent}
               {fullscreenTab === "type-graph" && typeGraphContent}
+              {fullscreenTab === "schema-tree" && schemaTreeContent}
             </div>
           </div>
         </div>
