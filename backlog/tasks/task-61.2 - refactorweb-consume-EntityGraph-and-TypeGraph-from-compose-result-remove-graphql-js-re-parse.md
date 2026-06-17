@@ -59,13 +59,15 @@ type_graph?:   { nodes: GraphNode[]; edges: GraphEdge[]; subgraphs: string[] }
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Entity Ownership Graph renders identically to before (same nodes, edges, subgraph grouping)
-- [ ] #2 Type Graph renders identically to before (same nodes, edges, subgraph attribution and kind badges)
-- [ ] #3 Neither `schemaToEntityGraph.ts` nor `schemaToTypeGraph.ts` imports from `"graphql"` (graphql-js)
-- [ ] #4 All web unit tests pass: `pnpm test run`
-- [ ] #5 `pnpm tsc --noEmit` passes with no type errors
-- [ ] #6 Fallback to empty-state when `entity_graph` or `type_graph` is absent from the compose result
+- [x] #1 Entity Ownership Graph renders identically to before (same nodes, edges, subgraph grouping)
+- [x] #2 Type Graph renders identically to before (same nodes, edges, subgraph attribution and kind badges)
+- [x] #3 Neither `schemaToEntityGraph.ts` nor `schemaToTypeGraph.ts` imports from `"graphql"` (graphql-js)
+- [x] #4 All web unit tests pass: `pnpm test run`
+- [x] #5 `pnpm tsc --noEmit` passes with no type errors
+- [x] #6 Fallback to empty-state when `entity_graph` or `type_graph` is absent from the compose result
 <!-- AC:END -->
+
+
 
 ## Implementation Plan
 
