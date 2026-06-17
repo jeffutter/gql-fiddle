@@ -14,11 +14,20 @@ function range(result: ReturnType<typeof planToFieldRanges>, service: string) {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// Each Fetch now carries pre-computed resolved_fields (as the Rust WASM layer
+// produces them) instead of requiring planToFieldRanges to re-parse the
+// operation string.
+
 const FETCH_USERS: PlanNode = {
   kind: "Fetch",
   service: "users",
   operation: "{ me { id name } }",
   operation_kind: "query",
+  resolved_fields: [
+    { field_name: "me", type_condition: null },
+    { field_name: "id", type_condition: null },
+    { field_name: "name", type_condition: null },
+  ],
 };
 
 const FETCH_REVIEWS: PlanNode = {
@@ -26,6 +35,11 @@ const FETCH_REVIEWS: PlanNode = {
   service: "reviews",
   operation: "{ topProducts { upc title } }",
   operation_kind: "query",
+  resolved_fields: [
+    { field_name: "topProducts", type_condition: null },
+    { field_name: "upc", type_condition: null },
+    { field_name: "title", type_condition: null },
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -65,17 +79,17 @@ describe("planToFieldRanges", () => {
     expect(result.some((r) => r.service === "reviews")).toBe(true);
   });
 
-  it("malformed Fetch operation — skips gracefully, no throw", () => {
-    const badFetch: PlanNode = {
+  it("Fetch with no resolved_fields — skips gracefully, no throw", () => {
+    const emptyFetch: PlanNode = {
       kind: "Fetch",
       service: "broken",
-      operation: "{ DEFINITELY {{{{ BROKEN",
+      operation: "{ something }",
       operation_kind: "query",
+      // resolved_fields absent — graceful degradation (stale WASM)
     };
     const query = "{ me { id } }";
-    expect(() => planToFieldRanges(badFetch, query)).not.toThrow();
-    // Should still return results from the original query scan (no ranges for "broken")
-    const result = planToFieldRanges(badFetch, query);
+    expect(() => planToFieldRanges(emptyFetch, query)).not.toThrow();
+    const result = planToFieldRanges(emptyFetch, query);
     expect(result.filter((r) => r.service === "broken")).toHaveLength(0);
   });
 
@@ -130,9 +144,43 @@ describe("planToFieldRanges", () => {
 
   it("fragment spread in original query — fields inside fragment are found", () => {
     const query = "fragment F on Query { me { id } }\n{ ...F }";
-    // FETCH_USERS operation contains "me" — should match the fragment field
+    // FETCH_USERS resolved_fields contains "me" — should match the fragment field
     const result = planToFieldRanges(FETCH_USERS, query);
     expect(result.some((r) => r.service === "users")).toBe(true);
+  });
+
+  it("entity fetch — fields with type_condition are attributed to correct subgraph", () => {
+    const entityFetch: PlanNode = {
+      kind: "Fetch",
+      service: "products",
+      operation:
+        "query($_representations: [_Any!]!) { _entities(representations: $_representations) { ... on Product { price name } } }",
+      operation_kind: "query",
+      resolved_fields: [
+        { field_name: "price", type_condition: "Product" },
+        { field_name: "name", type_condition: "Product" },
+      ],
+    };
+    const query = '{ product(id: "1") { ... on Product { price name } } }';
+    const result = planToFieldRanges(entityFetch, query);
+    expect(result.some((r) => r.service === "products")).toBe(true);
+    const productRanges = range(result, "products");
+    const names = productRanges.map((r) => query.slice(r.col - 1, r.col - 1 + r.len));
+    expect(names).toContain("price");
+    expect(names).toContain("name");
+  });
+
+  it("absent resolved_fields (undefined) — graceful degradation, returns empty array", () => {
+    const fetchWithoutFields: PlanNode = {
+      kind: "Fetch",
+      service: "legacy",
+      operation: "{ me }",
+      operation_kind: "query",
+      // no resolved_fields key at all
+    };
+    const result = planToFieldRanges(fetchWithoutFields, "{ me }");
+    // No crash, and no results since we have nothing to match
+    expect(result).toEqual([]);
   });
 });
 

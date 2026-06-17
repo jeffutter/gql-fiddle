@@ -4,17 +4,19 @@
  *
  * Strategy:
  * 1. Collect all Fetch nodes from the PlanNode tree.
- * 2. For each Fetch, parse its `operation` string with graphql-js to learn
- *    *which* fields it resolves (field names / paths).
- * 3. Parse the original query and walk its AST to find matching fields by
- *    name, using the original AST's `loc` for accurate positions.
+ * 2. For each Fetch, read `resolved_fields` (pre-computed by the Rust WASM layer)
+ *    to learn which fields it resolves and whether they belong to entity fragments.
+ * 3. Parse the original query once with graphql-js to get `loc` source positions
+ *    for Monaco editor decorations.
+ * 4. Walk the original query AST matching field names from `resolved_fields` to
+ *    record their source positions.
  *
- * This dual-parse approach is necessary because the Fetch operation is a
- * router-generated sub-selection: positions in it do not correspond to the
- * original query positions. We match by field name at each level instead.
+ * This approach removes all graphql-js re-parsing of Fetch sub-operation strings.
+ * The Rust query planner already knows which service resolves each field — we
+ * just consume that pre-computed attribution.
  *
  * Edge cases handled:
- * - Fetch operation strings that fail to parse are skipped silently.
+ * - Fetch nodes with absent/empty `resolved_fields` are skipped gracefully.
  * - The original query that fails to parse returns an empty array.
  * - Alias fields: the `loc` of the alias keyword is used when present.
  * - Inline fragments: traversed recursively.
@@ -50,13 +52,16 @@ export interface FieldRange {
 
 interface FetchEntry {
   service: string;
-  operation: string;
+  resolvedFields: Array<{ field_name: string; type_condition: string | null }>;
 }
 
 function collectFetches(node: PlanNode, out: FetchEntry[] = []): FetchEntry[] {
   switch (node.kind) {
     case "Fetch":
-      out.push({ service: node.service, operation: node.operation });
+      out.push({
+        service: node.service,
+        resolvedFields: node.resolved_fields ?? [],
+      });
       break;
     case "Sequence":
     case "Parallel":
@@ -81,30 +86,6 @@ function collectFetches(node: PlanNode, out: FetchEntry[] = []): FetchEntry[] {
       break;
   }
   return out;
-}
-
-// ---------------------------------------------------------------------------
-// Extract field names from a Fetch operation AST
-// ---------------------------------------------------------------------------
-
-/**
- * Walk a SelectionSet and return all field names (or alias names) it contains,
- * recursively entering fields, inline fragments, and all nesting levels.
- * Fragment spreads are left as-is since sub-operations rarely contain them.
- */
-function fetchFieldNames(selectionSet: SelectionSetNode): Set<string> {
-  const names = new Set<string>();
-  for (const sel of selectionSet.selections) {
-    if (sel.kind === Kind.FIELD) {
-      names.add(sel.alias?.value ?? sel.name.value);
-      if (sel.selectionSet) {
-        fetchFieldNames(sel.selectionSet).forEach((n) => names.add(n));
-      }
-    } else if (sel.kind === Kind.INLINE_FRAGMENT && sel.selectionSet) {
-      fetchFieldNames(sel.selectionSet).forEach((n) => names.add(n));
-    }
-  }
-  return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,10 +187,11 @@ function walkSelectionSet(
  * When a field appears in multiple Fetch nodes (e.g. `__typename`), the
  * *last* Fetch's service color wins — acceptable for the educational use case.
  *
- * Returns an empty array if the original query cannot be parsed.
+ * Returns an empty array if the original query cannot be parsed or if all
+ * Fetch nodes have no `resolved_fields` (graceful degradation for stale WASM).
  */
 export function planToFieldRanges(root: PlanNode, originalQuery: string): FieldRange[] {
-  // Parse the original query first — bail out if it fails.
+  // Parse the original query once — bail out if it fails.
   let originalDoc: DocumentNode;
   try {
     originalDoc = parse(originalQuery, { noLocation: false });
@@ -229,69 +211,35 @@ export function planToFieldRanges(root: PlanNode, originalQuery: string): FieldR
   const fetches = collectFetches(root);
   if (fetches.length === 0) return [];
 
-  // For each Fetch: parse its operation, extract field names it resolves, then
-  // walk the original query AST and record positions.
-  // We use a Map keyed by "service::line:col" so later Fetches overwrite earlier
-  // ones for the same position (last Fetch wins).
+  // For each Fetch: read resolved_fields (pre-computed by Rust), partition into
+  // plain fields vs entity fragment fields, then walk the original query AST.
+  // We use a Map keyed by "line:col" so later Fetches overwrite earlier ones
+  // for the same position (last Fetch wins).
   const results = new Map<string, FieldRange>();
 
   for (const fetch of fetches) {
-    // The WASM plan serializer wraps operation strings in JSON quotes;
-    // unwrap before passing to the GraphQL parser.
-    let opStr = fetch.operation;
-    if (opStr.startsWith('"') && opStr.endsWith('"')) {
-      try {
-        opStr = JSON.parse(opStr) as string;
-      } catch {
-        /* leave as-is */
-      }
-    }
-    let fetchDoc: DocumentNode;
-    try {
-      fetchDoc = parse(opStr, { noLocation: false });
-    } catch {
-      // Malformed sub-operation — skip without crashing.
-      continue;
-    }
+    if (fetch.resolvedFields.length === 0) continue;
 
+    // Partition resolved_fields into:
+    //   matchedNames: plain fields (type_condition === null)
+    //   entityFragmentFields: typeName → field names (for entity fetches)
     const matchedNames = new Set<string>();
-    // For entity fetches: typeName → fields the fetch resolves for that type.
     const entityFragmentFields = new Map<string, Set<string>>();
-    let isEntityFetch = false;
 
-    for (const def of fetchDoc.definitions) {
-      if (def.kind === Kind.OPERATION_DEFINITION) {
-        // Detect entity fetch by looking for a top-level `_entities` field.
-        for (const sel of def.selectionSet.selections) {
-          if (sel.kind === Kind.FIELD && (sel as FieldNode).name.value === "_entities") {
-            isEntityFetch = true;
-            const entitiesField = sel as FieldNode;
-            if (entitiesField.selectionSet) {
-              for (const fragSel of entitiesField.selectionSet.selections) {
-                if (
-                  fragSel.kind === Kind.INLINE_FRAGMENT &&
-                  fragSel.typeCondition &&
-                  fragSel.selectionSet
-                ) {
-                  entityFragmentFields.set(
-                    fragSel.typeCondition.name.value,
-                    fetchFieldNames(fragSel.selectionSet),
-                  );
-                }
-              }
-            }
-            break;
-          }
+    for (const rf of fetch.resolvedFields) {
+      if (rf.type_condition === null) {
+        matchedNames.add(rf.field_name);
+      } else {
+        let typeSet = entityFragmentFields.get(rf.type_condition);
+        if (!typeSet) {
+          typeSet = new Set();
+          entityFragmentFields.set(rf.type_condition, typeSet);
         }
-        if (!isEntityFetch) {
-          fetchFieldNames(def.selectionSet).forEach((n) => matchedNames.add(n));
-        }
-      } else if (def.kind === Kind.FRAGMENT_DEFINITION) {
-        fetchFieldNames(def.selectionSet).forEach((n) => matchedNames.add(n));
+        typeSet.add(rf.field_name);
       }
     }
 
-    if (matchedNames.size === 0 && entityFragmentFields.size === 0) continue;
+    const isEntityFetch = entityFragmentFields.size > 0;
 
     // Walk original query definitions and record positions.
     for (const def of originalDoc.definitions) {

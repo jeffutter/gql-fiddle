@@ -3,10 +3,10 @@ id: TASK-62.2
 title: >-
   refactor(web): simplify planToFieldRanges.ts to consume resolved_fields,
   remove graphql-js re-parse
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-17 04:32'
-updated_date: '2026-06-17 11:51'
+updated_date: '2026-06-17 12:00'
 labels:
   - architecture
   - web
@@ -272,3 +272,9 @@ Run `tsc --noEmit` or `pnpm typecheck` to confirm no dead imports remain.
 - If `resolved_fields` is absent (e.g. a stale WASM build), `node.resolved_fields ?? []` degrades gracefully — `resolvedFields` is empty, the fetch is skipped, and no decorations appear. No crash.
 - `collectServiceNames()` in the same file is called by `App.tsx` for the legend. It reads `f.service` from `collectFetches()` output — unaffected by this change.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Updated web/src/core/types.ts to add resolved_fields?: Array<{field_name, type_condition}> to the Fetch PlanNode variant. Refactored planToFieldRanges.ts: removed FetchEntry.operation field, fetchFieldNames() helper, all graphql-js parse calls on sub-operation strings, _entities detection heuristics. New collectFetches() reads resolved_fields from each Fetch node; main loop partitions them into matchedNames (type_condition null) vs entityFragmentFields (type_condition set). walkSelectionSet() unchanged. Updated test fixtures to supply resolved_fields and added entity fetch + graceful-degradation tests. pnpm test: 195/195 pass. tsc --noEmit: no errors.
+<!-- SECTION:NOTES:END -->

@@ -7,14 +7,6 @@ deterministic **mock** data — with **no backend**.
 The GraphQL brain is Rust compiled to WebAssembly (Apollo's `apollo-compiler`
 and `apollo-federation`); the UI is a TypeScript/React shell.
 
-## Status
-
-Scaffold complete; Spike 0 pending. Work is tracked in Backlog.md
-(`backlog/tasks/`). Design and plan docs:
-
-- `backlog/docs/doc-1 - GraphQL-Playground-Design.md`
-- `backlog/docs/doc-2 - GraphQL-Playground-Implementation-Plan.md`
-
 ## Getting started
 
 Requires [Nix](https://nixos.org/) with flakes (and ideally

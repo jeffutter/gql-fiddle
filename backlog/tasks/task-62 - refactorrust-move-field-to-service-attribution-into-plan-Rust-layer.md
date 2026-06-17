@@ -1,11 +1,11 @@
 ---
 id: TASK-62
 title: 'refactor(rust): move field-to-service attribution into plan() Rust layer'
-status: In Progress
+status: Done
 assignee:
   - '@ralph'
 created_date: '2026-06-17 04:31'
-updated_date: '2026-06-17 11:57'
+updated_date: '2026-06-17 12:00'
 labels:
   - architecture
   - rust
@@ -85,3 +85,15 @@ This feature moves field-to-subgraph attribution from the web layer into the Rus
 3. `pnpm test` — all web unit tests pass
 4. Manual smoke test: multi-subgraph query with entity fetches shows correct Monaco field decorations
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Both sub-tasks completed. TASK-62.1 was already implemented (Rust dto.rs + plan.rs). TASK-62.2 implemented in this session: types.ts updated with resolved_fields field on Fetch PlanNode, planToFieldRanges.ts refactored to consume pre-computed resolved_fields instead of re-parsing sub-operation strings with graphql-js, test suite updated with resolved_fields fixtures and new entity fetch + graceful-degradation tests. All 195 web tests pass; tsc clean; 53 Rust tests pass.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Moved field-to-service attribution from the web layer into the pre-computed Rust WASM output. The Rust side already annotated each PlanNode::Fetch with resolved_fields in dto.rs/plan.rs. This session completed the web side: added resolved_fields to the TypeScript Fetch type, refactored planToFieldRanges.ts to read resolved_fields directly (removing all graphql-js sub-operation re-parsing and _entities detection heuristics), and updated tests with proper resolved_fields fixtures plus new coverage for entity fetches and graceful degradation.
+<!-- SECTION:FINAL_SUMMARY:END -->

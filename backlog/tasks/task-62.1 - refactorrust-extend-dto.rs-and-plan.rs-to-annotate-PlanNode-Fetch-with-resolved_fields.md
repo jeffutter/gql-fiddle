@@ -3,10 +3,10 @@ id: TASK-62.1
 title: >-
   refactor(rust): extend dto.rs and plan.rs to annotate PlanNode::Fetch with
   resolved_fields
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-17 04:31'
-updated_date: '2026-06-17 11:50'
+updated_date: '2026-06-17 12:00'
 labels:
   - architecture
   - rust
@@ -291,3 +291,9 @@ Optionally add a targeted test in `plan.rs::tests` to assert that a known two-su
 - TASK-63 will extend `map_fetch()` in the same place to also collect `entity_types`. To minimize merge pain, TASK-63 depends on this ticket completing first.
 - The `ResolvedField` struct in `dto.rs` should also be imported by TASK-63 (it extends the same struct concept). If TASK-63 needs `entity_types: Vec<String>` on the Fetch DTO, it adds a separate field alongside `resolved_fields`.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Rust implementation was already complete: ResolvedField struct in dto.rs and extract_resolved_fields() helper in plan.rs walk the FetchNode operation_document AST without re-parsing. cargo test -p gql-core passes (53 tests).
+<!-- SECTION:NOTES:END -->
