@@ -100,12 +100,14 @@ fn map_fetch(fetch: apollo_federation::query_plan::FetchNode) -> PlanNode {
     let op_kind = format!("{}", fetch.operation_kind);
     let requires = map_requires(fetch.requires);
     let resolved_fields = extract_resolved_fields(&fetch.operation_document);
+    let entity_types = extract_entity_types(&fetch.operation_document);
     PlanNode::Fetch {
         service,
         operation_str: op_str,
         operation_kind: op_kind,
         requires,
         resolved_fields,
+        entity_types,
     }
 }
 
@@ -163,6 +165,44 @@ fn extract_resolved_fields(
         }
     }
     fields
+}
+
+/// Collect distinct entity type names from a Fetch sub-operation that has
+/// `_entities` as its top-level field. Returns an empty Vec for non-entity fetches.
+fn extract_entity_types(
+    doc: &apollo_federation::query_plan::serializable_document::SerializableDocument,
+) -> Vec<String> {
+    use apollo_compiler::executable::Selection;
+
+    // as_parsed() is infallible here: the planner builds with from_parsed().
+    let executable = match doc.as_parsed() {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let mut types = Vec::new();
+
+    for op in executable.operations.iter() {
+        for sel in &op.selection_set.selections {
+            if let Selection::Field(f) = sel {
+                if f.name == "_entities" {
+                    for inner in &f.selection_set.selections {
+                        if let Selection::InlineFragment(frag) = inner {
+                            if let Some(tc) = &frag.type_condition {
+                                let name = tc.to_string();
+                                if seen.insert(name.clone()) {
+                                    types.push(name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    types
 }
 
 fn collect_leaf_fields(

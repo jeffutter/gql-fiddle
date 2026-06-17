@@ -57,6 +57,10 @@ pub enum PlanNode {
         requires: Vec<RequiresSelection>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         resolved_fields: Vec<ResolvedField>,
+        /// Distinct entity type names from `... on TypeName` fragments in `_entities` fetches.
+        /// Empty for non-entity fetches. Skipped from JSON when empty.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        entity_types: Vec<String>,
     },
     Sequence {
         nodes: Vec<PlanNode>,

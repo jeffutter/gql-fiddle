@@ -232,6 +232,7 @@ describe("planToTimeline", () => {
       operation:
         "{ _entities(representations: $representations) { ... on Product { id } ... on Review { id } } }",
       operation_kind: "query",
+      entity_types: ["Product", "Review"],
     };
     const data = planToTimeline(fetch);
     const [item] = data.items;
@@ -245,6 +246,7 @@ describe("planToTimeline", () => {
       service: "users",
       operation: "{ _entities(representations: $representations) { ... on User { id name } } }",
       operation_kind: "query",
+      entity_types: ["User"],
     };
     const data = planToTimeline(fetch);
     const [item] = data.items;
@@ -253,25 +255,29 @@ describe("planToTimeline", () => {
   });
 
   it("entity fetch — no inline fragments — label falls back to _entities", () => {
+    // Without entity_types, isEntityFetch is false; topLevelField gives "_entities" as label.
     const fetch: PlanNode = {
       kind: "Fetch",
       service: "products",
       operation: "{ _entities(representations: $representations) { id } }",
       operation_kind: "query",
+      entity_types: [],
     };
     const data = planToTimeline(fetch);
     const [item] = data.items;
-    expect(item.isEntityFetch).toBe(true);
+    expect(item.isEntityFetch).toBe(false);
     expect(item.label).toBe("_entities");
   });
 
   it("entity fetch — duplicate types are deduplicated in label", () => {
+    // Rust already deduplicates; test supplies the already-deduped list.
     const fetch: PlanNode = {
       kind: "Fetch",
       service: "products",
       operation:
         "{ _entities(representations: $representations) { ... on Product { id ... on Product { title } } } }",
       operation_kind: "query",
+      entity_types: ["Product"],
     };
     const data = planToTimeline(fetch);
     const [item] = data.items;

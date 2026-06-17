@@ -6,61 +6,6 @@ function topLevelField(operation: string): string {
   return m ? m[1] : "…";
 }
 
-/**
- * If `operation` is an _entities fetch, return the inline-fragment type names
- * that are DIRECT CHILDREN of the _entities selection set (e.g. ["Product"]).
- * Nested inline fragments like `... on NavigationInteraction` inside a
- * Product fragment are intentionally excluded.
- * Returns an empty array for non-entity operations.
- */
-function extractEntityTypes(operation: string): string[] {
-  if (topLevelField(operation) !== "_entities") return [];
-
-  const entitiesIdx = operation.indexOf("_entities");
-  if (entitiesIdx === -1) return [];
-
-  // Skip past the arguments (balanced parentheses).
-  let i = entitiesIdx + "_entities".length;
-  while (i < operation.length && /\s/.test(operation[i])) i++;
-  if (operation[i] === "(") {
-    let parenDepth = 1;
-    i++;
-    while (i < operation.length && parenDepth > 0) {
-      if (operation[i] === "(") parenDepth++;
-      else if (operation[i] === ")") parenDepth--;
-      i++;
-    }
-  }
-
-  // Expect the opening brace of the _entities selection set.
-  while (i < operation.length && /\s/.test(operation[i])) i++;
-  if (operation[i] !== "{") return [];
-  i++; // consume `{`
-
-  // Collect inline-fragment type names at depth 0 only (direct children of _entities).
-  const types: string[] = [];
-  let depth = 0;
-  while (i < operation.length) {
-    const ch = operation[i];
-    if (ch === "{") {
-      depth++;
-    } else if (ch === "}") {
-      if (depth === 0) break;
-      depth--;
-    } else if (depth === 0) {
-      const m = operation.slice(i).match(/^\.\.\.\s*on\s+([_A-Za-z][_0-9A-Za-z]*)/);
-      if (m) {
-        types.push(m[1]);
-        i += m[0].length;
-        continue;
-      }
-    }
-    i++;
-  }
-
-  return [...new Set(types)];
-}
-
 export interface TimelineItem {
   /** Stable React key, e.g. "users-0". */
   id: string;
@@ -105,10 +50,8 @@ export function planToTimeline(root: PlanNode): TimelineData {
     switch (node.kind) {
       case "Fetch": {
         const id = `${node.service}-${counter++}`;
-        const isEntityFetch = topLevelField(node.operation) === "_entities";
-        const label = isEntityFetch
-          ? extractEntityTypes(node.operation).join(", ") || "_entities"
-          : topLevelField(node.operation);
+        const isEntityFetch = (node.entity_types?.length ?? 0) > 0;
+        const label = isEntityFetch ? node.entity_types!.join(", ") : topLevelField(node.operation);
         items.push({
           id,
           service: node.service,
