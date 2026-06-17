@@ -31,6 +31,7 @@ import type { Node, Edge, NodeProps } from "@xyflow/react";
 import type { ELK, ElkNode, ElkExtendedEdge } from "elkjs/lib/elk-api";
 import { schemaToTypeGraph } from "./schemaToTypeGraph";
 import type { TypeKind } from "./schemaToTypeGraph";
+import type { RustGraph } from "./core/types";
 import { subgraphColorVar } from "./subgraphColors";
 
 // ---------------------------------------------------------------------------
@@ -141,25 +142,25 @@ const nodeTypes = { typeGraphNode: TypeGraphNode };
 // ---------------------------------------------------------------------------
 
 interface TypeGraphInnerProps {
-  supergraphSdl: string;
+  typeGraph: RustGraph;
 }
 
-function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
+function TypeGraphInner({ typeGraph: rustGraph }: TypeGraphInnerProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showScalarsEnums, setShowScalarsEnums] = useState(false);
   const [subgraphFilters, setSubgraphFilters] = useState<Set<string>>(new Set());
   const [layoutReady, setLayoutReady] = useState(
-    () => schemaToTypeGraph(supergraphSdl).nodes.length === 0,
+    () => schemaToTypeGraph(rustGraph).nodes.length === 0,
   );
   const { fitView } = useReactFlow();
 
-  const graph = useMemo(() => schemaToTypeGraph(supergraphSdl), [supergraphSdl]);
+  const graph = useMemo(() => schemaToTypeGraph(rustGraph), [rustGraph]);
 
-  const [prevSdl, setPrevSdl] = useState(supergraphSdl);
-  if (prevSdl !== supergraphSdl) {
-    setPrevSdl(supergraphSdl);
+  const [prevRustGraph, setPrevRustGraph] = useState(rustGraph);
+  if (prevRustGraph !== rustGraph) {
+    setPrevRustGraph(rustGraph);
     setSelectedNodeId(null);
     setSubgraphFilters(new Set());
   }
@@ -518,13 +519,13 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
 // ---------------------------------------------------------------------------
 
 export interface TypeGraphProps {
-  supergraphSdl: string;
+  typeGraph: RustGraph;
 }
 
-export function TypeGraph({ supergraphSdl }: TypeGraphProps) {
+export function TypeGraph({ typeGraph }: TypeGraphProps) {
   return (
     <ReactFlowProvider>
-      <TypeGraphInner supergraphSdl={supergraphSdl} />
+      <TypeGraphInner typeGraph={typeGraph} />
     </ReactFlowProvider>
   );
 }

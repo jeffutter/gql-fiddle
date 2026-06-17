@@ -84,3 +84,46 @@ pub struct DeferredBranch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node: Option<Box<PlanNode>>,
 }
+
+/// A node in an entity or type graph.
+///
+/// For the entity graph: `id` is `"SUBGRAPH:TypeName"`, `label` is the type name,
+/// `subgraphs` is the list of subgraph enum values that own this entity.
+/// For the type graph: `id` and `label` are both the type name, `subgraphs` are
+/// the subgraph enum values where the type is declared.
+#[derive(Debug, serde::Serialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub label: String,
+    pub subgraphs: Vec<String>,
+    /// Type kind: "object" | "interface" | "union" | "input" | "scalar" | "enum".
+    /// Only present for type graph nodes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+/// A directed edge in an entity or type graph.
+#[derive(Debug, serde::Serialize)]
+pub struct GraphEdge {
+    pub source: String,
+    pub target: String,
+    /// For entity edges: the @key(fields) string of the target entity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Entity ownership graph: entity types and cross-subgraph relationships.
+#[derive(Debug, serde::Serialize)]
+pub struct EntityGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    pub subgraphs: Vec<String>,
+}
+
+/// Schema type graph: all domain types and their field-return-type relationships.
+#[derive(Debug, serde::Serialize)]
+pub struct TypeGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    pub subgraphs: Vec<String>,
+}

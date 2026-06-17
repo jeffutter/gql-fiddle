@@ -20,8 +20,42 @@ export interface QueryTab {
   query: string;
 }
 
+/** A node in a Rust-computed graph (EntityGraph or TypeGraph). */
+export interface RustGraphNode {
+  /** For entity graph: "SUBGRAPH:TypeName". For type graph: the type name. */
+  id: string;
+  /** The type name. */
+  label: string;
+  /** Subgraph enum values that declare this type. */
+  subgraphs: string[];
+  /** Type kind — only present for type graph nodes: "object" | "interface" | "union" | "input" | "scalar" | "enum". */
+  kind?: string;
+}
+
+/** A directed edge in a Rust-computed graph. */
+export interface RustGraphEdge {
+  source: string;
+  target: string;
+  /** For entity edges: the @key(fields) string of the target entity. */
+  label?: string;
+}
+
+/** A pre-computed graph from the Rust compose result. */
+export interface RustGraph {
+  nodes: RustGraphNode[];
+  edges: RustGraphEdge[];
+  subgraphs: string[];
+}
+
 export type ComposeResult =
-  | { ok: true; supergraph_sdl: string; api_schema_sdl: string; hints: CompositionHint[] }
+  | {
+      ok: true;
+      supergraph_sdl: string;
+      api_schema_sdl: string;
+      hints: CompositionHint[];
+      entity_graph?: RustGraph;
+      type_graph?: RustGraph;
+    }
   | { ok: false; errors: CompositionError[] };
 
 export interface CompositionHint {
