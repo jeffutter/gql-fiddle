@@ -52,15 +52,13 @@ export function injectSubgraphStyles(): void {
 
   for (let i = 0; i < PALETTE_SIZE; i++) {
     const color = computed.getPropertyValue(`--sg-${i}`).trim();
-    // Inline highlight: translucent background + solid bottom border.
-    lines.push(
-      `.sg-bg-${i} { background-color: ${color}33; border-bottom: 1.5px solid ${color}; border-radius: 2px; }`,
-    );
+    // Inline highlight: underline only — background was too visually noisy.
+    lines.push(`.sg-bg-${i} { border-bottom: 1px solid ${color}88; }`);
     // Glyph margin dot.
     lines.push(
       `.sg-glyph-${i} { display: flex; align-items: center; justify-content: center; }` +
-        `.sg-glyph-${i}::before { content: ''; display: block; width: 8px; height: 8px;` +
-        ` border-radius: 50%; background: ${color}; margin: auto; }`,
+        `.sg-glyph-${i}::before { content: ''; display: block; width: 6px; height: 6px;` +
+        ` border-radius: 50%; background: ${color}88; margin: auto; }`,
     );
   }
 
