@@ -330,6 +330,33 @@ describe("schemaToTypeGraph", () => {
       expect(union).toBeDefined();
       expect(union!.kind).toBe("union");
     });
+
+    it("emits edges from union to each member type", () => {
+      const sdl = `
+        directive @join__type(graph: join__Graph!) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+        enum join__Graph { SVC @join__graph(name: "svc", url: "") }
+        type Cat @join__type(graph: SVC) { name: String }
+        type Dog @join__type(graph: SVC) { name: String }
+        union Animal @join__type(graph: SVC) = Cat | Dog
+      `;
+      const result = schemaToTypeGraph(sdl);
+      const catEdge = result.edges.find((e) => e.sourceType === "Animal" && e.targetType === "Cat");
+      const dogEdge = result.edges.find((e) => e.sourceType === "Animal" && e.targetType === "Dog");
+      expect(catEdge).toBeDefined();
+      expect(dogEdge).toBeDefined();
+    });
+
+    it("uses 'union->member' as edge id for union member edges", () => {
+      const sdl = `
+        directive @join__type(graph: join__Graph!) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+        enum join__Graph { SVC @join__graph(name: "svc", url: "") }
+        type Cat @join__type(graph: SVC) { name: String }
+        union Animal @join__type(graph: SVC) = Cat
+      `;
+      const result = schemaToTypeGraph(sdl);
+      const edge = result.edges.find((e) => e.sourceType === "Animal");
+      expect(edge!.id).toBe("Animal->Cat");
+    });
   });
 
   describe("types shared across multiple subgraphs", () => {

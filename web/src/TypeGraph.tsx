@@ -149,7 +149,7 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showScalarsEnums, setShowScalarsEnums] = useState(false);
-  const [subgraphFilter, setSubgraphFilter] = useState<string | null>(null);
+  const [subgraphFilters, setSubgraphFilters] = useState<Set<string>>(new Set());
   const [layoutReady, setLayoutReady] = useState(false);
   const { fitView } = useReactFlow();
 
@@ -159,7 +159,7 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
     rawGraph.current = schemaToTypeGraph(supergraphSdl);
     // Reset selection and filters when the SDL changes.
     setSelectedNodeId(null);
-    setSubgraphFilter(null);
+    setSubgraphFilters(new Set());
   }, [supergraphSdl]);
 
   // Re-parse when SDL changes.
@@ -184,9 +184,11 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
     }
 
     // Step 2: Apply subgraph filter.
-    if (subgraphFilter !== null) {
+    if (subgraphFilters.size > 0) {
       const inSubgraph = new Set(
-        filteredNodes.filter((n) => n.subgraphs.includes(subgraphFilter)).map((n) => n.id),
+        filteredNodes
+          .filter((n) => n.subgraphs.some((sg) => subgraphFilters.has(sg)))
+          .map((n) => n.id),
       );
       // Include direct neighbors (one hop away via edges).
       const neighbors = new Set<string>(inSubgraph);
@@ -281,7 +283,7 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
         setLayoutReady(true);
       }
     })();
-  }, [supergraphSdl, showScalarsEnums, subgraphFilter, setNodes, setEdges, fitView]);
+  }, [supergraphSdl, showScalarsEnums, subgraphFilters, setNodes, setEdges, fitView]);
 
   // ---------------------------------------------------------------------------
   // Node click → highlight neighbors / dim others
@@ -345,6 +347,15 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
     );
   }, [setNodes, setEdges]);
 
+  const toggleSubgraph = useCallback((sg: string) => {
+    setSubgraphFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(sg)) next.delete(sg);
+      else next.add(sg);
+      return next;
+    });
+  }, []);
+
   // Double-click on canvas background → fit view.
   // ReactFlow doesn't expose an onPaneDoubleClick prop, so we attach a handler
   // to the container div and check that the target is the pane itself.
@@ -378,8 +389,10 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
           right: 8,
           zIndex: 10,
           display: "flex",
+          flexWrap: "wrap",
           gap: 8,
           alignItems: "center",
+          maxWidth: "calc(100% - 16px)",
           background: "var(--surface-2)",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-sm)",
@@ -387,20 +400,46 @@ function TypeGraphInner({ supergraphSdl }: TypeGraphInnerProps) {
           fontSize: 12,
         }}
       >
-        <select
-          className="input"
-          style={{ fontSize: 12, padding: "2px 6px" }}
-          value={subgraphFilter ?? ""}
-          onChange={(e) => setSubgraphFilter(e.target.value || null)}
-          aria-label="Filter by subgraph"
-        >
-          <option value="">All subgraphs</option>
-          {subgraphs.map((sg) => (
-            <option key={sg} value={sg}>
-              {sg}
-            </option>
-          ))}
-        </select>
+        {subgraphs.length > 0 && (
+          <>
+            <span style={{ color: "var(--text-muted)", fontSize: 11, whiteSpace: "nowrap" }}>
+              Subgraphs:
+            </span>
+            {subgraphs.map((sg) => (
+              <label
+                key={sg}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  cursor: "pointer",
+                  color: subgraphFilters.has(sg) ? "var(--text)" : "var(--text-muted)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={subgraphFilters.has(sg)}
+                  onChange={() => toggleSubgraph(sg)}
+                />
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: subgraphColorVar(sg),
+                    flexShrink: 0,
+                  }}
+                />
+                {sg}
+              </label>
+            ))}
+            <span
+              style={{ width: 1, height: 14, background: "var(--border)", flexShrink: 0 }}
+              aria-hidden
+            />
+          </>
+        )}
         <label
           style={{
             display: "flex",
