@@ -2,6 +2,10 @@
 // envelopes returned by crates/gql-core (see its dto.rs). The UI depends on
 // these types, never on apollo-federation internals.
 
+// Tour types are defined in share.ts (alongside WorkspacePayload which they
+// reference) and re-exported here for consumer convenience.
+export type { Tour, TourStep } from "../share";
+
 export interface Diagnostic {
   severity: "error" | "warning";
   message: string;

@@ -7,7 +7,21 @@ export interface WorkspacePayload {
   seed: number;
 }
 
+export interface TourStep {
+  label: string;
+  prose: string;
+  anchor?: { subgraphIndex: number; typeName: string; fieldName?: string };
+  overrides?: Partial<WorkspacePayload>;
+}
+
+export interface Tour {
+  title: string;
+  base: WorkspacePayload;
+  steps: TourStep[];
+}
+
 const HASH_PREFIX = "#w=";
+const TOUR_HASH_PREFIX = "#t=";
 
 /** Convert a Uint8Array to URL-safe base64 (no padding). */
 function uint8ToBase64url(bytes: Uint8Array): string {
@@ -60,4 +74,33 @@ export function decode(hash: string): WorkspacePayload {
   }
 
   return parsed as unknown as WorkspacePayload;
+}
+
+/** Encode a Tour into a URL hash fragment with the #t= prefix. */
+export function encodeTour(tour: Tour): string {
+  const json = JSON.stringify(tour);
+  const compressed = pako.gzip(json);
+  return TOUR_HASH_PREFIX + uint8ToBase64url(compressed);
+}
+
+/** Decode a #t= URL hash fragment back into a Tour. */
+export function decodeTour(hash: string): Tour {
+  if (!hash.startsWith(TOUR_HASH_PREFIX) || hash.length === TOUR_HASH_PREFIX.length) {
+    throw new Error("Invalid tour hash: must start with #t= and contain encoded data");
+  }
+  const encoded = hash.slice(TOUR_HASH_PREFIX.length);
+  const bytes = base64urlToUint8(encoded);
+  const json = pako.inflate(bytes, { to: "string" });
+  return JSON.parse(json) as Tour;
+}
+
+/**
+ * Merge tour.base with the step's overrides to produce the workspace payload
+ * for a given step. Merges at the top-level key granularity (spread), so an
+ * override of `seed` does not affect `subgraphs` or `queryTabs`.
+ */
+export function resolveTourStep(tour: Tour, stepIndex: number): WorkspacePayload {
+  const step = tour.steps[stepIndex];
+  if (!step.overrides) return tour.base;
+  return { ...tour.base, ...step.overrides };
 }
