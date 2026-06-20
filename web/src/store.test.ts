@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { useWorkspace } from "./store";
+import { useWorkspace, computeOverrides } from "./store";
+import type { WorkspacePayload } from "./share";
 
 describe("workspace store", () => {
   beforeEach(() => {
@@ -196,6 +197,126 @@ describe("workspace store", () => {
       // Then succeed.
       state.setComposeResult("type Query { a: Int }", null, 0);
       expect(useWorkspace.getState().composeErrors).toBeNull();
+    });
+  });
+
+  describe("computeOverrides (TASK-66)", () => {
+    const base: WorkspacePayload = {
+      subgraphs: [{ name: "a", sdl: "type Query { x: Int }" }],
+      queryTabs: [{ name: "Q1", query: "{ x }" }],
+      activeQueryTab: 0,
+      seed: 42,
+    };
+
+    it("returns undefined when current equals base", () => {
+      const result = computeOverrides(base, { ...base });
+      expect(result).toBeUndefined();
+    });
+
+    it("returns only the changed key when one field differs", () => {
+      const current: WorkspacePayload = { ...base, seed: 99 };
+      const result = computeOverrides(base, current);
+      expect(result).toEqual({ seed: 99 });
+      // Other keys must NOT be present.
+      expect(result).not.toHaveProperty("subgraphs");
+      expect(result).not.toHaveProperty("queryTabs");
+      expect(result).not.toHaveProperty("activeQueryTab");
+    });
+
+    it("returns all keys when all fields differ", () => {
+      const current: WorkspacePayload = {
+        subgraphs: [{ name: "b", sdl: "type Query { y: String }" }],
+        queryTabs: [{ name: "Q2", query: "{ y }" }],
+        activeQueryTab: 1,
+        seed: 7,
+      };
+      const result = computeOverrides(base, current);
+      expect(result).toHaveProperty("subgraphs");
+      expect(result).toHaveProperty("queryTabs");
+      expect(result).toHaveProperty("activeQueryTab", 1);
+      expect(result).toHaveProperty("seed", 7);
+    });
+  });
+
+  describe("tour authoring store actions (TASK-66)", () => {
+    const baseTourPayload: WorkspacePayload = {
+      subgraphs: [{ name: "base", sdl: "type Query { a: Int }" }],
+      queryTabs: [{ name: "Q", query: "{ a }" }],
+      activeQueryTab: 0,
+      seed: 1,
+    };
+
+    beforeEach(() => {
+      useWorkspace.setState({
+        subgraphs: baseTourPayload.subgraphs,
+        queryTabs: baseTourPayload.queryTabs,
+        activeQueryTab: baseTourPayload.activeQueryTab,
+        seed: baseTourPayload.seed,
+        tourDraft: {
+          title: "My Tour",
+          base: baseTourPayload,
+          steps: [],
+        },
+        tourActiveStep: null,
+      });
+    });
+
+    it("snapshotCurrentToStep('new') appends a new step with correct overrides", () => {
+      // Change the seed so there's a diff.
+      useWorkspace.setState({ seed: 99 });
+      useWorkspace.getState().snapshotCurrentToStep("new");
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps).toHaveLength(1);
+      expect(state.tourDraft!.steps[0].overrides).toEqual({ seed: 99 });
+    });
+
+    it("snapshotCurrentToStep('new') stores undefined overrides when nothing changed", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new");
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps).toHaveLength(1);
+      expect(state.tourDraft!.steps[0].overrides).toBeUndefined();
+    });
+
+    it("snapshotCurrentToStep(i) updates the existing step's overrides", () => {
+      // Add a step with no changes first.
+      useWorkspace.getState().snapshotCurrentToStep("new");
+      // Now change the workspace and save into step 0.
+      useWorkspace.setState({ seed: 55 });
+      useWorkspace.getState().snapshotCurrentToStep(0);
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps[0].overrides).toEqual({ seed: 55 });
+    });
+
+    it("loadTourStep writes the resolved workspace into the store", () => {
+      // Add a step with seed override.
+      useWorkspace.setState({ seed: 99 });
+      useWorkspace.getState().snapshotCurrentToStep("new");
+      // Reset to base seed.
+      useWorkspace.setState({ seed: baseTourPayload.seed });
+      // Load the step — should restore seed 99.
+      useWorkspace.getState().loadTourStep(0);
+      expect(useWorkspace.getState().seed).toBe(99);
+    });
+
+    it("step reorder: swapping step 0 and step 1 updates the steps array", () => {
+      // Add two steps with different seeds.
+      useWorkspace.setState({ seed: 10 });
+      useWorkspace.getState().snapshotCurrentToStep("new"); // step 0
+      useWorkspace.setState({ seed: 20 });
+      useWorkspace.getState().snapshotCurrentToStep("new"); // step 1
+
+      const before = useWorkspace.getState().tourDraft!.steps;
+      expect(before[0].overrides?.seed).toBe(10);
+      expect(before[1].overrides?.seed).toBe(20);
+
+      // Simulate move-up on step 1: swap steps[0] and steps[1].
+      const steps = [...before];
+      [steps[0], steps[1]] = [steps[1], steps[0]];
+      useWorkspace.getState().setTourDraft({ ...useWorkspace.getState().tourDraft!, steps });
+
+      const after = useWorkspace.getState().tourDraft!.steps;
+      expect(after[0].overrides?.seed).toBe(20);
+      expect(after[1].overrides?.seed).toBe(10);
     });
   });
 });
