@@ -7,7 +7,6 @@ use apollo_federation::{ApiSchemaOptions, Supergraph};
 ///
 /// Returns an SDL string -- matches the existing WASM boundary (all consumer
 /// modules accept `&str` SDL) and avoids round-tripping through compiler types.
-#[allow(dead_code)] // called by validate/mock/plan in follow-up tasks
 pub(crate) fn derive_api_schema(supergraph_sdl: &str) -> Result<String, FederationError> {
     let supergraph = Supergraph::new(supergraph_sdl)?;
     let api_schema = supergraph.to_api_schema(ApiSchemaOptions::default())?;
