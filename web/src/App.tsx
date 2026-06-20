@@ -10,7 +10,7 @@ import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
 import { useWorkspace } from "./store";
 import { loadCore } from "./core";
-import { decode, encode, encodeTour, decodeTour } from "./share";
+import { decode, encode, encodeTour, decodeTour, resolveTourStep } from "./share";
 import type { WorkspacePayload, Tour } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
@@ -21,6 +21,8 @@ import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges";
 import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subgraphColors";
+import { applyTourHighlight } from "./tourHighlight";
+import type { TourHighlightHandle } from "./tourHighlight";
 import { schemaToEntityGraph } from "./schemaToEntityGraph";
 import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
 import { TypeGraph } from "./TypeGraph";
@@ -196,6 +198,8 @@ export default function App() {
   > | null>(null);
   // Disposable for the onMouseDown listener — needed to clean it up when authoring mode exits.
   const anchorMouseListenerRef = useRef<_monaco.IDisposable | null>(null);
+  // Handle for the tour step highlight decoration — disposed before each step transition.
+  const tourHighlightHandleRef = useRef<TourHighlightHandle | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -419,6 +423,55 @@ export default function App() {
       },
     ]);
   }, [tourDraft, tourActiveStep, activeSubgraph, editor, monacoInstance]);
+
+  // Apply tour step highlight decorations on the schema editor whenever the
+  // active step, active subgraph, or subgraph SDLs change. Runs in both
+  // authoring mode (when a step is selected) and is available to be used
+  // during playback (handled in TourPlayback.tsx instead).
+  useEffect(() => {
+    // Dispose any existing highlight before applying a new one.
+    tourHighlightHandleRef.current?.dispose();
+    tourHighlightHandleRef.current = null;
+
+    if (!editor || !monacoInstance || tourActiveStep === null || !tourDraft) return;
+
+    const step = tourDraft.steps[tourActiveStep];
+    if (!step) return;
+
+    // If the anchor targets a different subgraph, switch to it first.
+    // The effect will re-run after the subgraph state update.
+    if (step.anchor && step.anchor.subgraphIndex !== activeSubgraph) {
+      setActiveSubgraph(step.anchor.subgraphIndex);
+      return;
+    }
+
+    const currentSdl = subgraphs[activeSubgraph]?.sdl ?? "";
+    const prevPayload =
+      tourActiveStep > 0 ? resolveTourStep(tourDraft, tourActiveStep - 1) : tourDraft.base;
+    const prevSdl = prevPayload.subgraphs[activeSubgraph]?.sdl ?? "";
+
+    tourHighlightHandleRef.current = applyTourHighlight(
+      editor,
+      monacoInstance,
+      step,
+      currentSdl,
+      prevSdl,
+      activeSubgraph,
+    );
+
+    return () => {
+      tourHighlightHandleRef.current?.dispose();
+      tourHighlightHandleRef.current = null;
+    };
+  }, [
+    editor,
+    monacoInstance,
+    tourDraft,
+    tourActiveStep,
+    activeSubgraph,
+    subgraphs,
+    setActiveSubgraph,
+  ]);
 
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

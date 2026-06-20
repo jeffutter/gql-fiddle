@@ -9,6 +9,8 @@ import type { ComposeResult, PlanResult } from "./core/types";
 import { PlanTree } from "./PlanTree";
 import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 import type * as _monaco from "monaco-editor";
+import { applyTourHighlight } from "./tourHighlight";
+import type { TourHighlightHandle } from "./tourHighlight";
 
 const COMPOSE_DEBOUNCE_MS = 300;
 const AUTO_RUN_DEBOUNCE_MS = 400;
@@ -27,6 +29,14 @@ const EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions = {
   smoothScrolling: true,
   scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
   fixedOverflowWidgets: true,
+};
+
+// Schema editor options — extends the shared base with glyph margin enabled so
+// tour step highlight gutter dots are visible, and read-only mode.
+const SCHEMA_EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions = {
+  ...EDITOR_OPTIONS,
+  glyphMargin: true,
+  readOnly: true,
 };
 
 /**
@@ -80,6 +90,11 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
   const [activeSubgraph, setActiveSubgraph] = useState(0);
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
+  // Schema editor instance and monaco — needed for tour step highlight decorations.
+  const schemaEditorRef = useRef<_monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [monacoInstance, setMonacoInstance] = useState<typeof _monaco | null>(null);
+  // Handle for the tour step highlight decoration — disposed before each step transition.
+  const tourHighlightHandleRef = useRef<TourHighlightHandle | null>(null);
 
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,6 +112,45 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveSubgraph(0);
   }, [stepIndex]);
+
+  // Apply tour step highlight decorations on the schema editor when the active
+  // step or active subgraph changes. Mirrors the same logic in App.tsx.
+  useEffect(() => {
+    tourHighlightHandleRef.current?.dispose();
+    tourHighlightHandleRef.current = null;
+
+    const ed = schemaEditorRef.current;
+    if (!ed || !monacoInstance) return;
+
+    const step = tour.steps[stepIndex];
+    if (!step) return;
+
+    // If the anchor targets a different subgraph, switch to it first.
+    // The effect will re-run after the state update.
+    if (step.anchor && step.anchor.subgraphIndex !== activeSubgraph) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveSubgraph(step.anchor.subgraphIndex);
+      return;
+    }
+
+    const currentSdl = subgraphs[activeSubgraph]?.sdl ?? "";
+    const prevPayload = stepIndex > 0 ? resolveTourStep(tour, stepIndex - 1) : tour.base;
+    const prevSdl = prevPayload.subgraphs[activeSubgraph]?.sdl ?? "";
+
+    tourHighlightHandleRef.current = applyTourHighlight(
+      ed,
+      monacoInstance,
+      step,
+      currentSdl,
+      prevSdl,
+      activeSubgraph,
+    );
+
+    return () => {
+      tourHighlightHandleRef.current?.dispose();
+      tourHighlightHandleRef.current = null;
+    };
+  }, [monacoInstance, stepIndex, activeSubgraph, tour, subgraphs]);
 
   // Debounced composition effect — mirrors App.tsx but drives from workspace.
   useEffect(() => {
@@ -260,7 +314,11 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
                 height="100%"
                 theme={MONACO_THEME}
                 beforeMount={(m) => defineMonacoTheme(m)}
-                options={{ ...EDITOR_OPTIONS, readOnly: true }}
+                options={SCHEMA_EDITOR_OPTIONS}
+                onMount={(ed, m) => {
+                  schemaEditorRef.current = ed as _monaco.editor.IStandaloneCodeEditor;
+                  setMonacoInstance(m as typeof _monaco);
+                }}
               />
             </div>
           </div>

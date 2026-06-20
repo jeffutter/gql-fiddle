@@ -1163,6 +1163,28 @@ body {
   opacity: 0.6;
 }
 
+/* Monaco tour step highlight — gutter dot (distinct from the anchor accent bar) */
+.tour-highlight-gutter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tour-highlight-gutter::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.75;
+  margin: auto;
+}
+
+/* Monaco tour step highlight — subtle whole-line background tint */
+.tour-highlight-line {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
 /* ========================================================================== *
  * Tour playback layout
  * ========================================================================== */
