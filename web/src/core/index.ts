@@ -39,5 +39,13 @@ function wrap(ns: typeof wasm): GqlCore {
     executeMock(supergraphSdl: string, operation: string, seed: number): MockResult {
       return json(ns.execute_mock(supergraphSdl, operation, BigInt(seed)));
     },
+    nodeAtPosition(
+      sdl: string,
+      line: number,
+      col: number,
+    ): { typeName: string; fieldName?: string } | null {
+      const raw = ns.node_at_position(sdl, line, col);
+      return JSON.parse(raw);
+    },
   };
 }

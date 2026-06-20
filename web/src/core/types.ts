@@ -115,4 +115,9 @@ export interface GqlCore {
   validateQuery(supergraphSdl: string, operation: string): { diagnostics: Diagnostic[] };
   plan(supergraphSdl: string, operation: string, opName?: string): PlanResult;
   executeMock(supergraphSdl: string, operation: string, seed: number): MockResult;
+  nodeAtPosition(
+    sdl: string,
+    line: number,
+    col: number,
+  ): { typeName: string; fieldName?: string } | null;
 }
