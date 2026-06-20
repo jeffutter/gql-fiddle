@@ -10,9 +10,10 @@ import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
 import { useWorkspace } from "./store";
 import { loadCore } from "./core";
-import { decode, encode } from "./share";
+import { decode, encode, encodeTour } from "./share";
 import type { WorkspacePayload } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
+import { TourAuthoringPanel } from "./TourAuthoringPanel";
 import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
 import { ExecutionTimeline } from "./ExecutionTimeline";
@@ -153,7 +154,10 @@ export default function App() {
     setSeed,
     resetToDefaults,
     renameSubgraph,
+    tourDraft,
+    setTourDraft,
   } = useWorkspace();
+  const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
   const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
@@ -185,7 +189,9 @@ export default function App() {
   const queryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = useMobile();
-  const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output" | "results">("schema");
+  const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output" | "results" | "tour">(
+    "schema",
+  );
   const [viewSource, setViewSource] = useState<{
     title: string;
     value: string;
@@ -431,6 +437,40 @@ export default function App() {
     const port = typeof loc.port === "string" && loc.port.length > 0 ? loc.port : "";
     const origin = loc.origin || `http://${hostname}${port ? `:${port}` : ""}`;
     const shareUrl = origin + window.location.pathname + encodedHash;
+
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(shareUrl).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = shareUrl;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
+  function createTour() {
+    const base: WorkspacePayload = { subgraphs, queryTabs, activeQueryTab, seed };
+    setTourDraft({ title: "Untitled Tour", base, steps: [] });
+    setTourAuthoringOpen(true);
+  }
+
+  function copyTourShareUrl() {
+    if (!tourDraft) return;
+    const hash = encodeTour(tourDraft);
+    const loc = window.location;
+    const hostname =
+      typeof loc.hostname === "string" && loc.hostname.length > 0 ? loc.hostname : "localhost";
+    const port = typeof loc.port === "string" && loc.port.length > 0 ? loc.port : "";
+    const origin = loc.origin || `http://${hostname}${port ? `:${port}` : ""}`;
+    const shareUrl = origin + window.location.pathname + hash;
 
     if (navigator.clipboard) {
       void navigator.clipboard.writeText(shareUrl).then(() => {
@@ -827,9 +867,27 @@ export default function App() {
       <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
         {copied ? "Copied!" : "Copy for LLM"}
       </button>
-      <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
-        {copied ? "Copied!" : "Share"}
-      </button>
+      {tourDraft !== null ? (
+        <>
+          <button onClick={copyTourShareUrl} className={copied ? "btn is-success" : "btn"}>
+            {copied ? "Copied!" : "Share Tour"}
+          </button>
+          {!tourAuthoringOpen && (
+            <button onClick={() => setTourAuthoringOpen(true)} className="btn">
+              Tour ›
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
+            {copied ? "Copied!" : "Share"}
+          </button>
+          <button onClick={createTour} className="btn">
+            Create Tour
+          </button>
+        </>
+      )}
       <button
         onClick={() => {
           if (window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")) {
@@ -1036,6 +1094,20 @@ export default function App() {
                 {resultsTab === "output" && resultsContent}
               </div>
             )}
+
+            {mobileTab === "tour" && tourDraft !== null && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  height: "100%",
+                  minHeight: 0,
+                  overflow: "hidden",
+                }}
+              >
+                <TourAuthoringPanel onCollapse={() => setMobileTab("schema")} />
+              </div>
+            )}
           </div>
 
           {/* Mobile tab bar */}
@@ -1056,6 +1128,15 @@ export default function App() {
                       : "Results"}
               </button>
             ))}
+            {tourDraft !== null && (
+              <button
+                onClick={() => setMobileTab("tour")}
+                aria-pressed={mobileTab === "tour"}
+                className={mobileTab === "tour" ? "mobile-tab is-active" : "mobile-tab"}
+              >
+                Tour
+              </button>
+            )}
           </nav>
         </div>
         {viewSource !== null && (
@@ -1100,189 +1181,196 @@ export default function App() {
         style={{ height: "100vh", display: "flex", flexDirection: "column", padding: 8 }}
       >
         {globalHeader}
-        <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-          {/* === Top row: subgraph editor | SDL/plan === */}
-          <Panel defaultSize={50} minSize={200}>
-            <Group orientation="horizontal">
-              <Panel defaultSize={50} minSize={200}>
-                <div className="panel">
-                  <h2 className="section-title">Subgraphs</h2>
-                  {subgraphTabStrip}
-                  {subgraphEditor}
-                </div>
-              </Panel>
-              <Separator className="resize-handle" />
-              <Panel defaultSize={50} minSize={200}>
-                <div className="panel" style={{ overflow: "hidden" }}>
-                  <h2 className="section-title">Output</h2>
-                  <nav className="tab-strip">
-                    <button
-                      onClick={() => setOutputTab("type-graph")}
-                      aria-pressed={outputTab === "type-graph"}
-                      className={outputTab === "type-graph" ? "tab is-active" : "tab"}
-                    >
-                      Type Graph
-                    </button>
-                    <button
-                      onClick={() => setOutputTab("entities")}
-                      aria-pressed={outputTab === "entities"}
-                      className={outputTab === "entities" ? "tab is-active" : "tab"}
-                    >
-                      Entities
-                    </button>
-                    <button
-                      onClick={() => setOutputTab("sdl")}
-                      aria-pressed={outputTab === "sdl"}
-                      className={outputTab === "sdl" ? "tab is-active" : "tab"}
-                    >
-                      Supergraph SDL
-                    </button>
-                    {(outputTab === "type-graph" || outputTab === "entities") && (
-                      <button
-                        className="btn btn--icon"
-                        style={{ marginLeft: "auto" }}
-                        title="Expand to full screen"
-                        aria-label="Expand to full screen"
-                        onClick={() => setFullscreenTab(outputTab)}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 14 14"
-                          fill="none"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </button>
-                    )}
-                  </nav>
-
-                  {compositionErrorContent ?? (
-                    <>
-                      {outputTab === "type-graph" && typeGraphContent}
-                      {outputTab === "entities" && entitiesContent}
-                      {outputTab === "sdl" && sdlContent}
-                    </>
-                  )}
-                </div>
-              </Panel>
-            </Group>
-          </Panel>
-
-          <Separator className="resize-handle" />
-
-          {/* === Bottom row: query | results === */}
-          <Panel defaultSize={50} minSize={200}>
-            <Group orientation="horizontal">
-              <Panel defaultSize={50} minSize={150}>
-                <div className="panel">
-                  <h2 className="section-title" style={{ flexShrink: 0 }}>
-                    Query
-                  </h2>
-                  {queryTabStrip}
-                  <div data-testid="query-editor" className="editor">
-                    <Editor
-                      language="graphql"
-                      path={`query-${activeQueryTab}.graphql`}
-                      value={currentQuery}
-                      onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
-                      height="100%"
-                      options={QUERY_EDITOR_OPTIONS}
-                      theme={MONACO_THEME}
-                      beforeMount={(m) => defineMonacoTheme(m)}
-                      onMount={(ed) => {
-                        queryEditorRef.current = ed;
-                      }}
-                    />
+        <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 8 }}>
+          <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+            {/* === Top row: subgraph editor | SDL/plan === */}
+            <Panel defaultSize={50} minSize={200}>
+              <Group orientation="horizontal">
+                <Panel defaultSize={50} minSize={200}>
+                  <div className="panel">
+                    <h2 className="section-title">Subgraphs</h2>
+                    {subgraphTabStrip}
+                    {subgraphEditor}
                   </div>
-                  <SubgraphLegend services={activePlanServices} />
-                </div>
-              </Panel>
-              <Separator className="resize-handle" />
-              <Panel defaultSize={50} minSize={150}>
-                <div className="panel" style={{ overflow: "hidden" }}>
-                  <h2 className="section-title">Results</h2>
-                  <nav className="tab-strip">
-                    <button
-                      onClick={() => setResultsTab("plan")}
-                      aria-pressed={resultsTab === "plan"}
-                      className={resultsTab === "plan" ? "tab is-active" : "tab"}
-                    >
-                      Query Plan
-                    </button>
-                    <button
-                      onClick={() => setResultsTab("sequence")}
-                      aria-pressed={resultsTab === "sequence"}
-                      className={resultsTab === "sequence" ? "tab is-active" : "tab"}
-                    >
-                      Sequence Diagram
-                    </button>
-                    <button
-                      onClick={() => setResultsTab("timeline")}
-                      aria-pressed={resultsTab === "timeline"}
-                      className={resultsTab === "timeline" ? "tab is-active" : "tab"}
-                    >
-                      Timeline
-                    </button>
-                    <button
-                      onClick={() => setResultsTab("schema-tree")}
-                      aria-pressed={resultsTab === "schema-tree"}
-                      className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
-                    >
-                      Schema Tree
-                    </button>
-                    <button
-                      onClick={() => setResultsTab("output")}
-                      aria-pressed={resultsTab === "output"}
-                      className={resultsTab === "output" ? "tab is-active" : "tab"}
-                    >
-                      Output
-                    </button>
-                    {(resultsTab === "sequence" ||
-                      resultsTab === "timeline" ||
-                      resultsTab === "schema-tree") && (
+                </Panel>
+                <Separator className="resize-handle" />
+                <Panel defaultSize={50} minSize={200}>
+                  <div className="panel" style={{ overflow: "hidden" }}>
+                    <h2 className="section-title">Output</h2>
+                    <nav className="tab-strip">
                       <button
-                        className="btn btn--icon"
-                        style={{ marginLeft: "auto" }}
-                        title="Expand to full screen"
-                        aria-label="Expand to full screen"
-                        onClick={() => setFullscreenTab(resultsTab)}
+                        onClick={() => setOutputTab("type-graph")}
+                        aria-pressed={outputTab === "type-graph"}
+                        className={outputTab === "type-graph" ? "tab is-active" : "tab"}
                       >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 14 14"
-                          fill="none"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
+                        Type Graph
                       </button>
+                      <button
+                        onClick={() => setOutputTab("entities")}
+                        aria-pressed={outputTab === "entities"}
+                        className={outputTab === "entities" ? "tab is-active" : "tab"}
+                      >
+                        Entities
+                      </button>
+                      <button
+                        onClick={() => setOutputTab("sdl")}
+                        aria-pressed={outputTab === "sdl"}
+                        className={outputTab === "sdl" ? "tab is-active" : "tab"}
+                      >
+                        Supergraph SDL
+                      </button>
+                      {(outputTab === "type-graph" || outputTab === "entities") && (
+                        <button
+                          className="btn btn--icon"
+                          style={{ marginLeft: "auto" }}
+                          title="Expand to full screen"
+                          aria-label="Expand to full screen"
+                          onClick={() => setFullscreenTab(outputTab)}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 14 14"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </nav>
+
+                    {compositionErrorContent ?? (
+                      <>
+                        {outputTab === "type-graph" && typeGraphContent}
+                        {outputTab === "entities" && entitiesContent}
+                        {outputTab === "sdl" && sdlContent}
+                      </>
                     )}
-                  </nav>
-                  {resultsTab === "plan" && planContent}
-                  {resultsTab === "sequence" && sequenceContent}
-                  {resultsTab === "timeline" && timelineContent}
-                  {resultsTab === "schema-tree" && schemaTreeContent}
-                  {resultsTab === "output" && resultsContent}
-                </div>
-              </Panel>
-            </Group>
-          </Panel>
-        </Group>
+                  </div>
+                </Panel>
+              </Group>
+            </Panel>
+
+            <Separator className="resize-handle" />
+
+            {/* === Bottom row: query | results === */}
+            <Panel defaultSize={50} minSize={200}>
+              <Group orientation="horizontal">
+                <Panel defaultSize={50} minSize={150}>
+                  <div className="panel">
+                    <h2 className="section-title" style={{ flexShrink: 0 }}>
+                      Query
+                    </h2>
+                    {queryTabStrip}
+                    <div data-testid="query-editor" className="editor">
+                      <Editor
+                        language="graphql"
+                        path={`query-${activeQueryTab}.graphql`}
+                        value={currentQuery}
+                        onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
+                        height="100%"
+                        options={QUERY_EDITOR_OPTIONS}
+                        theme={MONACO_THEME}
+                        beforeMount={(m) => defineMonacoTheme(m)}
+                        onMount={(ed) => {
+                          queryEditorRef.current = ed;
+                        }}
+                      />
+                    </div>
+                    <SubgraphLegend services={activePlanServices} />
+                  </div>
+                </Panel>
+                <Separator className="resize-handle" />
+                <Panel defaultSize={50} minSize={150}>
+                  <div className="panel" style={{ overflow: "hidden" }}>
+                    <h2 className="section-title">Results</h2>
+                    <nav className="tab-strip">
+                      <button
+                        onClick={() => setResultsTab("plan")}
+                        aria-pressed={resultsTab === "plan"}
+                        className={resultsTab === "plan" ? "tab is-active" : "tab"}
+                      >
+                        Query Plan
+                      </button>
+                      <button
+                        onClick={() => setResultsTab("sequence")}
+                        aria-pressed={resultsTab === "sequence"}
+                        className={resultsTab === "sequence" ? "tab is-active" : "tab"}
+                      >
+                        Sequence Diagram
+                      </button>
+                      <button
+                        onClick={() => setResultsTab("timeline")}
+                        aria-pressed={resultsTab === "timeline"}
+                        className={resultsTab === "timeline" ? "tab is-active" : "tab"}
+                      >
+                        Timeline
+                      </button>
+                      <button
+                        onClick={() => setResultsTab("schema-tree")}
+                        aria-pressed={resultsTab === "schema-tree"}
+                        className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
+                      >
+                        Schema Tree
+                      </button>
+                      <button
+                        onClick={() => setResultsTab("output")}
+                        aria-pressed={resultsTab === "output"}
+                        className={resultsTab === "output" ? "tab is-active" : "tab"}
+                      >
+                        Output
+                      </button>
+                      {(resultsTab === "sequence" ||
+                        resultsTab === "timeline" ||
+                        resultsTab === "schema-tree") && (
+                        <button
+                          className="btn btn--icon"
+                          style={{ marginLeft: "auto" }}
+                          title="Expand to full screen"
+                          aria-label="Expand to full screen"
+                          onClick={() => setFullscreenTab(resultsTab)}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 14 14"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </nav>
+                    {resultsTab === "plan" && planContent}
+                    {resultsTab === "sequence" && sequenceContent}
+                    {resultsTab === "timeline" && timelineContent}
+                    {resultsTab === "schema-tree" && schemaTreeContent}
+                    {resultsTab === "output" && resultsContent}
+                  </div>
+                </Panel>
+              </Group>
+            </Panel>
+          </Group>
+          {tourDraft !== null && tourAuthoringOpen && (
+            <div style={{ width: 280, flexShrink: 0, minHeight: 0 }}>
+              <TourAuthoringPanel onCollapse={() => setTourAuthoringOpen(false)} />
+            </div>
+          )}
+        </div>
         <footer className="page-footer">
           <button onClick={runQuery} disabled={supergraphSdl === null} className="btn btn--primary">
             Run

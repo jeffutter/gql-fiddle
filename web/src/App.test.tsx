@@ -1061,21 +1061,26 @@ describe("App", () => {
     // wrapping two Panels (subgraph editor | SDL/plan) with a Separator between them.
     // react-resizable-panels renders separators as sibling elements within the Group.
     // DOM structure:
-    //   main (outer vertical Group)
-    //     ├─ main.child[0] = top Panel wrapper
-    //     │   └─ main.child[0].child[0] = content div (flex column)
-    //     │       └─ main.child[0].child[0].child[0] = inner horizontal Group
-    //     │           ├─ child[0] = subgraph editor Panel
-    //     │           ├─ child[1] = Separator (horizontal split)
-    //     │           └─ child[2] = SDL/plan Panel
-    //     ├─ main.child[1] = Separator (vertical split)
-    //     └─ main.child[2] = bottom Panel wrapper
+    //   main (outer app div, height:100vh)
+    //     ├─ main.child[0] = page header
+    //     ├─ main.child[1] = flex wrapper div (Group + optional TourAuthoringPanel)
+    //     │   └─ main.child[1].child[0] = vertical Group
+    //     │       ├─ child[0] = top Panel wrapper
+    //     │       │   └─ child[0].child[0] = content div (flex column)
+    //     │       │       └─ child[0].child[0].child[0] = inner horizontal Group
+    //     │       │           ├─ child[0] = subgraph editor Panel
+    //     │       │           ├─ child[1] = Separator (horizontal split)
+    //     │       │           └─ child[2] = SDL/plan Panel
+    //     │       ├─ child[1] = Separator (vertical split)
+    //     │       └─ child[2] = bottom Panel wrapper
+    //     └─ main.child[2] = page footer
     const main = document.querySelector("[style*='height: 100vh']");
     expect(main).not.toBeNull();
 
-    // The outer app div has 3 children: page header, panel Group, page footer.
-    // The panel Group (children[1]) has: top Panel | Separator | bottom Panel.
-    const panelGroup = main!.children[1];
+    // The outer app div has 3 children: page header, flex wrapper, page footer.
+    // The flex wrapper (children[1]) contains the panel Group as its first child.
+    const flexWrapper = main!.children[1];
+    const panelGroup = flexWrapper.children[0];
     expect(panelGroup.children.length).toBe(3);
 
     // The inner horizontal Group sits at panelGroup.child[0].child[0].child[0]
@@ -1099,13 +1104,15 @@ describe("App", () => {
     render(<App />);
 
     // The outer <Group> (orientation="vertical") wraps two Panel children:
-    // the top row and the bottom row.  The bottom row is main.child[2].
+    // the top row and the bottom row.  The bottom row is panelGroup.child[2].
     const main = document.querySelector("[style*='height: 100vh']");
     expect(main).not.toBeNull();
 
-    // The outer app div has 3 children: page header, panel Group, page footer.
-    // The panel Group (children[1]) has: top Panel | Separator | bottom Panel.
-    const panelGroup = main!.children[1];
+    // The outer app div has 3 children: page header, flex wrapper, page footer.
+    // The flex wrapper (children[1]) contains the panel Group as its first child.
+    // The panel Group has: top Panel | Separator | bottom Panel.
+    const flexWrapper = main!.children[1];
+    const panelGroup = flexWrapper.children[0];
     expect(panelGroup.children.length).toBe(3);
 
     // Bottom row is panelGroup.children[2] — an outer <Panel> wrapper.

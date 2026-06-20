@@ -1,10 +1,31 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CompositionError, QueryTab, SubgraphInput } from "./core/types";
-import type { Tour } from "./share";
+import type { Tour, WorkspacePayload } from "./share";
+import { resolveTourStep } from "./share";
 
 // Single source of truth for the workspace. Composition output is *derived*
 // state (recomputed when subgraphs change), never hand-edited.
+
+/**
+ * Compute the diff of `current` against `base`. Only top-level keys that
+ * differ are included in the returned overrides object. Returns `undefined`
+ * when the two payloads are identical.
+ */
+export function computeOverrides(
+  base: WorkspacePayload,
+  current: WorkspacePayload,
+): Partial<WorkspacePayload> | undefined {
+  const overrides: Partial<WorkspacePayload> = {};
+  if (JSON.stringify(current.subgraphs) !== JSON.stringify(base.subgraphs))
+    overrides.subgraphs = current.subgraphs;
+  if (JSON.stringify(current.queryTabs) !== JSON.stringify(base.queryTabs))
+    overrides.queryTabs = current.queryTabs;
+  if (current.activeQueryTab !== base.activeQueryTab)
+    overrides.activeQueryTab = current.activeQueryTab;
+  if (current.seed !== base.seed) overrides.seed = current.seed;
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
+}
 
 export interface WorkspaceState {
   subgraphs: SubgraphInput[];
@@ -20,6 +41,23 @@ export interface WorkspaceState {
 
   tourDraft: Tour | null;
   setTourDraft: (tour: Tour | null) => void;
+
+  // Session-only tour authoring state — NOT persisted.
+  tourActiveStep: number | null;
+  setTourActiveStep: (i: number | null) => void;
+
+  /**
+   * Load the resolved workspace for a given step index into the live editors.
+   * Calls resolveTourStep and writes the result into the workspace state.
+   */
+  loadTourStep: (stepIndex: number) => void;
+
+  /**
+   * Snapshot the current workspace into a tour step.
+   * 'new' appends a new TourStep; a number updates the existing step's overrides.
+   * Computes overrides as the diff of the current workspace against tour.base.
+   */
+  snapshotCurrentToStep: (stepIndex: number | "new") => void;
 
   addSubgraph: (name: string) => void;
   removeSubgraph: (index: number) => void;
@@ -63,6 +101,49 @@ export const useWorkspace = create<WorkspaceState>()(
 
       tourDraft: null,
       setTourDraft: (tour) => set({ tourDraft: tour }),
+
+      // Session-only authoring state — not in partialize.
+      tourActiveStep: null,
+      setTourActiveStep: (i) => set({ tourActiveStep: i }),
+
+      loadTourStep: (stepIndex) =>
+        set((state) => {
+          if (!state.tourDraft) return state;
+          const payload = resolveTourStep(state.tourDraft, stepIndex);
+          return {
+            subgraphs: payload.subgraphs,
+            queryTabs: payload.queryTabs,
+            activeQueryTab: payload.activeQueryTab,
+            seed: payload.seed,
+          };
+        }),
+
+      snapshotCurrentToStep: (stepIndex) =>
+        set((state) => {
+          if (!state.tourDraft) return state;
+          const current: WorkspacePayload = {
+            subgraphs: state.subgraphs,
+            queryTabs: state.queryTabs,
+            activeQueryTab: state.activeQueryTab,
+            seed: state.seed,
+          };
+          const overrides = computeOverrides(state.tourDraft.base, current);
+          if (stepIndex === "new") {
+            const newStep = {
+              label: `Step ${state.tourDraft.steps.length + 1}`,
+              prose: "",
+              overrides,
+            };
+            return {
+              tourDraft: { ...state.tourDraft, steps: [...state.tourDraft.steps, newStep] },
+            };
+          } else {
+            const updatedSteps = state.tourDraft.steps.map((step, i) =>
+              i === stepIndex ? { ...step, overrides } : step,
+            );
+            return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
+          }
+        }),
 
       supergraphSdl: null,
       composeErrors: null,
