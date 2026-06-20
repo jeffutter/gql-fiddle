@@ -157,6 +157,8 @@ export default function App() {
     renameSubgraph,
     tourDraft,
     setTourDraft,
+    tourActiveStep,
+    setStepAnchor,
   } = useWorkspace();
   const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
   const [playbackTour, setPlaybackTour] = useState<Tour | null>(null);
@@ -188,6 +190,12 @@ export default function App() {
   const decorationsRef = useRef<ReturnType<
     _monaco.editor.IStandaloneCodeEditor["createDecorationsCollection"]
   > | null>(null);
+  // Monaco decoration collection for the tour anchor indicator on the schema editor.
+  const anchorDecorationRef = useRef<ReturnType<
+    _monaco.editor.IStandaloneCodeEditor["createDecorationsCollection"]
+  > | null>(null);
+  // Disposable for the onMouseDown listener — needed to clean it up when authoring mode exits.
+  const anchorMouseListenerRef = useRef<_monaco.IDisposable | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -283,6 +291,134 @@ export default function App() {
       editor.focus();
     }
   }, [editor, activeSubgraph]);
+
+  // Register / unregister the click-to-anchor handler on the schema editor.
+  // Only active when the tour authoring panel is open and a step is selected.
+  useEffect(() => {
+    // Clean up any previous listener.
+    anchorMouseListenerRef.current?.dispose();
+    anchorMouseListenerRef.current = null;
+
+    if (!editor || !monacoInstance || !tourDraft || !tourAuthoringOpen || tourActiveStep === null) {
+      return;
+    }
+
+    const listener = editor.onMouseDown((e) => {
+      // Only handle clicks on content (not the gutter or scrollbar).
+      if (
+        e.target.type !== monacoInstance.editor.MouseTargetType.CONTENT_TEXT &&
+        e.target.type !== monacoInstance.editor.MouseTargetType.CONTENT_EMPTY
+      ) {
+        return;
+      }
+      const pos = e.target.position;
+      if (!pos) return;
+
+      const sdl = subgraphs[activeSubgraph]?.sdl ?? "";
+      void (async () => {
+        const core = await loadCore();
+        const result = core.nodeAtPosition(sdl, pos.lineNumber, pos.column);
+
+        if (result === null) {
+          // Clicked whitespace or a directive argument — do not change the anchor.
+          return;
+        }
+
+        const newAnchor = {
+          subgraphIndex: activeSubgraph,
+          typeName: result.typeName,
+          ...(result.fieldName ? { fieldName: result.fieldName } : {}),
+        };
+
+        // If clicking the same anchor that's already set, toggle it off (clear).
+        const currentAnchor = useWorkspace.getState().tourDraft?.steps[tourActiveStep]?.anchor;
+        if (
+          currentAnchor &&
+          currentAnchor.subgraphIndex === newAnchor.subgraphIndex &&
+          currentAnchor.typeName === newAnchor.typeName &&
+          currentAnchor.fieldName === newAnchor.fieldName
+        ) {
+          setStepAnchor(tourActiveStep, undefined);
+        } else {
+          setStepAnchor(tourActiveStep, newAnchor);
+        }
+      })();
+    });
+
+    anchorMouseListenerRef.current = listener;
+
+    return () => {
+      anchorMouseListenerRef.current?.dispose();
+      anchorMouseListenerRef.current = null;
+    };
+  }, [
+    editor,
+    monacoInstance,
+    tourDraft,
+    tourAuthoringOpen,
+    tourActiveStep,
+    activeSubgraph,
+    subgraphs,
+    setStepAnchor,
+  ]);
+
+  // Update the anchor decoration on the schema editor whenever the active step's anchor changes.
+  useEffect(() => {
+    anchorDecorationRef.current?.clear();
+    anchorDecorationRef.current = null;
+
+    if (!editor || !monacoInstance || tourActiveStep === null || !tourDraft) return;
+
+    const anchor = tourDraft.steps[tourActiveStep]?.anchor;
+    if (!anchor || anchor.subgraphIndex !== activeSubgraph) return;
+
+    const model = editor.getModel();
+    if (!model) return;
+
+    const sdl = model.getValue();
+    const lines = sdl.split("\n");
+    let targetLine: number | null = null;
+
+    if (anchor.fieldName) {
+      // Find the field declaration inside the type block.
+      let inType = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^(type|interface)\s+\w/.test(line) && line.includes(anchor.typeName)) {
+          inType = true;
+        } else if (inType && /^\}/.test(line)) {
+          inType = false;
+        } else if (inType) {
+          const fieldPattern = new RegExp(`^\\s+${anchor.fieldName}\\s*[:(]`);
+          if (fieldPattern.test(line)) {
+            targetLine = i + 1; // Monaco lines are 1-based
+            break;
+          }
+        }
+      }
+    } else {
+      // Find the type or interface declaration line.
+      for (let i = 0; i < lines.length; i++) {
+        if (new RegExp(`^(type|interface)\\s+${anchor.typeName}[\\s{@]`).test(lines[i])) {
+          targetLine = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (targetLine === null) return;
+
+    anchorDecorationRef.current = editor.createDecorationsCollection([
+      {
+        range: new monacoInstance.Range(targetLine, 1, targetLine, 1),
+        options: {
+          isWholeLine: true,
+          linesDecorationsClassName: "tour-anchor-gutter",
+          className: "tour-anchor-line",
+        },
+      },
+    ]);
+  }, [tourDraft, tourActiveStep, activeSubgraph, editor, monacoInstance]);
 
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

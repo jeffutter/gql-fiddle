@@ -59,6 +59,16 @@ export interface WorkspaceState {
    */
   snapshotCurrentToStep: (stepIndex: number | "new") => void;
 
+  /**
+   * Set or clear the anchor for a specific step. The anchor identifies a
+   * GraphQL type or field in a subgraph's schema that should be highlighted
+   * during tour playback.
+   */
+  setStepAnchor: (
+    stepIndex: number,
+    anchor: { subgraphIndex: number; typeName: string; fieldName?: string } | undefined,
+  ) => void;
+
   addSubgraph: (name: string) => void;
   removeSubgraph: (index: number) => void;
   renameSubgraph: (index: number, name: string) => void;
@@ -143,6 +153,15 @@ export const useWorkspace = create<WorkspaceState>()(
             );
             return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
           }
+        }),
+
+      setStepAnchor: (stepIndex, anchor) =>
+        set((state) => {
+          if (!state.tourDraft) return state;
+          const updatedSteps = state.tourDraft.steps.map((step, i) =>
+            i === stepIndex ? { ...step, anchor } : step,
+          );
+          return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
         }),
 
       supergraphSdl: null,

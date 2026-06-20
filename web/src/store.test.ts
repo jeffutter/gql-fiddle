@@ -298,6 +298,56 @@ describe("workspace store", () => {
       expect(useWorkspace.getState().seed).toBe(99);
     });
 
+    it("setStepAnchor sets anchor on a step", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 0
+      useWorkspace.getState().setStepAnchor(0, { subgraphIndex: 0, typeName: "Product" });
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps[0].anchor).toEqual({
+        subgraphIndex: 0,
+        typeName: "Product",
+      });
+    });
+
+    it("setStepAnchor sets anchor with fieldName on a step", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 0
+      useWorkspace.getState().setStepAnchor(0, {
+        subgraphIndex: 0,
+        typeName: "Product",
+        fieldName: "price",
+      });
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps[0].anchor).toEqual({
+        subgraphIndex: 0,
+        typeName: "Product",
+        fieldName: "price",
+      });
+    });
+
+    it("setStepAnchor(i, undefined) clears the anchor", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 0
+      useWorkspace.getState().setStepAnchor(0, { subgraphIndex: 0, typeName: "Product" });
+      expect(useWorkspace.getState().tourDraft!.steps[0].anchor).toBeDefined();
+
+      useWorkspace.getState().setStepAnchor(0, undefined);
+      expect(useWorkspace.getState().tourDraft!.steps[0].anchor).toBeUndefined();
+    });
+
+    it("snapshotCurrentToStep preserves anchor when updating overrides", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 0
+      useWorkspace.getState().setStepAnchor(0, { subgraphIndex: 0, typeName: "Product" });
+
+      // Change workspace and save — anchor must survive.
+      useWorkspace.setState({ seed: 77 });
+      useWorkspace.getState().snapshotCurrentToStep(0);
+
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps[0].overrides).toEqual({ seed: 77 });
+      expect(state.tourDraft!.steps[0].anchor).toEqual({
+        subgraphIndex: 0,
+        typeName: "Product",
+      });
+    });
+
     it("step reorder: swapping step 0 and step 1 updates the steps array", () => {
       // Add two steps with different seeds.
       useWorkspace.setState({ seed: 10 });

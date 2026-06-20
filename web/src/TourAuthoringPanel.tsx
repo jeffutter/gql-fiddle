@@ -23,6 +23,7 @@ export function TourAuthoringPanel({ onCollapse }: TourAuthoringPanelProps) {
     setTourActiveStep,
     loadTourStep,
     snapshotCurrentToStep,
+    setStepAnchor,
     subgraphs,
     queryTabs,
     activeQueryTab,
@@ -292,6 +293,33 @@ export function TourAuthoringPanel({ onCollapse }: TourAuthoringPanelProps) {
                   rows={4}
                   aria-label={`Step ${i + 1} prose`}
                 />
+              )}
+
+              {/* Anchor display — only shown for the active step */}
+              {isActive && (
+                <div className="tour-step__anchor">
+                  {step.anchor ? (
+                    <>
+                      <span className="tour-step__anchor-label">
+                        {step.anchor.fieldName
+                          ? `${step.anchor.typeName}.${step.anchor.fieldName}`
+                          : step.anchor.typeName}
+                      </span>
+                      <button
+                        className="btn btn--icon tour-step__anchor-clear"
+                        onClick={() => setStepAnchor(i, undefined)}
+                        title="Clear anchor"
+                        aria-label="Clear anchor"
+                      >
+                        ×
+                      </button>
+                    </>
+                  ) : (
+                    <span className="tour-step__anchor-empty">
+                      Click a type or field in the schema editor to set an anchor
+                    </span>
+                  )}
+                </div>
               )}
 
               {/* Save Step button — only shown for the active step */}
