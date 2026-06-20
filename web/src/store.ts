@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CompositionError, QueryTab, SubgraphInput } from "./core/types";
+import type { Tour } from "./share";
 
 // Single source of truth for the workspace. Composition output is *derived*
 // state (recomputed when subgraphs change), never hand-edited.
@@ -16,6 +17,9 @@ export interface WorkspaceState {
   supergraphSdl: string | null;
   composeErrors: CompositionError[] | null;
   composeHints: number;
+
+  tourDraft: Tour | null;
+  setTourDraft: (tour: Tour | null) => void;
 
   addSubgraph: (name: string) => void;
   removeSubgraph: (index: number) => void;
@@ -56,6 +60,9 @@ export const useWorkspace = create<WorkspaceState>()(
       queryTabs: DEFAULT_QUERY_TABS,
       activeQueryTab: 0,
       seed: DEFAULT_SEED,
+
+      tourDraft: null,
+      setTourDraft: (tour) => set({ tourDraft: tour }),
 
       supergraphSdl: null,
       composeErrors: null,
@@ -164,6 +171,7 @@ export const useWorkspace = create<WorkspaceState>()(
         queryTabs: state.queryTabs,
         activeQueryTab: state.activeQueryTab,
         seed: state.seed,
+        tourDraft: state.tourDraft,
       }),
     },
   ),

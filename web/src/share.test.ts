@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import * as pako from "pako";
-import { decode, encode, WorkspacePayload } from "./share";
+import {
+  decode,
+  encode,
+  WorkspacePayload,
+  encodeTour,
+  decodeTour,
+  resolveTourStep,
+  Tour,
+} from "./share";
 
 const SAMPLE_PAYLOAD: WorkspacePayload = {
   subgraphs: [
@@ -99,5 +107,113 @@ describe("share.ts encode/decode", () => {
     const encoded = encode(SAMPLE_PAYLOAD);
     const payload = encoded.slice("#w=".length);
     expect(payload).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+});
+
+const SAMPLE_TOUR: Tour = {
+  title: "Introduction to Federation",
+  base: {
+    subgraphs: [
+      {
+        name: "products",
+        sdl: "type Query { products: [Product] }\ntype Product { id: ID! name: String }",
+      },
+      { name: "reviews", sdl: 'type Product @key(fields: "id") { id: ID! review: String }' },
+    ],
+    queryTabs: [{ name: "Query 1", query: "query { products { id name } }" }],
+    activeQueryTab: 0,
+    seed: 42,
+  },
+  steps: [
+    {
+      label: "Step 1",
+      prose: "Let's start with the products subgraph.",
+      anchor: { subgraphIndex: 0, typeName: "Product", fieldName: "id" },
+    },
+    {
+      label: "Step 2",
+      prose: "Now let's look at the reviews subgraph.",
+      overrides: {
+        seed: 99,
+      },
+    },
+    {
+      label: "Step 3",
+      prose: "Override multiple keys.",
+      overrides: {
+        queryTabs: [{ name: "Custom Query", query: "query { products { review } }" }],
+        seed: 7,
+      },
+    },
+  ],
+};
+
+describe("tour encode/decode", () => {
+  it("round-trip: decodeTour(encodeTour(tour)) equals original tour", () => {
+    const encoded = encodeTour(SAMPLE_TOUR);
+    const decoded = decodeTour(encoded);
+    expect(decoded).toEqual(SAMPLE_TOUR);
+  });
+
+  it("encodeTour produces a string starting with #t=", () => {
+    const encoded = encodeTour(SAMPLE_TOUR);
+    expect(encoded).toMatch(/^#t=/);
+  });
+
+  it("tour payload after prefix contains only URL-safe characters", () => {
+    const encoded = encodeTour(SAMPLE_TOUR);
+    const payload = encoded.slice("#t=".length);
+    expect(payload).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+
+  it("decodeTour throws on wrong prefix (#w=)", () => {
+    const workspaceHash = encode(SAMPLE_TOUR.base);
+    expect(() => decodeTour(workspaceHash)).toThrow(
+      "Invalid tour hash: must start with #t= and contain encoded data",
+    );
+  });
+
+  it("decodeTour throws on empty string", () => {
+    expect(() => decodeTour("")).toThrow(
+      "Invalid tour hash: must start with #t= and contain encoded data",
+    );
+  });
+
+  it("decodeTour throws on prefix only (#t= with no payload)", () => {
+    expect(() => decodeTour("#t=")).toThrow(
+      "Invalid tour hash: must start with #t= and contain encoded data",
+    );
+  });
+});
+
+describe("resolveTourStep", () => {
+  it("returns base unchanged when step has no overrides", () => {
+    const result = resolveTourStep(SAMPLE_TOUR, 0);
+    expect(result).toBe(SAMPLE_TOUR.base);
+  });
+
+  it("returns a merged object (not the original base reference) when overrides exist", () => {
+    const result = resolveTourStep(SAMPLE_TOUR, 1);
+    expect(result).not.toBe(SAMPLE_TOUR.base);
+  });
+
+  it("partial override (seed only) leaves subgraphs and queryTabs from base", () => {
+    // Step 1 overrides only seed: 99
+    const result = resolveTourStep(SAMPLE_TOUR, 1);
+    expect(result.seed).toBe(99);
+    expect(result.subgraphs).toEqual(SAMPLE_TOUR.base.subgraphs);
+    expect(result.queryTabs).toEqual(SAMPLE_TOUR.base.queryTabs);
+    expect(result.activeQueryTab).toBe(SAMPLE_TOUR.base.activeQueryTab);
+  });
+
+  it("multi-key override: overridden keys win, unaffected base keys survive", () => {
+    // Step 2 overrides queryTabs and seed, leaving subgraphs and activeQueryTab from base
+    const result = resolveTourStep(SAMPLE_TOUR, 2);
+    expect(result.queryTabs).toEqual([
+      { name: "Custom Query", query: "query { products { review } }" },
+    ]);
+    expect(result.seed).toBe(7);
+    expect(result.subgraphs).toEqual(SAMPLE_TOUR.base.subgraphs);
+    expect(result.activeQueryTab).toBe(SAMPLE_TOUR.base.activeQueryTab);
   });
 });
