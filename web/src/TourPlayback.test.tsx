@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { TourPlayback } from "./TourPlayback";
 import type { Tour } from "./share";
@@ -57,6 +57,12 @@ describe("TourPlayback", () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
+    // Default to desktop so useMobile() returns false.
+    Object.defineProperty(window, "innerWidth", {
+      value: 1024,
+      writable: true,
+      configurable: true,
+    });
   });
 
   it("AC#10: tour title appears in the playback header", () => {
@@ -137,5 +143,76 @@ describe("TourPlayback", () => {
     const reviewsTab = screen.getByRole("button", { name: "reviews" });
     fireEvent.click(reviewsTab);
     expect(reviewsTab.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  describe("mobile layout", () => {
+    beforeEach(() => {
+      Object.defineProperty(window, "innerWidth", {
+        value: 375,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, "innerWidth", {
+        value: 1024,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it("AC#1: renders mobile tab bar instead of 3-pane layout at ≤768px", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      expect(container.querySelector(".mobile-tabbar")).not.toBeNull();
+      expect(container.querySelector(".tour-playback__body")).toBeNull();
+    });
+
+    it("AC#1: outer element has tour-playback--mobile class", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      expect(container.querySelector(".tour-playback--mobile")).not.toBeNull();
+    });
+
+    it("AC#2: Tour tab shows step prose, step label, step counter, and tour title", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      // Tour tab is the default — content is immediately visible.
+      expect(screen.getByTestId("tour-title").textContent).toBe("GraphQL Federation Tour");
+      expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+      expect(screen.getByTestId("step-label").textContent).toBe("Introduction");
+      const prose = container.querySelector(".tour-playback__prose-content");
+      expect(prose).not.toBeNull();
+      expect(prose!.textContent).toContain("Welcome to");
+    });
+
+    it("AC#2: Prev/Next buttons are present in the mobile header", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByRole("button", { name: /prev/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /next/i })).toBeTruthy();
+    });
+
+    it("AC#2: Prev/Next navigation updates step counter on mobile", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      expect(screen.getByTestId("step-counter").textContent).toBe("2 / 2");
+      fireEvent.click(screen.getByRole("button", { name: /prev/i }));
+      expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+    });
+
+    it("AC#3: Schema tab shows subgraph SDL panel", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      fireEvent.click(screen.getByRole("button", { name: "Schema" }));
+      expect(container.querySelector(".tour-playback__schema-panel")).not.toBeNull();
+    });
+
+    it("AC#4: Plan tab shows plan panel", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+      expect(container.querySelector(".tour-playback__plan-panel--mobile")).not.toBeNull();
+    });
+
+    it("AC#5: Open in Fiddle button is accessible on mobile", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByRole("button", { name: /open in fiddle/i })).toBeTruthy();
+    });
   });
 });

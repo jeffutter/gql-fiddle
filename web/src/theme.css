@@ -1329,3 +1329,38 @@ body {
   color: var(--danger);
   font-size: 14px;
 }
+
+/* Mobile tour playback */
+.tour-playback__header--mobile {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.tour-playback__mobile-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tour-playback--mobile .tour-playback__prose-panel {
+  width: 100%;
+  flex: 1;
+  border-radius: 0;
+  border: none;
+}
+
+.tour-playback--mobile .tour-playback__schema-panel {
+  flex: 1;
+  border-radius: 0;
+  border: none;
+}
+
+.tour-playback__plan-panel--mobile {
+  flex: 1;
+  height: auto;
+  border-radius: 0;
+  border: none;
+}

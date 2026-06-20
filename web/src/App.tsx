@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMobile } from "./hooks";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { loader } from "@monaco-editor/react";
 import * as _monaco from "monaco-editor";
@@ -91,19 +92,6 @@ function SubgraphLegend({ services }: { services: string[] }) {
       ))}
     </div>
   );
-}
-
-function useMobile(breakpoint = 768): boolean {
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== "undefined" && window.innerWidth <= breakpoint,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [breakpoint]);
-  return isMobile;
 }
 
 // Configure Monaco to load workers from node_modules (required for Vite).

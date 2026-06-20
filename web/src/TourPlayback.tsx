@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMobile } from "./hooks";
 import Editor from "@monaco-editor/react";
 import { initializeMode } from "monaco-graphql/initializeMode";
 import type { MonacoGraphQLAPI } from "monaco-graphql";
@@ -86,6 +87,8 @@ interface TourPlaybackProps {
  * starts with `#t=`.
  */
 export function TourPlayback({ tour }: TourPlaybackProps) {
+  const isMobile = useMobile();
+  const [mobileTab, setMobileTab] = useState<"tour" | "schema" | "plan">("tour");
   const [stepIndex, setStepIndex] = useState(0);
   const [activeSubgraph, setActiveSubgraph] = useState(0);
   const [compose, setCompose] = useState<ComposeResult | null>(null);
@@ -210,6 +213,125 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
   }
 
   const totalSteps = tour.steps.length;
+
+  if (isMobile) {
+    return (
+      <div className="tour-playback tour-playback--mobile" data-testid="tour-playback">
+        <header className="tour-playback__header tour-playback__header--mobile">
+          <span className="tour-playback__title" data-testid="tour-title">
+            {tour.title}
+          </span>
+          <div className="tour-playback__nav">
+            <button
+              className="btn"
+              onClick={() => setStepIndex((i) => i - 1)}
+              disabled={stepIndex === 0}
+              aria-label="Previous step"
+            >
+              ← Prev
+            </button>
+            <span className="tour-playback__counter" data-testid="step-counter">
+              {stepIndex + 1} / {totalSteps}
+            </span>
+            <button
+              className="btn"
+              onClick={() => setStepIndex((i) => i + 1)}
+              disabled={stepIndex === totalSteps - 1}
+              aria-label="Next step"
+            >
+              Next →
+            </button>
+          </div>
+          <button className="btn btn--primary" onClick={openInFiddle}>
+            Open in Fiddle
+          </button>
+        </header>
+
+        <div className="tour-playback__mobile-content">
+          {mobileTab === "tour" && (
+            <div className="tour-playback__prose-panel">
+              {activeStep?.label && (
+                <h2 className="tour-playback__step-label" data-testid="step-label">
+                  {activeStep.label}
+                </h2>
+              )}
+              <ProseRenderer prose={activeStep?.prose ?? ""} />
+            </div>
+          )}
+          {mobileTab === "schema" && (
+            <div className="tour-playback__schema-panel">
+              <nav className="tab-strip" aria-label="Subgraph tabs">
+                {subgraphs.map((sg, i) => (
+                  <button
+                    key={i}
+                    className={i === activeSubgraph ? "tab is-active" : "tab"}
+                    onClick={() => setActiveSubgraph(i)}
+                    aria-pressed={i === activeSubgraph}
+                  >
+                    {sg.name}
+                  </button>
+                ))}
+              </nav>
+              <div className="editor" style={{ flex: 1, minHeight: 0 }}>
+                <Editor
+                  path={`playback-sg-${stepIndex}-${activeSubgraph}`}
+                  value={subgraphs[activeSubgraph]?.sdl ?? ""}
+                  language="graphql"
+                  height="100%"
+                  theme={MONACO_THEME}
+                  beforeMount={(m) => defineMonacoTheme(m)}
+                  options={SCHEMA_EDITOR_OPTIONS}
+                  onMount={(ed, m) => {
+                    schemaEditorRef.current = ed as _monaco.editor.IStandaloneCodeEditor;
+                    setMonacoInstance(m as typeof _monaco);
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {mobileTab === "plan" && (
+            <div className="tour-playback__plan-panel tour-playback__plan-panel--mobile">
+              <h2 className="section-title">Query Plan</h2>
+              {compose === null ? (
+                <p className="empty-state">Composing…</p>
+              ) : !compose.ok ? (
+                <div className="callout callout--error">
+                  {compose.errors.map((e, i) => (
+                    <p key={i}>{e.message}</p>
+                  ))}
+                </div>
+              ) : planResult === null ? (
+                <p className="empty-state">Planning…</p>
+              ) : planResult.ok ? (
+                <div className="scroll">
+                  <PlanTree node={planResult.query_plan} />
+                </div>
+              ) : (
+                <div className="callout callout--error">
+                  {planResult.errors.map((e, i) => (
+                    <p key={i}>{e.message}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <nav className="mobile-tabbar">
+          {(["tour", "schema", "plan"] as const).map((tab) => (
+            <button
+              key={tab}
+              className={mobileTab === tab ? "mobile-tab is-active" : "mobile-tab"}
+              aria-pressed={mobileTab === tab}
+              onClick={() => setMobileTab(tab)}
+            >
+              {tab === "tour" ? "Tour" : tab === "schema" ? "Schema" : "Plan"}
+            </button>
+          ))}
+        </nav>
+      </div>
+    );
+  }
 
   return (
     <div className="tour-playback" data-testid="tour-playback">
