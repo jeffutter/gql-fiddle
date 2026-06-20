@@ -1113,6 +1113,56 @@ body {
   justify-content: flex-end;
 }
 
+/* Anchor indicator row inside an active step card */
+.tour-step__anchor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  min-height: 24px;
+  font-size: 11px;
+}
+
+.tour-step__anchor-label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tour-step__anchor-empty {
+  flex: 1;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.tour-step__anchor-clear {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+/* Monaco anchor decoration — narrow accent bar in the gutter */
+.tour-anchor-gutter {
+  background: var(--accent);
+  width: 3px !important;
+  border-radius: 2px;
+  margin-left: 3px;
+}
+
+/* Monaco anchor decoration — subtle left-border highlight on the anchored line */
+.tour-anchor-line {
+  border-left: 3px solid var(--accent);
+  padding-left: 1px;
+  opacity: 0.6;
+}
+
 /* ========================================================================== *
  * Tour playback layout
  * ========================================================================== */
