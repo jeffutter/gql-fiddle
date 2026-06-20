@@ -10,10 +10,11 @@ import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
 import { useWorkspace } from "./store";
 import { loadCore } from "./core";
-import { decode, encode, encodeTour } from "./share";
-import type { WorkspacePayload } from "./share";
+import { decode, encode, encodeTour, decodeTour } from "./share";
+import type { WorkspacePayload, Tour } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
+import { TourPlayback } from "./TourPlayback";
 import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
 import { ExecutionTimeline } from "./ExecutionTimeline";
@@ -158,6 +159,8 @@ export default function App() {
     setTourDraft,
   } = useWorkspace();
   const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
+  const [playbackTour, setPlaybackTour] = useState<Tour | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
@@ -209,8 +212,20 @@ export default function App() {
   }, [fullscreenTab]);
 
   // Restore workspace from URL hash on mount (once only).
+  // Also handles #t= tour playback hashes.
   useEffect(() => {
     const hash = location.hash;
+    if (hash.startsWith("#t=")) {
+      try {
+        const tour = decodeTour(hash);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setPlaybackTour(tour);
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      } catch (err) {
+        setPlaybackError(err instanceof Error ? err.message : "Failed to decode tour");
+      }
+      return;
+    }
     if (!hash.startsWith("#w=")) return;
     try {
       const payload = decode(hash);
@@ -900,6 +915,18 @@ export default function App() {
       </button>
     </header>
   );
+
+  // Tour playback mode — render a completely separate layout.
+  if (playbackError !== null) {
+    return (
+      <div className="tour-playback__error">
+        <p>Could not load tour: {playbackError}</p>
+      </div>
+    );
+  }
+  if (playbackTour !== null) {
+    return <TourPlayback tour={playbackTour} />;
+  }
 
   if (isMobile) {
     return (

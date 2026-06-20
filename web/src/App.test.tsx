@@ -4,7 +4,8 @@ import App from "./App";
 import { useWorkspace } from "./store";
 import * as monaco from "monaco-editor";
 import type { Diagnostic } from "./core/types";
-import { encode } from "./share";
+import { encode, encodeTour } from "./share";
+import type { Tour } from "./share";
 
 let validateSubgraphCallCount = 0;
 
@@ -1624,5 +1625,71 @@ describe("App", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog.getAttribute("aria-label")).toMatch(/Type Graph/);
+  });
+});
+
+describe("App — tour playback", () => {
+  const sampleTour: Tour = {
+    title: "My Sample Tour",
+    base: {
+      subgraphs: [
+        { name: "products", sdl: "type Query { products: [Product] }\ntype Product { id: ID! }" },
+      ],
+      queryTabs: [{ name: "Query 1", query: "{ products { id } }" }],
+      activeQueryTab: 0,
+      seed: 42,
+    },
+    steps: [
+      { label: "Step One", prose: "This is the first step." },
+      { label: "Step Two", prose: "This is the second step." },
+    ],
+  };
+
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "" },
+      writable: true,
+      configurable: true,
+    });
+    useWorkspace.setState({
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      activeSubgraph: 0,
+      queryTabs: [{ name: "Query 1", query: "" }],
+      activeQueryTab: 0,
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+    });
+  });
+
+  it("AC#1: #t= URL hash renders TourPlayback instead of the normal fiddle", () => {
+    const hash = encodeTour(sampleTour);
+    Object.defineProperty(globalThis, "location", {
+      value: { hash },
+      writable: true,
+      configurable: true,
+    });
+
+    const { container } = render(<App />);
+
+    // The tour playback element should be present.
+    expect(container.querySelector('[data-testid="tour-playback"]')).not.toBeNull();
+  });
+
+  it("AC#9: invalid #t= URL hash shows an error message, not the normal fiddle", () => {
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "#t=INVALID_GARBAGE_NOT_BASE64_TOUR" },
+      writable: true,
+      configurable: true,
+    });
+
+    const { container } = render(<App />);
+
+    // An error message should appear.
+    expect(container.textContent).toMatch(/Could not load tour/i);
+    // The normal fiddle should not be rendered.
+    expect(container.querySelector(".page-header")).toBeNull();
   });
 });

@@ -1,0 +1,297 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import Editor from "@monaco-editor/react";
+import { initializeMode } from "monaco-graphql/initializeMode";
+import type { MonacoGraphQLAPI } from "monaco-graphql";
+import { loadCore } from "./core";
+import { encode, resolveTourStep } from "./share";
+import type { Tour } from "./share";
+import type { ComposeResult, PlanResult } from "./core/types";
+import { PlanTree } from "./PlanTree";
+import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
+import type * as _monaco from "monaco-editor";
+
+const COMPOSE_DEBOUNCE_MS = 300;
+const AUTO_RUN_DEBOUNCE_MS = 400;
+
+// Singleton monaco-graphql API for the playback editor.
+let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
+
+// Shared Monaco options for a clean, minimal read-only editor.
+const EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions = {
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  overviewRulerLanes: 0,
+  padding: { top: 10, bottom: 10 },
+  fontSize: 13,
+  fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
+  smoothScrolling: true,
+  scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+  fixedOverflowWidgets: true,
+};
+
+/**
+ * Render a subset of Markdown to safe HTML: paragraphs, bold, italic,
+ * inline code, and links. No external dependency — covers everything likely
+ * to appear in tour prose.
+ */
+function renderMarkdown(prose: string): string {
+  if (!prose) return "";
+  return prose
+    .split(/\n\n+/)
+    .map((para) => {
+      const inner = para
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*(.+?)\*/g, "<em>$1</em>")
+        .replace(
+          /\[([^\]]+)\]\(([^)]+)\)/g,
+          '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
+        )
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\n/g, "<br>");
+      return `<p>${inner}</p>`;
+    })
+    .join("");
+}
+
+function ProseRenderer({ prose }: { prose: string }) {
+  return (
+    <div
+      className="tour-playback__prose-content"
+      // Safe: renderMarkdown produces a restricted subset of HTML with no
+      // unsanitized user values beyond what the tour author wrote.
+      dangerouslySetInnerHTML={{ __html: renderMarkdown(prose) }}
+    />
+  );
+}
+
+interface TourPlaybackProps {
+  tour: Tour;
+}
+
+/**
+ * TourPlayback — reader-facing 3-pane layout for a decoded tour.
+ *
+ * Owns all playback state locally. Never reads from or writes to the global
+ * Zustand workspace store. Replaces the normal fiddle when the URL hash
+ * starts with `#t=`.
+ */
+export function TourPlayback({ tour }: TourPlaybackProps) {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [activeSubgraph, setActiveSubgraph] = useState(0);
+  const [compose, setCompose] = useState<ComposeResult | null>(null);
+  const [planResult, setPlanResult] = useState<PlanResult | null>(null);
+
+  const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Derive the resolved workspace for the current step.
+  const workspace = useMemo(() => resolveTourStep(tour, stepIndex), [tour, stepIndex]);
+
+  const activeStep = tour.steps[stepIndex];
+  const subgraphs = workspace.subgraphs;
+  const currentQuery = workspace.queryTabs[workspace.activeQueryTab]?.query ?? "";
+
+  // Reset activeSubgraph to 0 when moving between steps (in case a new step
+  // has fewer subgraphs than the previous one).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveSubgraph(0);
+  }, [stepIndex]);
+
+  // Debounced composition effect — mirrors App.tsx but drives from workspace.
+  useEffect(() => {
+    if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCompose(null);
+    setPlanResult(null);
+    composeTimeoutRef.current = setTimeout(async () => {
+      const core = await loadCore();
+      const result = core.compose(subgraphs);
+      if (result.ok) {
+        if (!monacoGraphQLAPI) {
+          monacoGraphQLAPI = initializeMode();
+        }
+        monacoGraphQLAPI.setModeConfiguration({
+          completionItems: false,
+          diagnostics: false,
+          hovers: true,
+          documentSymbols: false,
+          documentFormattingEdits: false,
+        });
+        monacoGraphQLAPI.setSchemaConfig([
+          {
+            documentString: result.api_schema_sdl,
+            uri: "api-schema.graphql",
+            fileMatch: ["**/*.graphql"],
+          },
+        ]);
+      }
+      setCompose(result);
+    }, COMPOSE_DEBOUNCE_MS);
+    return () => {
+      if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
+    };
+  }, [subgraphs]);
+
+  // Auto-run effect — runs the plan whenever the query or supergraph changes.
+  useEffect(() => {
+    if (compose === null || !compose.ok) return;
+    const supergraphSdl = compose.supergraph_sdl;
+    if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+    autoRunTimeoutRef.current = setTimeout(async () => {
+      const core = await loadCore();
+      const result = core.plan(supergraphSdl, currentQuery);
+      setPlanResult(result);
+    }, AUTO_RUN_DEBOUNCE_MS);
+    return () => {
+      if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+    };
+  }, [currentQuery, compose]);
+
+  function openInFiddle() {
+    const payload = resolveTourStep(tour, stepIndex);
+    const hash = encode(payload);
+    window.location.hash = hash;
+    window.location.reload();
+  }
+
+  const totalSteps = tour.steps.length;
+
+  return (
+    <div className="tour-playback" data-testid="tour-playback">
+      <header className="tour-playback__header">
+        <div className="logo" aria-label="GraphQL Fiddle">
+          <svg
+            className="logo__mark"
+            width="28"
+            height="28"
+            viewBox="0 0 30 30"
+            fill="none"
+            aria-hidden="true"
+          >
+            <polygon
+              points="15,3 25.4,21 4.6,21"
+              stroke="var(--accent)"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+            <polygon
+              points="25.4,9 15,27 4.6,9"
+              stroke="var(--accent)"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+            <circle cx="15" cy="3" r="1.8" fill="var(--accent)" />
+            <circle cx="25.4" cy="9" r="1.8" fill="var(--accent)" />
+            <circle cx="25.4" cy="21" r="1.8" fill="var(--accent)" />
+            <circle cx="15" cy="27" r="1.8" fill="var(--accent)" />
+            <circle cx="4.6" cy="21" r="1.8" fill="var(--accent)" />
+            <circle cx="4.6" cy="9" r="1.8" fill="var(--accent)" />
+          </svg>
+          <div className="logo__text">
+            <span className="logo__gql">GraphQL</span>
+            <span className="logo__name">Fiddle</span>
+          </div>
+        </div>
+
+        <span className="tour-playback__title" data-testid="tour-title">
+          {tour.title}
+        </span>
+
+        <div className="tour-playback__nav">
+          <button
+            className="btn"
+            onClick={() => setStepIndex((i) => i - 1)}
+            disabled={stepIndex === 0}
+            aria-label="Previous step"
+          >
+            ← Prev
+          </button>
+          <span className="tour-playback__counter" data-testid="step-counter">
+            {stepIndex + 1} / {totalSteps}
+          </span>
+          <button
+            className="btn"
+            onClick={() => setStepIndex((i) => i + 1)}
+            disabled={stepIndex === totalSteps - 1}
+            aria-label="Next step"
+          >
+            Next →
+          </button>
+        </div>
+
+        <button className="btn btn--primary" onClick={openInFiddle}>
+          Open in Fiddle
+        </button>
+      </header>
+
+      <div className="tour-playback__body">
+        {/* Left: prose panel */}
+        <div className="tour-playback__prose-panel">
+          {activeStep?.label && (
+            <h2 className="tour-playback__step-label" data-testid="step-label">
+              {activeStep.label}
+            </h2>
+          )}
+          <ProseRenderer prose={activeStep?.prose ?? ""} />
+        </div>
+
+        {/* Right column: schema editor (top) + query plan (bottom) */}
+        <div className="tour-playback__right">
+          {/* Schema editor — read-only */}
+          <div className="tour-playback__schema-panel">
+            <nav className="tab-strip" aria-label="Subgraph tabs">
+              {subgraphs.map((sg, i) => (
+                <button
+                  key={i}
+                  className={i === activeSubgraph ? "tab is-active" : "tab"}
+                  onClick={() => setActiveSubgraph(i)}
+                  aria-pressed={i === activeSubgraph}
+                >
+                  {sg.name}
+                </button>
+              ))}
+            </nav>
+            <div className="editor" style={{ flex: 1, minHeight: 0 }}>
+              <Editor
+                path={`playback-sg-${stepIndex}-${activeSubgraph}`}
+                value={subgraphs[activeSubgraph]?.sdl ?? ""}
+                language="graphql"
+                height="100%"
+                theme={MONACO_THEME}
+                beforeMount={(m) => defineMonacoTheme(m)}
+                options={{ ...EDITOR_OPTIONS, readOnly: true }}
+              />
+            </div>
+          </div>
+
+          {/* Query plan */}
+          <div className="tour-playback__plan-panel">
+            <h2 className="section-title">Query Plan</h2>
+            {compose === null ? (
+              <p className="empty-state">Composing…</p>
+            ) : !compose.ok ? (
+              <div className="callout callout--error">
+                {compose.errors.map((e, i) => (
+                  <p key={i}>{e.message}</p>
+                ))}
+              </div>
+            ) : planResult === null ? (
+              <p className="empty-state">Planning…</p>
+            ) : planResult.ok ? (
+              <div className="scroll">
+                <PlanTree node={planResult.query_plan} />
+              </div>
+            ) : (
+              <div className="callout callout--error">
+                {planResult.errors.map((e, i) => (
+                  <p key={i}>{e.message}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
