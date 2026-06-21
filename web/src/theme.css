@@ -504,6 +504,18 @@ body {
   }
 }
 
+@keyframes tour-pulse {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+  60% {
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  100% {
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
+
 .spinner {
   display: inline-block;
   width: 12px;
@@ -1207,6 +1219,20 @@ body {
 /* Monaco tour step highlight — subtle whole-line background tint */
 .tour-highlight-line {
   background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  animation: tour-pulse 0.8s ease-out 1;
+}
+
+/* Anchor-based highlights get a slightly more emphatic pulse (3 iterations) to
+   orient the viewer to the specific type or field being discussed. */
+.tour-highlight-line--anchor {
+  animation: tour-pulse 0.9s ease-out 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-highlight-line,
+  .tour-highlight-line--anchor {
+    animation: none;
+  }
 }
 
 /* ========================================================================== *

@@ -102,7 +102,9 @@ describe("applyTourHighlight", () => {
       // "  price: Float" is on line 8 (1-based) in SUBGRAPH_SDL
       expect(decorations[0]!.range.startLineNumber).toBe(8);
       expect(decorations[0]!.options.linesDecorationsClassName).toBe("tour-highlight-gutter");
-      expect(decorations[0]!.options.className).toBe("tour-highlight-line");
+      expect(decorations[0]!.options.className).toBe(
+        "tour-highlight-line tour-highlight-line--anchor",
+      );
 
       expect(editorMock.revealLineInCenter).toHaveBeenCalledWith(8);
 

@@ -108,7 +108,7 @@ export function applyTourHighlight(
         options: {
           isWholeLine: true,
           linesDecorationsClassName: "tour-highlight-gutter",
-          className: "tour-highlight-line",
+          className: "tour-highlight-line tour-highlight-line--anchor",
         },
       },
     ]);
