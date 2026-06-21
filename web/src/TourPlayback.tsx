@@ -16,6 +16,9 @@ import type { TourHighlightHandle } from "./tourHighlight";
 const COMPOSE_DEBOUNCE_MS = 300;
 const AUTO_RUN_DEBOUNCE_MS = 400;
 
+// localStorage key used to persist the onboarding hint dismissal across sessions.
+const ONBOARDING_HINT_KEY = "gql-fiddle:tour-onboarding-dismissed";
+
 // Singleton monaco-graphql API for the playback editor.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
 
@@ -102,6 +105,18 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Onboarding hint: visible the first time a viewer enters playback mode.
+  // The lazy initializer reads localStorage synchronously so there is no
+  // flash-of-hint on repeat visits.
+  const [showHint, setShowHint] = useState<boolean>(
+    () => localStorage.getItem(ONBOARDING_HINT_KEY) !== "1",
+  );
+
+  function dismissHint() {
+    localStorage.setItem(ONBOARDING_HINT_KEY, "1");
+    setShowHint(false);
+  }
+
   // Derive the resolved workspace for the current step.
   const workspace = useMemo(() => resolveTourStep(tour, stepIndex), [tour, stepIndex]);
 
@@ -149,6 +164,16 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [tour.steps.length]);
+
+  // Escape key dismisses the onboarding hint while it is visible.
+  useEffect(() => {
+    if (!showHint) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismissHint();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [showHint]);
 
   // When the active mobile tab becomes hidden on a step transition, fall back
   // to the "tour" (prose) tab which is always visible.
@@ -294,6 +319,27 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
         </header>
 
         <div className="tour-playback__mobile-content">
+          {showHint && (
+            <div
+              className="tour-onboarding-hint"
+              role="status"
+              aria-live="polite"
+              data-testid="onboarding-hint"
+            >
+              <span className="tour-onboarding-hint__body">
+                Use the <strong>← Prev</strong> / <strong>Next →</strong> buttons or <kbd>←</kbd>{" "}
+                <kbd>→</kbd> arrow keys to navigate steps.
+              </span>
+              <button
+                className="btn btn--icon tour-onboarding-hint__dismiss"
+                onClick={dismissHint}
+                aria-label="Dismiss navigation hint"
+                data-testid="onboarding-hint-dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {mobileTab === "tour" && (
             <div className="tour-playback__prose-panel">
               {activeStep?.label && (
@@ -465,6 +511,27 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
       <div className="tour-playback__body">
         {/* Left: prose panel */}
         <div className="tour-playback__prose-panel">
+          {showHint && (
+            <div
+              className="tour-onboarding-hint"
+              role="status"
+              aria-live="polite"
+              data-testid="onboarding-hint"
+            >
+              <span className="tour-onboarding-hint__body">
+                Use the <strong>← Prev</strong> / <strong>Next →</strong> buttons or <kbd>←</kbd>{" "}
+                <kbd>→</kbd> arrow keys to navigate steps.
+              </span>
+              <button
+                className="btn btn--icon tour-onboarding-hint__dismiss"
+                onClick={dismissHint}
+                aria-label="Dismiss navigation hint"
+                data-testid="onboarding-hint-dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {activeStep?.label && (
             <h2 className="tour-playback__step-label" data-testid="step-label">
               {activeStep.label}

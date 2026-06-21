@@ -1419,3 +1419,38 @@ body {
   border-radius: 0;
   border: none;
 }
+
+/* ── Tour onboarding hint ─────────────────────────────────────── */
+.tour-onboarding-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--warning-border);
+  font-size: 12px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.tour-onboarding-hint__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tour-onboarding-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.tour-onboarding-hint__dismiss {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+}

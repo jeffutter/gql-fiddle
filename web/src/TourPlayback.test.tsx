@@ -277,6 +277,74 @@ describe("TourPlayback", () => {
     });
   });
 
+  describe("onboarding hint (TASK-74)", () => {
+    beforeEach(() => {
+      // Clear localStorage so the hint is in its default visible state.
+      localStorage.clear();
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it("AC#1: hint appears on first entry (clean localStorage)", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByTestId("onboarding-hint")).toBeTruthy();
+    });
+
+    it("AC#2: hint text mentions Prev/Next buttons and arrow keys", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      const hint = container.querySelector("[data-testid='onboarding-hint']");
+      expect(hint).not.toBeNull();
+      expect(hint!.textContent).toContain("← Prev");
+      expect(hint!.textContent).toContain("Next →");
+      expect(hint!.textContent).toContain("arrow keys");
+      // <kbd> elements should be present for the keyboard glyphs.
+      expect(hint!.querySelectorAll("kbd").length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("AC#3: clicking the dismiss button hides the hint", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByTestId("onboarding-hint")).toBeTruthy();
+      fireEvent.click(screen.getByTestId("onboarding-hint-dismiss"));
+      expect(screen.queryByTestId("onboarding-hint")).toBeNull();
+    });
+
+    it("AC#3: pressing Escape dismisses the hint", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByTestId("onboarding-hint")).toBeTruthy();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByTestId("onboarding-hint")).toBeNull();
+    });
+
+    it("AC#4: localStorage flag is set to '1' after dismissal", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      fireEvent.click(screen.getByTestId("onboarding-hint-dismiss"));
+      expect(localStorage.getItem("gql-fiddle:tour-onboarding-dismissed")).toBe("1");
+    });
+
+    it("AC#4: hint does not reappear after dismissal and remount", () => {
+      const { unmount } = render(<TourPlayback tour={sampleTour} />);
+      // Dismiss — sets the localStorage flag.
+      fireEvent.click(screen.getByTestId("onboarding-hint-dismiss"));
+      unmount();
+      cleanup();
+      // Re-render — localStorage already has the flag, so hint must not appear.
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.queryByTestId("onboarding-hint")).toBeNull();
+    });
+
+    it("AC#5 (structural): TourPlayback is only mounted in playback mode — hint is absent in authoring mode by construction", () => {
+      // TourPlayback is rendered only when `playbackTour !== null` in App.tsx
+      // (the normal fiddle/authoring UI renders instead). Therefore any
+      // TourPlayback instance is implicitly in playback mode. This test
+      // documents that invariant: the component renders, so we are in playback.
+      render(<TourPlayback tour={sampleTour} />);
+      // Hint is shown in playback mode — authoring mode never mounts this component.
+      expect(screen.getByTestId("onboarding-hint")).toBeTruthy();
+    });
+  });
+
   describe("per-step pane visibility (TASK-71)", () => {
     it("schema panel is absent when paneVisibility.schema = false", () => {
       const tour: Tour = {
