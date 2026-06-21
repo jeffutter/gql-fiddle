@@ -216,6 +216,67 @@ describe("TourPlayback", () => {
     });
   });
 
+  describe("keyboard navigation (TASK-73)", () => {
+    it("AC#1: ArrowRight advances from step 0 to step 1", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+      expect(screen.getByTestId("step-counter").textContent).toBe("2 / 2");
+    });
+
+    it("AC#2: ArrowLeft retreats from step 1 to step 0", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      // Navigate to step 1 first.
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+      expect(screen.getByTestId("step-counter").textContent).toBe("2 / 2");
+      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+    });
+
+    it("AC#4: ArrowRight on last step is a no-op", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      // Navigate to last step.
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+      expect(screen.getByTestId("step-counter").textContent).toBe("2 / 2");
+      // ArrowRight again — should stay at last step.
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+      expect(screen.getByTestId("step-counter").textContent).toBe("2 / 2");
+    });
+
+    it("AC#4: ArrowLeft on first step is a no-op", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+    });
+
+    it("AC#5: ArrowRight does not fire when focus is inside an <input>", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      const inputEl = document.createElement("input");
+      document.body.appendChild(inputEl);
+      inputEl.focus();
+      try {
+        fireEvent.keyDown(inputEl, { key: "ArrowRight" });
+        expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+      } finally {
+        document.body.removeChild(inputEl);
+      }
+    });
+
+    it("AC#5: ArrowRight does not fire when focus is inside a <textarea>", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      const textareaEl = document.createElement("textarea");
+      document.body.appendChild(textareaEl);
+      textareaEl.focus();
+      try {
+        fireEvent.keyDown(textareaEl, { key: "ArrowRight" });
+        expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+      } finally {
+        document.body.removeChild(textareaEl);
+      }
+    });
+  });
+
   describe("per-step pane visibility (TASK-71)", () => {
     it("schema panel is absent when paneVisibility.schema = false", () => {
       const tour: Tour = {
