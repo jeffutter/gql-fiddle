@@ -122,6 +122,34 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
     setActiveSubgraph(0);
   }, [stepIndex]);
 
+  // Keyboard navigation: ArrowRight advances, ArrowLeft retreats (AC#1–5).
+  // Only registered when TourPlayback is mounted, so shortcuts are inherently
+  // absent in authoring mode where this component is not rendered (AC#3).
+  useEffect(() => {
+    const stepCount = tour.steps.length;
+    const handler = (e: KeyboardEvent) => {
+      // AC#5 — skip when focus is inside any editable surface.
+      const target = e.target as EventTarget | null;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable) ||
+        (target instanceof HTMLElement && target.closest(".monaco-editor"))
+      )
+        return;
+
+      if (e.key === "ArrowRight") {
+        // AC#1, AC#4 — advance; clamp at last step.
+        setStepIndex((i) => Math.min(i + 1, stepCount - 1));
+      } else if (e.key === "ArrowLeft") {
+        // AC#2, AC#4 — retreat; clamp at first step.
+        setStepIndex((i) => Math.max(i - 1, 0));
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [tour.steps.length]);
+
   // When the active mobile tab becomes hidden on a step transition, fall back
   // to the "tour" (prose) tab which is always visible.
   useEffect(() => {
