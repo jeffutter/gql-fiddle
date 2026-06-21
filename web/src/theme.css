@@ -1113,6 +1113,30 @@ body {
   justify-content: flex-end;
 }
 
+/* Per-step pane visibility toggle row inside an active step card */
+.tour-step__pane-visibility {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 3px 4px;
+  font-size: 11px;
+}
+
+.tour-step__pane-visibility-label {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.tour-step__pane-toggle {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-2);
+}
+
 /* Anchor indicator row inside an active step card */
 .tour-step__anchor {
   display: flex;
@@ -1295,6 +1319,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* When all panes in the right column are hidden, collapse the column entirely */
+.tour-playback__right--hidden {
+  display: none;
 }
 
 .tour-playback__schema-panel {

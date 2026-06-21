@@ -7,11 +7,19 @@ export interface WorkspacePayload {
   seed: number;
 }
 
+export type PaneId = "schema" | "plan";
+
+export interface PaneVisibility {
+  schema?: boolean;
+  plan?: boolean;
+}
+
 export interface TourStep {
   label: string;
   prose: string;
   anchor?: { subgraphIndex: number; typeName: string; fieldName?: string };
   overrides?: Partial<WorkspacePayload>;
+  paneVisibility?: PaneVisibility;
 }
 
 export interface Tour {

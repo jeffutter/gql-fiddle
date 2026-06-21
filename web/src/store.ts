@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CompositionError, QueryTab, SubgraphInput } from "./core/types";
-import type { Tour, WorkspacePayload } from "./share";
+import type { PaneId, Tour, WorkspacePayload } from "./share";
 import { resolveTourStep } from "./share";
 
 // Single source of truth for the workspace. Composition output is *derived*
@@ -68,6 +68,13 @@ export interface WorkspaceState {
     stepIndex: number,
     anchor: { subgraphIndex: number; typeName: string; fieldName?: string } | undefined,
   ) => void;
+
+  /**
+   * Set the visibility of a specific pane for a given step. Only an explicit
+   * `false` hides the pane — `undefined` and `true` both mean visible, so
+   * existing tours without flags continue to show all panes.
+   */
+  setStepPaneVisibility: (stepIndex: number, pane: PaneId, visible: boolean) => void;
 
   addSubgraph: (name: string) => void;
   removeSubgraph: (index: number) => void;
@@ -161,6 +168,17 @@ export const useWorkspace = create<WorkspaceState>()(
           const updatedSteps = state.tourDraft.steps.map((step, i) =>
             i === stepIndex ? { ...step, anchor } : step,
           );
+          return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
+        }),
+
+      setStepPaneVisibility: (stepIndex, pane, visible) =>
+        set((state) => {
+          if (!state.tourDraft) return state;
+          const updatedSteps = state.tourDraft.steps.map((step, i) => {
+            if (i !== stepIndex) return step;
+            const pv = { ...(step.paneVisibility ?? {}), [pane]: visible };
+            return { ...step, paneVisibility: pv };
+          });
           return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
         }),
 

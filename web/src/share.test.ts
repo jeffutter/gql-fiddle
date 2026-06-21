@@ -8,6 +8,7 @@ import {
   decodeTour,
   resolveTourStep,
   Tour,
+  TourStep,
 } from "./share";
 
 const SAMPLE_PAYLOAD: WorkspacePayload = {
@@ -183,6 +184,64 @@ describe("tour encode/decode", () => {
     expect(() => decodeTour("#t=")).toThrow(
       "Invalid tour hash: must start with #t= and contain encoded data",
     );
+  });
+});
+
+describe("paneVisibility round-trip", () => {
+  it("round-trips a tour step with paneVisibility flags set", () => {
+    const tourWithPaneVis: Tour = {
+      title: "Pane Vis Test",
+      base: {
+        subgraphs: [{ name: "a", sdl: "type Query { x: Int }" }],
+        queryTabs: [{ name: "Q1", query: "{ x }" }],
+        activeQueryTab: 0,
+        seed: 1,
+      },
+      steps: [
+        {
+          label: "Step 1",
+          prose: "Hello",
+          paneVisibility: { schema: false, plan: true },
+        } satisfies TourStep,
+      ],
+    };
+    const decoded = decodeTour(encodeTour(tourWithPaneVis));
+    expect(decoded.steps[0].paneVisibility).toEqual({ schema: false, plan: true });
+  });
+
+  it("round-trips a tour step without paneVisibility (backward compat)", () => {
+    const tourNoPaneVis: Tour = {
+      title: "No Pane Vis",
+      base: {
+        subgraphs: [{ name: "a", sdl: "type Query { x: Int }" }],
+        queryTabs: [{ name: "Q1", query: "{ x }" }],
+        activeQueryTab: 0,
+        seed: 1,
+      },
+      steps: [{ label: "Step 1", prose: "Hello" }],
+    };
+    const decoded = decodeTour(encodeTour(tourNoPaneVis));
+    expect(decoded.steps[0].paneVisibility).toBeUndefined();
+  });
+
+  it("paneVisibility is accessible directly from the step after decode (not via resolveTourStep)", () => {
+    const tour: Tour = {
+      title: "T",
+      base: {
+        subgraphs: [{ name: "a", sdl: "" }],
+        queryTabs: [{ name: "Q", query: "" }],
+        activeQueryTab: 0,
+        seed: 0,
+      },
+      steps: [{ label: "S", prose: "", paneVisibility: { schema: true, plan: false } }],
+    };
+    const decoded = decodeTour(encodeTour(tour));
+    // paneVisibility lives on the step, not in the resolved WorkspacePayload.
+    expect(decoded.steps[0].paneVisibility?.schema).toBe(true);
+    expect(decoded.steps[0].paneVisibility?.plan).toBe(false);
+    // resolveTourStep only returns WorkspacePayload, which does not contain paneVisibility.
+    const payload = resolveTourStep(decoded, 0);
+    expect(payload).not.toHaveProperty("paneVisibility");
   });
 });
 
