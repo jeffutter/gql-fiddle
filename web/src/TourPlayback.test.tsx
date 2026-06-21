@@ -215,4 +215,96 @@ describe("TourPlayback", () => {
       expect(screen.getByRole("button", { name: /open in fiddle/i })).toBeTruthy();
     });
   });
+
+  describe("per-step pane visibility (TASK-71)", () => {
+    it("schema panel is absent when paneVisibility.schema = false", () => {
+      const tour: Tour = {
+        ...sampleTour,
+        steps: [{ ...sampleTour.steps[0], paneVisibility: { schema: false } }, sampleTour.steps[1]],
+      };
+      const { container } = render(<TourPlayback tour={tour} />);
+      expect(container.querySelector(".tour-playback__schema-panel")).toBeNull();
+    });
+
+    it("plan panel is absent when paneVisibility.plan = false", () => {
+      const tour: Tour = {
+        ...sampleTour,
+        steps: [{ ...sampleTour.steps[0], paneVisibility: { plan: false } }, sampleTour.steps[1]],
+      };
+      const { container } = render(<TourPlayback tour={tour} />);
+      expect(container.querySelector(".tour-playback__plan-panel")).toBeNull();
+    });
+
+    it("both panels present when no paneVisibility set (default, backward compat)", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      expect(container.querySelector(".tour-playback__schema-panel")).not.toBeNull();
+      expect(container.querySelector(".tour-playback__plan-panel")).not.toBeNull();
+    });
+
+    it("right column gets --hidden class when both panes are hidden", () => {
+      const tour: Tour = {
+        ...sampleTour,
+        steps: [
+          { ...sampleTour.steps[0], paneVisibility: { schema: false, plan: false } },
+          sampleTour.steps[1],
+        ],
+      };
+      const { container } = render(<TourPlayback tour={tour} />);
+      expect(container.querySelector(".tour-playback__right--hidden")).not.toBeNull();
+    });
+
+    it("navigating to a step with paneVisibility: { plan: false } hides plan panel", () => {
+      const tour: Tour = {
+        ...sampleTour,
+        steps: [sampleTour.steps[0], { ...sampleTour.steps[1], paneVisibility: { plan: false } }],
+      };
+      const { container } = render(<TourPlayback tour={tour} />);
+      // Step 0 — plan panel should be visible.
+      expect(container.querySelector(".tour-playback__plan-panel")).not.toBeNull();
+      // Navigate to step 1.
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      // Step 1 — plan panel should be hidden.
+      expect(container.querySelector(".tour-playback__plan-panel")).toBeNull();
+    });
+
+    describe("mobile pane visibility", () => {
+      beforeEach(() => {
+        Object.defineProperty(window, "innerWidth", {
+          value: 375,
+          writable: true,
+          configurable: true,
+        });
+      });
+
+      afterEach(() => {
+        Object.defineProperty(window, "innerWidth", {
+          value: 1024,
+          writable: true,
+          configurable: true,
+        });
+      });
+
+      it("Schema tab button absent when paneVisibility.schema = false", () => {
+        const tour: Tour = {
+          ...sampleTour,
+          steps: [
+            { ...sampleTour.steps[0], paneVisibility: { schema: false } },
+            sampleTour.steps[1],
+          ],
+        };
+        render(<TourPlayback tour={tour} />);
+        // "Schema" button should not appear in the tab bar.
+        expect(screen.queryByRole("button", { name: "Schema" })).toBeNull();
+      });
+
+      it("Plan tab button absent when paneVisibility.plan = false", () => {
+        const tour: Tour = {
+          ...sampleTour,
+          steps: [{ ...sampleTour.steps[0], paneVisibility: { plan: false } }, sampleTour.steps[1]],
+        };
+        render(<TourPlayback tour={tour} />);
+        expect(screen.queryByRole("button", { name: "Plan" })).toBeNull();
+      });
+    });
+  });
 });

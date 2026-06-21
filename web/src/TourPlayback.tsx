@@ -109,12 +109,30 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
   const subgraphs = workspace.subgraphs;
   const currentQuery = workspace.queryTabs[workspace.activeQueryTab]?.query ?? "";
 
+  // Derive per-step pane visibility. Absence of a flag (undefined) defaults to
+  // visible — only an explicit `false` hides the pane. This ensures tours
+  // authored before this feature continue to show all panes unchanged.
+  const schemaVisible = activeStep?.paneVisibility?.schema !== false;
+  const planVisible = activeStep?.paneVisibility?.plan !== false;
+
   // Reset activeSubgraph to 0 when moving between steps (in case a new step
   // has fewer subgraphs than the previous one).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveSubgraph(0);
   }, [stepIndex]);
+
+  // When the active mobile tab becomes hidden on a step transition, fall back
+  // to the "tour" (prose) tab which is always visible.
+  useEffect(() => {
+    if (mobileTab === "schema" && !schemaVisible) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMobileTab("tour");
+    }
+    if (mobileTab === "plan" && !planVisible) {
+      setMobileTab("tour");
+    }
+  }, [stepIndex, schemaVisible, planVisible, mobileTab]);
 
   // Apply tour step highlight decorations on the schema editor when the active
   // step or active subgraph changes. Mirrors the same logic in App.tsx.
@@ -258,7 +276,7 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
               <ProseRenderer prose={activeStep?.prose ?? ""} />
             </div>
           )}
-          {mobileTab === "schema" && (
+          {mobileTab === "schema" && schemaVisible && (
             <div className="tour-playback__schema-panel">
               <nav className="tab-strip" aria-label="Subgraph tabs">
                 {subgraphs.map((sg, i) => (
@@ -289,7 +307,7 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
               </div>
             </div>
           )}
-          {mobileTab === "plan" && (
+          {mobileTab === "plan" && planVisible && (
             <div className="tour-playback__plan-panel tour-playback__plan-panel--mobile">
               <h2 className="section-title">Query Plan</h2>
               {compose === null ? (
@@ -318,16 +336,31 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
         </div>
 
         <nav className="mobile-tabbar">
-          {(["tour", "schema", "plan"] as const).map((tab) => (
+          <button
+            className={mobileTab === "tour" ? "mobile-tab is-active" : "mobile-tab"}
+            aria-pressed={mobileTab === "tour"}
+            onClick={() => setMobileTab("tour")}
+          >
+            Tour
+          </button>
+          {schemaVisible && (
             <button
-              key={tab}
-              className={mobileTab === tab ? "mobile-tab is-active" : "mobile-tab"}
-              aria-pressed={mobileTab === tab}
-              onClick={() => setMobileTab(tab)}
+              className={mobileTab === "schema" ? "mobile-tab is-active" : "mobile-tab"}
+              aria-pressed={mobileTab === "schema"}
+              onClick={() => setMobileTab("schema")}
             >
-              {tab === "tour" ? "Tour" : tab === "schema" ? "Schema" : "Plan"}
+              Schema
             </button>
-          ))}
+          )}
+          {planVisible && (
+            <button
+              className={mobileTab === "plan" ? "mobile-tab is-active" : "mobile-tab"}
+              aria-pressed={mobileTab === "plan"}
+              onClick={() => setMobileTab("plan")}
+            >
+              Plan
+            </button>
+          )}
         </nav>
       </div>
     );
@@ -413,63 +446,73 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
         </div>
 
         {/* Right column: schema editor (top) + query plan (bottom) */}
-        <div className="tour-playback__right">
-          {/* Schema editor — read-only */}
-          <div className="tour-playback__schema-panel">
-            <nav className="tab-strip" aria-label="Subgraph tabs">
-              {subgraphs.map((sg, i) => (
-                <button
-                  key={i}
-                  className={i === activeSubgraph ? "tab is-active" : "tab"}
-                  onClick={() => setActiveSubgraph(i)}
-                  aria-pressed={i === activeSubgraph}
-                >
-                  {sg.name}
-                </button>
-              ))}
-            </nav>
-            <div className="editor" style={{ flex: 1, minHeight: 0 }}>
-              <Editor
-                path={`playback-sg-${stepIndex}-${activeSubgraph}`}
-                value={subgraphs[activeSubgraph]?.sdl ?? ""}
-                language="graphql"
-                height="100%"
-                theme={MONACO_THEME}
-                beforeMount={(m) => defineMonacoTheme(m)}
-                options={SCHEMA_EDITOR_OPTIONS}
-                onMount={(ed, m) => {
-                  schemaEditorRef.current = ed as _monaco.editor.IStandaloneCodeEditor;
-                  setMonacoInstance(m as typeof _monaco);
-                }}
-              />
+        <div
+          className={
+            !schemaVisible && !planVisible
+              ? "tour-playback__right tour-playback__right--hidden"
+              : "tour-playback__right"
+          }
+        >
+          {/* Schema editor — read-only; hidden when current step sets schema: false */}
+          {schemaVisible && (
+            <div className="tour-playback__schema-panel">
+              <nav className="tab-strip" aria-label="Subgraph tabs">
+                {subgraphs.map((sg, i) => (
+                  <button
+                    key={i}
+                    className={i === activeSubgraph ? "tab is-active" : "tab"}
+                    onClick={() => setActiveSubgraph(i)}
+                    aria-pressed={i === activeSubgraph}
+                  >
+                    {sg.name}
+                  </button>
+                ))}
+              </nav>
+              <div className="editor" style={{ flex: 1, minHeight: 0 }}>
+                <Editor
+                  path={`playback-sg-${stepIndex}-${activeSubgraph}`}
+                  value={subgraphs[activeSubgraph]?.sdl ?? ""}
+                  language="graphql"
+                  height="100%"
+                  theme={MONACO_THEME}
+                  beforeMount={(m) => defineMonacoTheme(m)}
+                  options={SCHEMA_EDITOR_OPTIONS}
+                  onMount={(ed, m) => {
+                    schemaEditorRef.current = ed as _monaco.editor.IStandaloneCodeEditor;
+                    setMonacoInstance(m as typeof _monaco);
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Query plan */}
-          <div className="tour-playback__plan-panel">
-            <h2 className="section-title">Query Plan</h2>
-            {compose === null ? (
-              <p className="empty-state">Composing…</p>
-            ) : !compose.ok ? (
-              <div className="callout callout--error">
-                {compose.errors.map((e, i) => (
-                  <p key={i}>{e.message}</p>
-                ))}
-              </div>
-            ) : planResult === null ? (
-              <p className="empty-state">Planning…</p>
-            ) : planResult.ok ? (
-              <div className="scroll">
-                <PlanTree node={planResult.query_plan} />
-              </div>
-            ) : (
-              <div className="callout callout--error">
-                {planResult.errors.map((e, i) => (
-                  <p key={i}>{e.message}</p>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Query plan — hidden when current step sets plan: false */}
+          {planVisible && (
+            <div className="tour-playback__plan-panel">
+              <h2 className="section-title">Query Plan</h2>
+              {compose === null ? (
+                <p className="empty-state">Composing…</p>
+              ) : !compose.ok ? (
+                <div className="callout callout--error">
+                  {compose.errors.map((e, i) => (
+                    <p key={i}>{e.message}</p>
+                  ))}
+                </div>
+              ) : planResult === null ? (
+                <p className="empty-state">Planning…</p>
+              ) : planResult.ok ? (
+                <div className="scroll">
+                  <PlanTree node={planResult.query_plan} />
+                </div>
+              ) : (
+                <div className="callout callout--error">
+                  {planResult.errors.map((e, i) => (
+                    <p key={i}>{e.message}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

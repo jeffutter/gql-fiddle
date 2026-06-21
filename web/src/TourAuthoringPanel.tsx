@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useWorkspace } from "./store";
 import { encodeTour } from "./share";
-import type { WorkspacePayload } from "./share";
+import type { PaneId, WorkspacePayload } from "./share";
 import { resolveTourStep } from "./share";
 import { computeOverrides } from "./store";
 
@@ -24,6 +24,7 @@ export function TourAuthoringPanel({ onCollapse }: TourAuthoringPanelProps) {
     loadTourStep,
     snapshotCurrentToStep,
     setStepAnchor,
+    setStepPaneVisibility,
     subgraphs,
     queryTabs,
     activeQueryTab,
@@ -319,6 +320,27 @@ export function TourAuthoringPanel({ onCollapse }: TourAuthoringPanelProps) {
                       Click a type or field in the schema editor to set an anchor
                     </span>
                   )}
+                </div>
+              )}
+
+              {/* Pane visibility toggles — only shown for the active step */}
+              {isActive && (
+                <div className="tour-step__pane-visibility">
+                  <span className="tour-step__pane-visibility-label">Visible panes:</span>
+                  {(["schema", "plan"] as PaneId[]).map((pane) => {
+                    const checked = step.paneVisibility?.[pane] !== false;
+                    return (
+                      <label key={pane} className="tour-step__pane-toggle">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => setStepPaneVisibility(i, pane, e.target.checked)}
+                          aria-label={`Show ${pane} pane for step ${i + 1}`}
+                        />
+                        {pane === "schema" ? "Schema" : "Query Plan"}
+                      </label>
+                    );
+                  })}
                 </div>
               )}
 

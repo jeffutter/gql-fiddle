@@ -348,6 +348,32 @@ describe("workspace store", () => {
       });
     });
 
+    it("setStepPaneVisibility sets a pane visibility flag on the target step", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 0
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 1
+      useWorkspace.getState().setStepPaneVisibility(0, "plan", false);
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps[0].paneVisibility?.plan).toBe(false);
+    });
+
+    it("setStepPaneVisibility does not affect adjacent steps", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 0
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 1
+      useWorkspace.getState().setStepPaneVisibility(0, "schema", false);
+      const state = useWorkspace.getState();
+      // Step 1 should remain untouched (no paneVisibility set).
+      expect(state.tourDraft!.steps[1].paneVisibility).toBeUndefined();
+    });
+
+    it("setStepPaneVisibility can set multiple panes independently", () => {
+      useWorkspace.getState().snapshotCurrentToStep("new"); // add step 0
+      useWorkspace.getState().setStepPaneVisibility(0, "schema", false);
+      useWorkspace.getState().setStepPaneVisibility(0, "plan", true);
+      const state = useWorkspace.getState();
+      expect(state.tourDraft!.steps[0].paneVisibility?.schema).toBe(false);
+      expect(state.tourDraft!.steps[0].paneVisibility?.plan).toBe(true);
+    });
+
     it("step reorder: swapping step 0 and step 1 updates the steps array", () => {
       // Add two steps with different seeds.
       useWorkspace.setState({ seed: 10 });
