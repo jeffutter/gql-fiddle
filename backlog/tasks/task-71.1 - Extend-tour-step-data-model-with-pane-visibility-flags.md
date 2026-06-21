@@ -1,15 +1,19 @@
 ---
 id: TASK-71.1
 title: Extend tour step data model with pane visibility flags
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@ralph'
 created_date: '2026-06-21 01:28'
-updated_date: '2026-06-21 01:39'
+updated_date: '2026-06-21 01:49'
 labels:
   - tour
   - data-model
   - planned
 dependencies: []
+modified_files:
+  - web/src/share.ts
+  - web/src/share.test.ts
 parent_task_id: TASK-71
 priority: medium
 ordinal: 75000
@@ -25,10 +29,10 @@ Panes to cover: variables, response, headers — and any other non-schema panes 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tour step type/schema includes optional visibility flags for each non-schema pane
-- [ ] #2 Serialization and deserialization round-trips correctly with and without flags present
-- [ ] #3 Missing flags are treated as the pane's default visibility (no breaking change for existing tours)
-- [ ] #4 TypeScript types are updated throughout — no untyped casts
+- [x] #1 Tour step type/schema includes optional visibility flags for each non-schema pane
+- [x] #2 Serialization and deserialization round-trips correctly with and without flags present
+- [x] #3 Missing flags are treated as the pane's default visibility (no breaking change for existing tours)
+- [x] #4 TypeScript types are updated throughout — no untyped casts
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -94,3 +98,15 @@ Add a new `describe` block after the existing `resolveTourStep` suite:
 ### Verification
 Run `npm test` (or `pnpm test`) in `web/` — all existing tests must pass and new tests must pass.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation was delivered as part of the TASK-71 omnibus commit (1b9570a). Added `PaneId` type alias, `PaneVisibility` interface (with optional `schema` and `plan` boolean fields), and `paneVisibility?: PaneVisibility` field on `TourStep` in `web/src/share.ts`. Added 3 tests in `web/src/share.test.ts` covering: round-trip with flags set, round-trip without flags (backward compat), and confirming paneVisibility is on the step rather than in the resolved WorkspacePayload. Serialization required no changes — JSON.stringify/parse handles optional fields automatically. All 258 tests pass.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `PaneVisibility` interface and `paneVisibility?: PaneVisibility` field to `TourStep` in `web/src/share.ts`, with 3 new round-trip tests in `web/src/share.test.ts` confirming correct serialization with and without flags and backward compatibility for existing tours. All 258 tests pass; no untyped casts introduced.
+<!-- SECTION:FINAL_SUMMARY:END -->
