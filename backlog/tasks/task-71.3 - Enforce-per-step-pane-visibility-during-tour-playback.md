@@ -1,10 +1,11 @@
 ---
 id: TASK-71.3
 title: Enforce per-step pane visibility during tour playback
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@ralph'
 created_date: '2026-06-21 01:29'
-updated_date: '2026-06-21 01:40'
+updated_date: '2026-06-21 01:57'
 labels:
   - tour
   - playback
@@ -27,10 +28,10 @@ Steps with no flags stored (existing tours) should display the default pane layo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Panes shown/hidden on step entry match the flags stored on that step
-- [ ] #2 Stepping forward and backward both correctly apply the destination step's visibility
-- [ ] #3 Steps without visibility flags show the default pane layout (no regression for existing tours)
-- [ ] #4 Hidden panes do not leave empty space or broken layout in the playback view
+- [x] #1 Panes shown/hidden on step entry match the flags stored on that step
+- [x] #2 Stepping forward and backward both correctly apply the destination step's visibility
+- [x] #3 Steps without visibility flags show the default pane layout (no regression for existing tours)
+- [x] #4 Hidden panes do not leave empty space or broken layout in the playback view
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -169,3 +170,22 @@ Add cases in `TourPlayback.test.tsx`:
 ### Verification
 Run `npm test` in `web/`. All existing TourPlayback tests must pass; new tests must pass.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation was delivered as part of commit 1b9570a (feat(web): per-step pane visibility control in tour mode). Key changes in TourPlayback.tsx:
+
+- Derives `schemaVisible` / `planVisible` from `activeStep?.paneVisibility?.schema !== false` and `activeStep?.paneVisibility?.plan !== false`. Undefined (no flags) defaults to `true` — backward-compatible.
+- Desktop layout: conditionally renders `.tour-playback__schema-panel` and `.tour-playback__plan-panel` behind those booleans. Applies `tour-playback__right--hidden` modifier class when both panes are hidden.
+- Mobile layout: conditionally renders the Schema and Plan tab bar buttons; a `useEffect` on `[stepIndex, schemaVisible, planVisible, mobileTab]` resets `mobileTab` to `'tour'` when the active tab becomes hidden.
+- CSS: `.tour-playback__right--hidden { display: none; }` collapses the empty right column.
+
+5 new tests in the `per-step pane visibility` describe block in `TourPlayback.test.tsx`, plus 2 in `mobile pane visibility`. All 258 tests pass.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Enforced per-step pane visibility in TourPlayback during tour playback. The feature derives `schemaVisible`/`planVisible` from `activeStep.paneVisibility` using `!== false` semantics (undefined = visible, explicit false = hidden). Desktop layout conditionally renders each panel and applies `.tour-playback__right--hidden` when both are hidden. Mobile layout conditionally shows/hides tab buttons and resets the active tab to 'tour' via a `useEffect` when the current tab becomes invisible. CSS rule `display: none` on the `--hidden` modifier collapses the empty right column. 7 new tests covering all ACs; all 258 tests pass. Implementation shipped in commit 1b9570a."
+<!-- SECTION:FINAL_SUMMARY:END -->
