@@ -98,6 +98,17 @@ pub fn node_at_position(sdl: &str, line: u32, col: u32) -> Value {
                     }
                 }
             }
+            ExtendedType::Union(union_def) => {
+                if union_def.is_built_in() {
+                    continue;
+                }
+                // Unions have member types, not fields — resolve to typeName only.
+                if let Some(range) = union_def.line_column_range(sources) {
+                    if contains(range) {
+                        return json!({ "typeName": type_name.as_str() });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -202,6 +213,36 @@ interface Node {\n\
         let result = node_at_position(TEST_SDL, 2, 4);
         assert_eq!(result["typeName"].as_str().unwrap(), "Query");
         assert_eq!(result["fieldName"].as_str().unwrap(), "hello");
+    }
+
+    #[test]
+    fn union_type_line_returns_type_name() {
+        // SDL line numbers (1-based):
+        //  1: type Query {
+        //  2:   search: SearchResult
+        //  3: }
+        //  4: union SearchResult = Product | Review
+        //  5: type Product {
+        //  6:   id: ID!
+        //  7: }
+        //  8: type Review {
+        //  9:   body: String
+        // 10: }
+        let sdl = "\
+type Query {\n\
+  search: SearchResult\n\
+}\n\
+union SearchResult = Product | Review\n\
+type Product {\n\
+  id: ID!\n\
+}\n\
+type Review {\n\
+  body: String\n\
+}\n";
+        // Line 4, col 7 is inside `union SearchResult = ...`
+        let result = node_at_position(sdl, 4, 7);
+        assert_eq!(result["typeName"].as_str().unwrap(), "SearchResult");
+        assert!(result.get("fieldName").is_none(), "unions have no fields");
     }
 
     #[test]

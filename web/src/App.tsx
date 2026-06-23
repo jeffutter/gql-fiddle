@@ -445,7 +445,7 @@ export default function App() {
     } else {
       // Find the type or interface declaration line.
       for (let i = 0; i < lines.length; i++) {
-        if (new RegExp(`^(type|interface)\\s+${anchor.typeName}[\\s{@]`).test(lines[i])) {
+        if (new RegExp(`^(type|interface|union)\\s+${anchor.typeName}[\\s{@]`).test(lines[i])) {
           targetLine = i + 1;
           break;
         }
