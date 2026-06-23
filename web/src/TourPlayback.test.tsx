@@ -463,6 +463,84 @@ describe("TourPlayback", () => {
     });
   });
 
+  describe("step index (TASK-83)", () => {
+    const tourWithEmptyLabels: Tour = {
+      ...sampleTour,
+      steps: [
+        { label: "", prose: "First step prose." },
+        { label: "", prose: "Second step prose." },
+        { label: "Named Step", prose: "Third step prose." },
+      ],
+    };
+
+    it("AC#1: .tour-step-index is present in the desktop prose panel", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      const prosePanel = container.querySelector(".tour-playback__prose-panel");
+      expect(prosePanel).not.toBeNull();
+      expect(prosePanel!.querySelector(".tour-step-index")).not.toBeNull();
+    });
+
+    it("AC#2: clicking a step-index item navigates to that step", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByTestId("step-counter").textContent).toBe("1 / 2");
+      // Click the second step button in the index (index 1).
+      const indexItems = container.querySelectorAll(".tour-step-index__item button");
+      expect(indexItems.length).toBe(2);
+      fireEvent.click(indexItems[1]);
+      expect(screen.getByTestId("step-counter").textContent).toBe("2 / 2");
+    });
+
+    it("AC#3: the active item has is-active; others do not", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      const items = container.querySelectorAll(".tour-step-index__item");
+      expect(items[0].classList.contains("is-active")).toBe(true);
+      expect(items[1].classList.contains("is-active")).toBe(false);
+    });
+
+    it("AC#3: navigating updates the is-active class to the new step", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      const items = container.querySelectorAll(".tour-step-index__item");
+      expect(items[0].classList.contains("is-active")).toBe(false);
+      expect(items[1].classList.contains("is-active")).toBe(true);
+    });
+
+    it("AC#4: empty step labels fall back to 'Step N' in the index", () => {
+      const { container } = render(<TourPlayback tour={tourWithEmptyLabels} />);
+      const labels = container.querySelectorAll(".tour-step-index__label");
+      expect(labels[0].textContent).toBe("Step 1");
+      expect(labels[1].textContent).toBe("Step 2");
+      expect(labels[2].textContent).toBe("Named Step");
+    });
+
+    it("AC#5: .tour-step-index is present in the mobile tour tab", () => {
+      Object.defineProperty(window, "innerWidth", {
+        value: 375,
+        writable: true,
+        configurable: true,
+      });
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      // The "tour" tab is active by default on mobile.
+      const prosePanel = container.querySelector(".tour-playback__prose-panel");
+      expect(prosePanel).not.toBeNull();
+      expect(prosePanel!.querySelector(".tour-step-index")).not.toBeNull();
+      Object.defineProperty(window, "innerWidth", {
+        value: 1024,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it("AC#6: ArrowRight moves is-active to the next index item", () => {
+      const { container } = render(<TourPlayback tour={sampleTour} />);
+      const items = container.querySelectorAll(".tour-step-index__item");
+      expect(items[0].classList.contains("is-active")).toBe(true);
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+      expect(items[0].classList.contains("is-active")).toBe(false);
+      expect(items[1].classList.contains("is-active")).toBe(true);
+    });
+  });
+
   describe("per-step pane visibility (TASK-71)", () => {
     it("schema panel is absent when paneVisibility.schema = false", () => {
       const tour: Tour = {

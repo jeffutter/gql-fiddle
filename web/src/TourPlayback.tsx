@@ -105,6 +105,33 @@ function ProseRenderer({ prose }: { prose: string }) {
   );
 }
 
+interface StepIndexProps {
+  steps: Tour["steps"];
+  stepIndex: number;
+  setStepIndex: (i: number) => void;
+}
+
+function StepIndex({ steps, stepIndex, setStepIndex }: StepIndexProps) {
+  return (
+    <ol className="tour-step-index" aria-label="Step index">
+      {steps.map((step, i) => (
+        <li
+          key={i}
+          className={i === stepIndex ? "tour-step-index__item is-active" : "tour-step-index__item"}
+        >
+          <button
+            onClick={() => setStepIndex(i)}
+            aria-current={i === stepIndex ? "step" : undefined}
+          >
+            <span className="tour-step-index__num">{i + 1}</span>
+            <span className="tour-step-index__label">{step.label || `Step ${i + 1}`}</span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 interface TourPlaybackProps {
   tour: Tour;
   initialStepIndex?: number;
@@ -362,8 +389,8 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
               data-testid="onboarding-hint"
             >
               <span className="tour-onboarding-hint__body">
-                Use the <strong>← Prev</strong> / <strong>Next →</strong> buttons or <kbd>←</kbd>{" "}
-                <kbd>→</kbd> arrow keys to navigate steps.
+                Use the <strong>← Prev</strong> / <strong>Next →</strong> buttons, <kbd>←</kbd>{" "}
+                <kbd>→</kbd> arrow keys, or the step index to navigate steps.
               </span>
               <button
                 className="btn btn--icon tour-onboarding-hint__dismiss"
@@ -383,6 +410,7 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
                 </h2>
               )}
               <ProseRenderer prose={activeStep?.prose ?? ""} />
+              <StepIndex steps={tour.steps} stepIndex={stepIndex} setStepIndex={setStepIndex} />
             </div>
           )}
           {mobileTab === "schema" && schemaVisible && (
@@ -560,8 +588,8 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
               data-testid="onboarding-hint"
             >
               <span className="tour-onboarding-hint__body">
-                Use the <strong>← Prev</strong> / <strong>Next →</strong> buttons or <kbd>←</kbd>{" "}
-                <kbd>→</kbd> arrow keys to navigate steps.
+                Use the <strong>← Prev</strong> / <strong>Next →</strong> buttons, <kbd>←</kbd>{" "}
+                <kbd>→</kbd> arrow keys, or the step index to navigate steps.
               </span>
               <button
                 className="btn btn--icon tour-onboarding-hint__dismiss"
@@ -579,6 +607,7 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
             </h2>
           )}
           <ProseRenderer prose={activeStep?.prose ?? ""} />
+          <StepIndex steps={tour.steps} stepIndex={stepIndex} setStepIndex={setStepIndex} />
         </div>
 
         {/* Right column: schema editor (top) + query plan (bottom) */}

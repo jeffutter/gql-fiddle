@@ -1495,3 +1495,63 @@ body {
   padding: 2px 6px;
   font-size: 11px;
 }
+
+/* ── Tour step index ─────────────────────────────────────── */
+.tour-step-index {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.tour-step-index__item {
+  display: flex;
+}
+
+.tour-step-index__item button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-muted);
+  font-size: 13px;
+  transition: background 0.1s;
+}
+
+.tour-step-index__item button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.tour-step-index__num {
+  flex-shrink: 0;
+  width: 1.6em;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.tour-step-index__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tour-step-index__item.is-active button {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tour-step-index__item.is-active .tour-step-index__num {
+  color: var(--accent);
+}
