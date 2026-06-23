@@ -345,6 +345,37 @@ describe("TourPlayback", () => {
     });
   });
 
+  describe("preview mode (TASK-79)", () => {
+    it("initialStepIndex starts playback at the given step", () => {
+      render(<TourPlayback tour={sampleTour} initialStepIndex={1} />);
+      expect(screen.getByTestId("step-counter").textContent).toBe("2 / 2");
+    });
+
+    it("Exit Preview button is shown when onExitPreview is provided", () => {
+      const fn = vi.fn();
+      render(<TourPlayback tour={sampleTour} onExitPreview={fn} />);
+      expect(screen.getByRole("button", { name: /exit preview/i })).toBeTruthy();
+    });
+
+    it("Open in Fiddle button is absent when onExitPreview is provided", () => {
+      const fn = vi.fn();
+      render(<TourPlayback tour={sampleTour} onExitPreview={fn} />);
+      expect(screen.queryByRole("button", { name: /open in fiddle/i })).toBeNull();
+    });
+
+    it("clicking Exit Preview calls onExitPreview", () => {
+      const fn = vi.fn();
+      render(<TourPlayback tour={sampleTour} onExitPreview={fn} />);
+      fireEvent.click(screen.getByRole("button", { name: /exit preview/i }));
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it("Open in Fiddle button is shown when onExitPreview is absent", () => {
+      render(<TourPlayback tour={sampleTour} />);
+      expect(screen.getByRole("button", { name: /open in fiddle/i })).toBeTruthy();
+    });
+  });
+
   describe("per-step pane visibility (TASK-71)", () => {
     it("schema panel is absent when paneVisibility.schema = false", () => {
       const tour: Tour = {
