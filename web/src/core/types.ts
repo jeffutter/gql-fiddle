@@ -114,7 +114,16 @@ export interface GqlCore {
   compose(subgraphs: SubgraphInput[]): ComposeResult;
   validateQuery(supergraphSdl: string, operation: string): { diagnostics: Diagnostic[] };
   plan(supergraphSdl: string, operation: string, opName?: string): PlanResult;
-  executeMock(supergraphSdl: string, operation: string, seed: number): MockResult;
+  /**
+   * Mock-execute an operation. `mockConfig` is a JSON string (not YAML) mapping
+   * "TypeName.fieldName" keys to override rules. Pass `"{}"` for default behaviour.
+   */
+  executeMock(
+    supergraphSdl: string,
+    operation: string,
+    seed: number,
+    mockConfig: string,
+  ): MockResult;
   nodeAtPosition(
     sdl: string,
     line: number,

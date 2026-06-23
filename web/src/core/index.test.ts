@@ -126,7 +126,7 @@ describe("loadCore", () => {
     expect(typeof planResult).toBe("object");
 
     // executeMock: seed -> object with data
-    const mockResult = core.executeMock("type Query { x: ID }", "{ x }", 42);
+    const mockResult = core.executeMock("type Query { x: ID }", "{ x }", 42, "{}");
     expect(typeof mockResult).toBe("object");
     expect(mockResult.data).toBeDefined();
   });

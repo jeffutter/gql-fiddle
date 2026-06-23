@@ -69,9 +69,13 @@ pub fn plan(supergraph_sdl: &str, operation: &str, op_name: Option<String>) -> S
 /// Mock-execute an operation against the composed API schema. Deterministic in
 /// `seed`: same schema + operation + seed yields identical data. Variables are
 /// auto-generated from the operation's declared variable definitions.
+///
+/// `mock_config` is a JSON string mapping `"TypeName.fieldName"` keys to
+/// override rules (`enum`, `unionType`, `value`, `null`). Pass `"{}"` for
+/// default behaviour (no overrides).
 #[wasm_bindgen]
-pub fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64) -> String {
-    mock::execute_mock(supergraph_sdl, operation, seed).to_string()
+pub fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64, mock_config: &str) -> String {
+    mock::execute_mock(supergraph_sdl, operation, seed, mock_config).to_string()
 }
 
 /// Find the type or field definition at a 1-based (line, col) position in a subgraph SDL.

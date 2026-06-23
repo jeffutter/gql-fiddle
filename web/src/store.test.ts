@@ -200,12 +200,53 @@ describe("workspace store", () => {
     });
   });
 
+  describe("mockConfig (TASK-78)", () => {
+    it("setMockConfig updates the mockConfig field", () => {
+      useWorkspace.setState({ mockConfig: "" });
+      useWorkspace.getState().setMockConfig("User.name:\n  enum: [Alice]");
+      expect(useWorkspace.getState().mockConfig).toBe("User.name:\n  enum: [Alice]");
+    });
+
+    it("setMockConfig can clear the config to empty string", () => {
+      useWorkspace.setState({ mockConfig: "User.name:\n  enum: [Alice]" });
+      useWorkspace.getState().setMockConfig("");
+      expect(useWorkspace.getState().mockConfig).toBe("");
+    });
+
+    it("mockConfig is included in computeOverrides diff when changed", () => {
+      const base: WorkspacePayload = {
+        subgraphs: [{ name: "a", sdl: "" }],
+        queryTabs: [{ name: "Q", query: "" }],
+        activeQueryTab: 0,
+        seed: 1,
+        mockConfig: "",
+      };
+      const current: WorkspacePayload = { ...base, mockConfig: "User.role:\n  enum: [ADMIN]" };
+      const result = computeOverrides(base, current);
+      expect(result).toEqual({ mockConfig: "User.role:\n  enum: [ADMIN]" });
+    });
+
+    it("mockConfig unchanged produces no override in computeOverrides", () => {
+      const base: WorkspacePayload = {
+        subgraphs: [{ name: "a", sdl: "" }],
+        queryTabs: [{ name: "Q", query: "" }],
+        activeQueryTab: 0,
+        seed: 1,
+        mockConfig: "User.name:\n  enum: [Alice]",
+      };
+      const current: WorkspacePayload = { ...base };
+      const result = computeOverrides(base, current);
+      expect(result).toBeUndefined();
+    });
+  });
+
   describe("computeOverrides (TASK-66)", () => {
     const base: WorkspacePayload = {
       subgraphs: [{ name: "a", sdl: "type Query { x: Int }" }],
       queryTabs: [{ name: "Q1", query: "{ x }" }],
       activeQueryTab: 0,
       seed: 42,
+      mockConfig: "",
     };
 
     it("returns undefined when current equals base", () => {
@@ -229,12 +270,14 @@ describe("workspace store", () => {
         queryTabs: [{ name: "Q2", query: "{ y }" }],
         activeQueryTab: 1,
         seed: 7,
+        mockConfig: "User.name:\n  enum: [Alice]",
       };
       const result = computeOverrides(base, current);
       expect(result).toHaveProperty("subgraphs");
       expect(result).toHaveProperty("queryTabs");
       expect(result).toHaveProperty("activeQueryTab", 1);
       expect(result).toHaveProperty("seed", 7);
+      expect(result).toHaveProperty("mockConfig", "User.name:\n  enum: [Alice]");
     });
   });
 
@@ -244,6 +287,7 @@ describe("workspace store", () => {
       queryTabs: [{ name: "Q", query: "{ a }" }],
       activeQueryTab: 0,
       seed: 1,
+      mockConfig: "",
     };
 
     beforeEach(() => {
@@ -252,6 +296,7 @@ describe("workspace store", () => {
         queryTabs: baseTourPayload.queryTabs,
         activeQueryTab: baseTourPayload.activeQueryTab,
         seed: baseTourPayload.seed,
+        mockConfig: baseTourPayload.mockConfig,
         tourDraft: {
           title: "My Tour",
           base: baseTourPayload,

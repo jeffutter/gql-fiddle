@@ -720,8 +720,8 @@ describe("App", () => {
       expect(mockExecuteMock).toHaveBeenCalledTimes(1);
     });
 
-    // executeMock must have been called with schema, query, and seed.
-    expect(mockExecuteMock).toHaveBeenCalledWith("# supergraph", testQuery, testSeed);
+    // executeMock must have been called with schema, query, seed, and mockConfig.
+    expect(mockExecuteMock).toHaveBeenCalledWith("# supergraph", testQuery, testSeed, "{}");
 
     // Navigate to the Output tab in the Results panel to see the JSON.
     fireEvent.click(screen.getByRole("button", { name: /^Output$/ }));
@@ -1468,6 +1468,7 @@ describe("App", () => {
       queryTabs: [{ name: "Query 1", query: "" }],
       activeQueryTab: 0,
       seed: 42,
+      mockConfig: "",
     };
     const expectedHash = encode(payload);
     // pathname is "/", so the URL is origin + pathname + hash.

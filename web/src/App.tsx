@@ -28,6 +28,7 @@ import { schemaToEntityGraph } from "./schemaToEntityGraph";
 import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
 import { TypeGraph } from "./TypeGraph";
 import { QueryShape } from "./QueryShape";
+import * as jsYaml from "js-yaml";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -149,6 +150,8 @@ export default function App() {
     setTourDraft,
     tourActiveStep,
     setStepAnchor,
+    mockConfig,
+    setMockConfig,
   } = useWorkspace();
   const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
   const [playbackTour, setPlaybackTour] = useState<Tour | null>(null);
@@ -161,6 +164,8 @@ export default function App() {
   const [renameQueryValue, setRenameQueryValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
+  const [showMockConfig, setShowMockConfig] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [outputTab, setOutputTab] = useState<"type-graph" | "entities" | "sdl">("type-graph");
   const [resultsTab, setResultsTab] = useState<
     "plan" | "sequence" | "timeline" | "schema-tree" | "output"
@@ -234,6 +239,7 @@ export default function App() {
         queryTabs: payload.queryTabs,
         activeQueryTab: payload.activeQueryTab ?? 0,
         seed: payload.seed,
+        mockConfig: payload.mockConfig ?? "",
         activeSubgraph: 0,
       });
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -620,6 +626,7 @@ export default function App() {
       queryTabs,
       activeQueryTab,
       seed,
+      mockConfig,
     };
     const encodedHash = encode(payload);
     // Build origin — handle JSDOM where location.origin/hostname may be undefined.
@@ -649,7 +656,7 @@ export default function App() {
   }
 
   function createTour() {
-    const base: WorkspacePayload = { subgraphs, queryTabs, activeQueryTab, seed };
+    const base: WorkspacePayload = { subgraphs, queryTabs, activeQueryTab, seed, mockConfig };
     setTourDraft({ title: "Untitled Tour", base, steps: [] });
     setTourAuthoringOpen(true);
   }
@@ -682,10 +689,29 @@ export default function App() {
     }
   }
 
+  /**
+   * Parse a YAML string into a JSON string suitable for passing to
+   * `core.executeMock`. Returns `"{}"` and sets `configError` on parse
+   * failure so the query still runs with default generation.
+   */
+  function parseYamlToJson(yaml: string): string {
+    if (!yaml.trim()) return "{}";
+    try {
+      const parsed = jsYaml.load(yaml);
+      if (parsed === null || parsed === undefined) return "{}";
+      setConfigError(null);
+      return JSON.stringify(parsed);
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Invalid YAML");
+      return "{}";
+    }
+  }
+
   async function doRun(query: string, sdl: string, s: number) {
     const core = await loadCore();
+    const mockConfigJson = parseYamlToJson(mockConfig);
     const [execResult, plan] = await Promise.all([
-      Promise.resolve(core.executeMock(sdl, query, s)),
+      Promise.resolve(core.executeMock(sdl, query, s, mockConfigJson)),
       Promise.resolve(core.plan(sdl, query)),
     ]);
     setMockResult(execResult);
@@ -795,9 +821,12 @@ export default function App() {
       {queryTabs.map((tab, i) => (
         <button
           key={i}
-          onClick={() => setActiveQueryTab(i)}
-          aria-pressed={i === activeQueryTab}
-          className={i === activeQueryTab ? "tab is-active" : "tab"}
+          onClick={() => {
+            setActiveQueryTab(i);
+            setShowMockConfig(false);
+          }}
+          aria-pressed={!showMockConfig && i === activeQueryTab}
+          className={!showMockConfig && i === activeQueryTab ? "tab is-active" : "tab"}
         >
           {renamingQueryTab === i ? (
             <input
@@ -848,6 +877,17 @@ export default function App() {
       ))}
       <button className="btn btn--icon" onClick={() => addQueryTab()}>
         +
+      </button>
+      {/* Right-aligned Mock Config tab — visually separated from query tabs */}
+      <button
+        onClick={() => setShowMockConfig(!showMockConfig)}
+        aria-pressed={showMockConfig}
+        className={showMockConfig ? "tab is-active" : "tab"}
+        style={{ marginLeft: "auto" }}
+        title="Configure mock data overrides (YAML)"
+        data-testid="mock-config-tab"
+      >
+        Mock Config
       </button>
     </nav>
   );
@@ -981,6 +1021,15 @@ export default function App() {
 
   const resultsContent = (
     <div className="scroll">
+      {configError !== null && (
+        <div className="callout callout--warning" style={{ marginBottom: 8 }}>
+          <strong>Mock Config YAML error:</strong> {configError}
+          <br />
+          <span style={{ fontSize: "0.85em", opacity: 0.8 }}>
+            Running with defaults — fix the YAML to apply overrides.
+          </span>
+        </div>
+      )}
       {mockResult === null ? (
         <p className="empty-state">No results yet. Click Run.</p>
       ) : (
@@ -1157,36 +1206,68 @@ export default function App() {
                 <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
                   <button
                     onClick={() =>
-                      setViewSource({
-                        title: "Query",
-                        value: currentQuery,
-                        onEdit: (v) => setQueryTabQuery(activeQueryTab, v),
-                      })
+                      showMockConfig
+                        ? setViewSource({
+                            title: "Mock Config",
+                            value: mockConfig,
+                            onEdit: (v) => setMockConfig(v),
+                          })
+                        : setViewSource({
+                            title: "Query",
+                            value: currentQuery,
+                            onEdit: (v) => setQueryTabQuery(activeQueryTab, v),
+                          })
                     }
                     className="btn"
                   >
                     Select text
                   </button>
                 </div>
-                <div
-                  data-testid="query-editor"
-                  className="editor"
-                  style={{ flex: 1, minHeight: 0 }}
-                >
-                  <Editor
-                    language="graphql"
-                    path={`query-${activeQueryTab}.graphql`}
-                    value={currentQuery}
-                    onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
-                    height="100%"
-                    options={QUERY_EDITOR_OPTIONS}
-                    theme={MONACO_THEME}
-                    beforeMount={(m) => defineMonacoTheme(m)}
-                    onMount={(ed) => {
-                      queryEditorRef.current = ed;
-                    }}
-                  />
-                </div>
+                {showMockConfig ? (
+                  <div
+                    data-testid="mock-config-editor"
+                    className="editor"
+                    style={{ flex: 1, minHeight: 0 }}
+                  >
+                    <Editor
+                      language="yaml"
+                      path="mock-config.yaml"
+                      value={mockConfig}
+                      defaultValue={[
+                        "# Mock Config — override what the mock executor generates.",
+                        "# Keys are TypeName.fieldName. Example:",
+                        "#",
+                        "# User.name:",
+                        "#   enum: [Alice, Bob, Carol]",
+                      ].join("\n")}
+                      onChange={(v) => setMockConfig(v ?? "")}
+                      height="100%"
+                      options={EDITOR_OPTIONS}
+                      theme={MONACO_THEME}
+                      beforeMount={(m) => defineMonacoTheme(m)}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    data-testid="query-editor"
+                    className="editor"
+                    style={{ flex: 1, minHeight: 0 }}
+                  >
+                    <Editor
+                      language="graphql"
+                      path={`query-${activeQueryTab}.graphql`}
+                      value={currentQuery}
+                      onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
+                      height="100%"
+                      options={QUERY_EDITOR_OPTIONS}
+                      theme={MONACO_THEME}
+                      beforeMount={(m) => defineMonacoTheme(m)}
+                      onMount={(ed) => {
+                        queryEditorRef.current = ed;
+                      }}
+                    />
+                  </div>
+                )}
                 <SubgraphLegend services={activePlanServices} />
                 {seedAndRun}
                 {supergraphSdl === null && (
@@ -1470,21 +1551,52 @@ export default function App() {
                       Query
                     </h2>
                     {queryTabStrip}
-                    <div data-testid="query-editor" className="editor">
-                      <Editor
-                        language="graphql"
-                        path={`query-${activeQueryTab}.graphql`}
-                        value={currentQuery}
-                        onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
-                        height="100%"
-                        options={QUERY_EDITOR_OPTIONS}
-                        theme={MONACO_THEME}
-                        beforeMount={(m) => defineMonacoTheme(m)}
-                        onMount={(ed) => {
-                          queryEditorRef.current = ed;
-                        }}
-                      />
-                    </div>
+                    {showMockConfig ? (
+                      <div data-testid="mock-config-editor" className="editor">
+                        <Editor
+                          language="yaml"
+                          path="mock-config.yaml"
+                          value={mockConfig}
+                          defaultValue={[
+                            "# Mock Config — override what the mock executor generates.",
+                            "# Keys are TypeName.fieldName. Example:",
+                            "#",
+                            "# User.name:",
+                            "#   enum: [Alice, Bob, Carol]",
+                            "#",
+                            "# Query.search:",
+                            "#   unionType: Product",
+                            "#",
+                            "# Product.price:",
+                            "#   value: 42",
+                            "#",
+                            "# User.deletedAt:",
+                            "#   null: true",
+                          ].join("\n")}
+                          onChange={(v) => setMockConfig(v ?? "")}
+                          height="100%"
+                          options={EDITOR_OPTIONS}
+                          theme={MONACO_THEME}
+                          beforeMount={(m) => defineMonacoTheme(m)}
+                        />
+                      </div>
+                    ) : (
+                      <div data-testid="query-editor" className="editor">
+                        <Editor
+                          language="graphql"
+                          path={`query-${activeQueryTab}.graphql`}
+                          value={currentQuery}
+                          onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
+                          height="100%"
+                          options={QUERY_EDITOR_OPTIONS}
+                          theme={MONACO_THEME}
+                          beforeMount={(m) => defineMonacoTheme(m)}
+                          onMount={(ed) => {
+                            queryEditorRef.current = ed;
+                          }}
+                        />
+                      </div>
+                    )}
                     <SubgraphLegend services={activePlanServices} />
                   </div>
                 </Panel>

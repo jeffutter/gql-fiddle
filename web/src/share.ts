@@ -5,6 +5,8 @@ export interface WorkspacePayload {
   queryTabs: { name: string; query: string }[];
   activeQueryTab: number;
   seed: number;
+  /** Raw YAML mock config string. Optional for backward compat with older share URLs. */
+  mockConfig?: string;
 }
 
 export type PaneId = "schema" | "plan";
@@ -78,7 +80,13 @@ export function decode(hash: string): WorkspacePayload {
       queryTabs: [{ name: "Query 1", query: q }],
       activeQueryTab: 0,
       seed: typeof parsed.seed === "number" ? parsed.seed : 42,
+      mockConfig: typeof parsed.mockConfig === "string" ? parsed.mockConfig : "",
     };
+  }
+
+  // Backward compat: URLs encoded before TASK-78 do not have mockConfig.
+  if (typeof parsed.mockConfig !== "string") {
+    parsed.mockConfig = "";
   }
 
   return parsed as unknown as WorkspacePayload;

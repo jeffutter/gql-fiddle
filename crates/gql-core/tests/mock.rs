@@ -76,8 +76,8 @@ fn determinism_same_seed_identical_output() {
     let seed = 42u64;
 
     // Run twice with identical inputs.
-    let output_a = execute_mock(supergraph_sdl, operation, seed);
-    let output_b = execute_mock(supergraph_sdl, operation, seed);
+    let output_a = execute_mock(supergraph_sdl, operation, seed, "{}");
+    let output_b = execute_mock(supergraph_sdl, operation, seed, "{}");
 
     // Parse both as JSON and assert they are equal.
     let val_a: serde_json::Value = serde_json::from_str(&output_a).unwrap();
@@ -154,7 +154,7 @@ fn ac2_nullability_nonnull_fields_are_never_null() {
         }
     "#;
 
-    let output = execute_mock(supergraph_sdl, operation, 42);
+    let output = execute_mock(supergraph_sdl, operation, 42, "{}");
     let result: serde_json::Value = serde_json::from_str(&output).expect("valid JSON envelope");
     let data = result["data"]
         .as_object()
@@ -240,7 +240,7 @@ fn ac2_list_fields_have_length_three() {
         }
     "#;
 
-    let output = execute_mock(supergraph_sdl, operation, 42);
+    let output = execute_mock(supergraph_sdl, operation, 42, "{}");
     let result: serde_json::Value = serde_json::from_str(&output).expect("valid JSON envelope");
     let data = result["data"]
         .as_object()
@@ -300,7 +300,7 @@ fn ac2_skip_include_honored_via_literals() {
         }
     "#;
 
-    let output_a = execute_mock(supergraph_sdl, operation_a, 42);
+    let output_a = execute_mock(supergraph_sdl, operation_a, 42, "{}");
     let result_a: serde_json::Value = serde_json::from_str(&output_a).expect("valid JSON envelope");
     let user_a = &result_a["data"]["user"];
     assert!(
@@ -327,7 +327,7 @@ fn ac2_skip_include_honored_via_literals() {
         }
     "#;
 
-    let output_b = execute_mock(supergraph_sdl, operation_b, 42);
+    let output_b = execute_mock(supergraph_sdl, operation_b, 42, "{}");
     let result_b: serde_json::Value = serde_json::from_str(&output_b).expect("valid JSON envelope");
     let user_b = &result_b["data"]["user"];
     assert!(
