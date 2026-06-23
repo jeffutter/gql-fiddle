@@ -157,5 +157,28 @@ export function planToTimeline(root: PlanNode): TimelineData {
       item.depthEnd <= criticalEnd,
   }));
 
-  return { items: finalItems, services, maxDepth };
+  // Merge bars from the same service at the same depth column into one bar.
+  // Parallel branches can place multiple fetches to the same service at the
+  // same depth, producing SVG bars that overlap exactly. Merging makes all of
+  // them visible as a single bar with a combined label.
+  const mergeMap = new Map<string, TimelineItem>();
+  const mergedItems: TimelineItem[] = [];
+  for (const item of finalItems) {
+    const key = `${item.service}:${item.depthStart}`;
+    const existing = mergeMap.get(key);
+    if (existing) {
+      const existingLabels = new Set(existing.label.split(", "));
+      if (!existingLabels.has(item.label)) {
+        existing.label = `${existing.label}, ${item.label}`;
+      }
+      if (item.isEntityFetch) existing.isEntityFetch = true;
+      if (!item.isOnCriticalPath) existing.isOnCriticalPath = false;
+    } else {
+      const cloned = { ...item };
+      mergeMap.set(key, cloned);
+      mergedItems.push(cloned);
+    }
+  }
+
+  return { items: mergedItems, services, maxDepth };
 }

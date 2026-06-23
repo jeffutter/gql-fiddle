@@ -127,6 +127,60 @@ describe("planToTimeline", () => {
     expect(data.services[0]).toBe("users");
   });
 
+  it("same-service same-depth merge — parallel branches to the same service are merged into one bar", () => {
+    // Two parallel Sequences each ending with a Fetch to 'reviews'.
+    // Both blueprint fetches land at depth 2; without merging they would
+    // overlap exactly in the SVG and only the last-rendered label would be
+    // visible.
+    const fetchReviewsA: PlanNode = {
+      kind: "Fetch",
+      service: "reviews",
+      operation: "{ reviewsForUser }",
+      operation_kind: "query",
+      entity_types: ["UserReview"],
+    };
+    const fetchReviewsB: PlanNode = {
+      kind: "Fetch",
+      service: "reviews",
+      operation: "{ reviewsForProduct }",
+      operation_kind: "query",
+      entity_types: ["ProductReview"],
+    };
+    const node: PlanNode = {
+      kind: "Sequence",
+      nodes: [
+        FETCH_USERS,
+        {
+          kind: "Parallel",
+          nodes: [
+            { kind: "Sequence", nodes: [FETCH_PRODUCTS, fetchReviewsA] },
+            {
+              kind: "Sequence",
+              nodes: [
+                {
+                  kind: "Fetch",
+                  service: "orders",
+                  operation: "{ orders }",
+                  operation_kind: "query",
+                },
+                fetchReviewsB,
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const data = planToTimeline(node);
+    // reviews appears twice at depth 2 → merged into one item with combined label
+    const reviewItems = data.items.filter((i) => i.service === "reviews");
+    expect(reviewItems).toHaveLength(1);
+    expect(reviewItems[0].label).toBe("UserReview, ProductReview");
+    expect(reviewItems[0].depthStart).toBe(2);
+    expect(reviewItems[0].isEntityFetch).toBe(true);
+    // Services list should still contain reviews exactly once
+    expect(data.services.filter((s) => s === "reviews")).toHaveLength(1);
+  });
+
   it("Subscription — primary and rest are sequential", () => {
     const node: PlanNode = {
       kind: "Subscription",

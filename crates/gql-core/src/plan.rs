@@ -466,4 +466,157 @@ mod tests {
         }
         services
     }
+
+    #[test]
+    #[ignore = "diagnostic helper: writes plan JSON to /tmp/mp_plan.json"]
+    fn write_marketplace_plan() {
+        let floorplan = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10",
+        import: ["@key", "@inaccessible"])
+type Query { page(path: String!, openSection: ID): Page }
+type Page { id: ID! sections: [SectionStub!]! openSection: Section }
+union SectionStub = BasicSectionStub | BadgeSectionStub
+type BasicSectionStub @key(fields: "id") { id: ID! data: SectionStubData! @inaccessible }
+type BadgeSectionStub @key(fields: "id") { id: ID! data: SectionStubData! @inaccessible badgeData: BadgeSectionStubData! @inaccessible }
+type SectionStubData { label: String }
+union BadgeSectionStubData = RewardCount | PromoCount
+type RewardCount @key(fields: "id") { id: ID! }
+type PromoCount @key(fields: "id") { id: ID! }
+type Section { id: ID! children: [Container!]! }
+interface Container { id: ID! children: [Component!]! }
+type StaticContainer implements Container { id: ID! children: [Component!]! }
+type MarketList implements Container @key(fields: "id") { id: ID! children: [Component!]! marketParameters: MarketParameters @inaccessible }
+type MarketParameters { organization: String! sport: String! competition: String! limit: Int! }
+union Component = EmptyComponent | MyRewardsUI | MyPromoListUI
+type EmptyComponent { id: ID! }
+type MyRewardsUI @key(fields: "id") { id: ID! data: MyRewardsList @inaccessible }
+type MyRewardsList @key(fields: "id") { id: ID! }
+type MyPromoListUI @key(fields: "id") { id: ID! data: MyPromosList @inaccessible }
+type MyPromosList @key(fields: "id") { id: ID! }"#;
+
+        let promos = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])
+type PromoCount @key(fields: "id") { id: ID! count: Int! }
+type MyPromosList @key(fields: "id") { id: ID! promos: [Promo!]! }
+type Promo { id: ID! name: String! details: String! tags: [String!]! }"#;
+
+        let loyalty = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])
+type RewardCount @key(fields: "id") { id: ID! count: Int! }
+type MyRewardsList @key(fields: "id") { id: ID! rewards: [Reward!]! }
+type Reward { id: ID! name: String! amount: Int! tags: [String!]! }"#;
+
+        let blueprint = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key", "@external", "@requires"])
+type BasicSectionStub @key(fields: "id") { id: ID! label: String! @requires(fields: "data { label }") data: SectionStubData! @external }
+type BadgeSectionStub @key(fields: "id") { id: ID! label: String! @requires(fields: "data { label }") count: Int! @requires(fields: "badgeData { ...on RewardCount { count } ...on PromoCount { count } }") data: SectionStubData! @external badgeData: BadgeSectionStubData! @external }
+type SectionStubData @external { label: String }
+union BadgeSectionStubData = RewardCount | PromoCount
+type RewardCount @external { count: Int! }
+type PromoCount @external { count: Int! }
+type MyRewardsUI @key(fields: "id") { id: ID! filters: [FilterPill!]! @requires(fields: "data { rewards { tags } }") rewards: [RewardUI!]! @requires(fields: "data { rewards { name amount tags } }") data: MyRewardsList @external }
+type RewardUI { name: String! redeem: Interaction }
+type MyRewardsList @external { rewards: [Reward!]! }
+type Reward @external { name: String! amount: Int! tags: [String!]! }
+type MyPromoListUI @key(fields: "id") { id: ID! filters: [FilterPill!]! @requires(fields: "data { promos { tags } }") promos: [PromoUI!]! @requires(fields: "data { promos { name details tags } }") data: MyPromosList @external }
+type PromoUI { name: String! redeem: Interaction }
+type MyPromosList @external { promos: [Promo!]! }
+type Promo @external { name: String! details: String! tags: [String!]! }
+type MarketCardUI @key(fields: "id") { id: ID! data: MarketData @external title: String! @requires(fields: "data { title }") cells: [MarketCell!]! @requires(fields: "data { selections { name odds { numerator denominator } } }") }
+type MarketCell { label: String! interaction: Interaction! }
+type MarketData @external { title: String! selections: [Selection!]! }
+type Selection @external { name: String! odds: Odds! }
+type Odds @external { numerator: Int! denominator: Int! }
+type FilterPill { label: String! interaction: Interaction }
+union Interaction = NavigateInteraction | ActivateMyRewardListFilterInteraction
+type NavigateInteraction { path: String! }
+type ActivateMyRewardListFilterInteraction { filter: String! }"#;
+
+        let marketplace = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key", "@external", "@requires", "@override"])
+interface Container { id: ID! children: [Component!]! }
+type MarketList implements Container @key(fields: "id") { id: ID! children: [Component!]! @requires(fields: "marketParameters { organization sport competition limit }") @override(from: "floorplan") marketParameters: MarketParameters @external }
+union Component = MarketCardUI
+type MarketParameters @external { organization: String! sport: String! competition: String! limit: Int! }
+type MarketCardUI @key(fields: "id") { id: ID! data: MarketData }
+type MarketData { id: ID! title: String! selections: [Selection!]! }
+type Selection { id: ID! name: String! odds: Odds! }
+type Odds { id: ID! numerator: Int! denominator: Int! }"#;
+
+        let subgraphs = vec![
+            crate::dto::SubgraphInput {
+                name: "floorplan".into(),
+                sdl: floorplan.into(),
+            },
+            crate::dto::SubgraphInput {
+                name: "promos".into(),
+                sdl: promos.into(),
+            },
+            crate::dto::SubgraphInput {
+                name: "loyalty".into(),
+                sdl: loyalty.into(),
+            },
+            crate::dto::SubgraphInput {
+                name: "blueprint".into(),
+                sdl: blueprint.into(),
+            },
+            crate::dto::SubgraphInput {
+                name: "marketplace".into(),
+                sdl: marketplace.into(),
+            },
+        ];
+        let compose_result = compose_inner(&subgraphs);
+        if !compose_result["ok"].as_bool().unwrap_or(false) {
+            std::fs::write(
+                "/tmp/mp_compose_err.json",
+                serde_json::to_string_pretty(&compose_result).unwrap(),
+            )
+            .unwrap();
+            panic!("composition failed — see /tmp/mp_compose_err.json");
+        }
+        let sdl = compose_result["supergraph_sdl"].as_str().unwrap();
+        let query = r#"query {
+  page(path: "/reward-hub") {
+    id
+    sections {
+      __typename
+      ... on BasicSectionStub { label }
+      ... on BadgeSectionStub { label count }
+    }
+    openSection {
+      id
+      children {
+        id
+        __typename
+        children {
+          __typename
+          ... on MyRewardsUI {
+            id
+            filters { label }
+            rewards { name }
+          }
+          ... on MyPromoListUI {
+            id
+            filters { label }
+            promos { name }
+          }
+          ... on MarketCardUI {
+            id
+            title
+            cells { label }
+          }
+        }
+      }
+    }
+  }
+}"#;
+        let result = plan(sdl, query, None);
+        let json = serde_json::to_string_pretty(&result["query_plan"]).unwrap();
+        std::fs::write("/tmp/mp_plan.json", &json).unwrap();
+        assert!(
+            result["ok"].as_bool().unwrap_or(false),
+            "plan failed:\n{}",
+            json
+        );
+    }
 }
