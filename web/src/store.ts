@@ -97,12 +97,69 @@ export interface WorkspaceState {
 
 const DEFAULT_SUBGRAPHS: SubgraphInput[] = [
   {
+    name: "users",
+    sdl: `extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+{
+  query: Query
+}
+
+type Query {
+  me: User
+  user(id: ID!): User
+}
+
+type User @key(fields: "id") {
+  id: ID!
+  name: String
+  email: String
+}
+`,
+  },
+  {
     name: "products",
-    sdl: "type Query {\n  products: [Product]\n}\n\ntype Product {\n  id: ID!\n  name: String\n}\n",
+    sdl: `extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+{
+  query: Query
+}
+
+type Query {
+  topProducts: [Product]
+  product(id: ID!): Product
+}
+
+type Product @key(fields: "id") {
+  id: ID!
+  name: String
+  price: Float
+  inStock: Boolean
+}
+
+extend type User @key(fields: "id") {
+  id: ID! @external
+  purchases: [Product]
+}
+`,
   },
 ];
 
-const DEFAULT_QUERY = "query {\n  products {\n    id\n    name\n  }\n}\n";
+const DEFAULT_QUERY = `query {
+  topProducts {
+    id
+    name
+    price
+  }
+  me {
+    id
+    name
+    purchases {
+      id
+      name
+    }
+  }
+}
+`;
 const DEFAULT_SEED = 42;
 
 const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT_QUERY }];
