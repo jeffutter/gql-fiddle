@@ -166,7 +166,7 @@ export default function App() {
     "plan" | "sequence" | "timeline" | "schema-tree" | "output"
   >("plan");
   const [fullscreenTab, setFullscreenTab] = useState<
-    "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | null
+    "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | null
   >(null);
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1368,9 +1368,10 @@ export default function App() {
   }
 
   const VISUAL_TAB_LABELS: Record<
-    "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree",
+    "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree",
     string
   > = {
+    plan: "Query Plan",
     sequence: "Sequence Diagram",
     timeline: "Timeline",
     entities: "Entity Ownership Graph",
@@ -1531,7 +1532,8 @@ export default function App() {
                       >
                         Output
                       </button>
-                      {(resultsTab === "sequence" ||
+                      {(resultsTab === "plan" ||
+                        resultsTab === "sequence" ||
                         resultsTab === "timeline" ||
                         resultsTab === "schema-tree") && (
                         <button
@@ -1622,6 +1624,7 @@ export default function App() {
               </button>
             </div>
             <div className="fullscreen-modal__body">
+              {fullscreenTab === "plan" && planContent}
               {fullscreenTab === "sequence" && sequenceContent}
               {fullscreenTab === "timeline" && timelineContent}
               {fullscreenTab === "entities" && entitiesContent}
