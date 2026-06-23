@@ -27,7 +27,7 @@ import type { TourHighlightHandle } from "./tourHighlight";
 import { schemaToEntityGraph } from "./schemaToEntityGraph";
 import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
 import { TypeGraph } from "./TypeGraph";
-import { SchemaTree } from "./SchemaTree";
+import { QueryShape } from "./QueryShape";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -961,7 +961,7 @@ export default function App() {
   );
 
   const typeGraphData = compose?.ok ? (compose.type_graph ?? null) : null;
-  const supergraphSdlForTree = compose?.ok ? compose.supergraph_sdl : null;
+  const apiSchemaSdlForShape = compose?.ok ? compose.api_schema_sdl : null;
 
   const typeGraphContent = (
     <div className="scroll" style={{ height: "100%" }}>
@@ -973,13 +973,9 @@ export default function App() {
     </div>
   );
 
-  const schemaTreeContent = (
+  const queryShapeContent = (
     <div className="scroll">
-      {supergraphSdlForTree === null ? (
-        <p className="empty-state">Compose a valid supergraph to see the schema tree.</p>
-      ) : (
-        <SchemaTree supergraphSdl={supergraphSdlForTree} />
-      )}
+      <QueryShape apiSchemaSdl={apiSchemaSdlForShape ?? ""} query={currentQuery} />
     </div>
   );
 
@@ -1281,7 +1277,7 @@ export default function App() {
                     aria-pressed={resultsTab === "schema-tree"}
                     className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
                   >
-                    Schema Tree
+                    Query Shape
                   </button>
                   <button
                     onClick={() => setResultsTab("output")}
@@ -1294,7 +1290,7 @@ export default function App() {
                 {resultsTab === "plan" && planContent}
                 {resultsTab === "sequence" && sequenceContent}
                 {resultsTab === "timeline" && timelineContent}
-                {resultsTab === "schema-tree" && schemaTreeContent}
+                {resultsTab === "schema-tree" && queryShapeContent}
                 {resultsTab === "output" && resultsContent}
               </div>
             )}
@@ -1376,7 +1372,7 @@ export default function App() {
     timeline: "Timeline",
     entities: "Entity Ownership Graph",
     "type-graph": "Type Graph",
-    "schema-tree": "Schema Tree",
+    "schema-tree": "Query Shape",
   };
 
   return (
@@ -1523,7 +1519,7 @@ export default function App() {
                         aria-pressed={resultsTab === "schema-tree"}
                         className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
                       >
-                        Schema Tree
+                        Query Shape
                       </button>
                       <button
                         onClick={() => setResultsTab("output")}
@@ -1564,7 +1560,7 @@ export default function App() {
                     {resultsTab === "plan" && planContent}
                     {resultsTab === "sequence" && sequenceContent}
                     {resultsTab === "timeline" && timelineContent}
-                    {resultsTab === "schema-tree" && schemaTreeContent}
+                    {resultsTab === "schema-tree" && queryShapeContent}
                     {resultsTab === "output" && resultsContent}
                   </div>
                 </Panel>
@@ -1629,7 +1625,7 @@ export default function App() {
               {fullscreenTab === "timeline" && timelineContent}
               {fullscreenTab === "entities" && entitiesContent}
               {fullscreenTab === "type-graph" && typeGraphContent}
-              {fullscreenTab === "schema-tree" && schemaTreeContent}
+              {fullscreenTab === "schema-tree" && queryShapeContent}
             </div>
           </div>
         </div>

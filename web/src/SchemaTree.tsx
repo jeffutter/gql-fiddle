@@ -25,13 +25,13 @@ export interface SchemaTreeProps {
 // Internal components
 // ---------------------------------------------------------------------------
 
-interface FieldNodeProps {
+export interface FieldNodeProps {
   field: SchemaTreeField;
   /** Whether this node starts expanded (root-level fields default open). */
   defaultExpanded?: boolean;
 }
 
-function FieldNode({ field, defaultExpanded = false }: FieldNodeProps) {
+export function FieldNode({ field, defaultExpanded = false }: FieldNodeProps) {
   const isExpandable = !field.isLeaf && !field.isCycleRef && field.children.length > 0;
   const [expanded, setExpanded] = useState(defaultExpanded);
 
