@@ -69,21 +69,55 @@ const MOCK_CONFIG_EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOp
 const isBoxDrawingLine = (line: string) => /[─-╿]/.test(line);
 
 function ErrorMessage({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function copyError() {
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
   return (
-    <pre className="error-pre">
-      {text.split("\n").map((line, i) => (
-        <span
-          key={i}
-          style={{
-            display: "block",
-            whiteSpace: isBoxDrawingLine(line) ? "pre" : "pre-wrap",
-            overflowX: isBoxDrawingLine(line) ? "auto" : "visible",
-          }}
-        >
-          {line}
-        </span>
-      ))}
-    </pre>
+    <div className="error-message">
+      <pre className="error-pre">
+        {text.split("\n").map((line, i) => (
+          <span
+            key={i}
+            style={{
+              display: "block",
+              whiteSpace: isBoxDrawingLine(line) ? "pre" : "pre-wrap",
+              overflowX: isBoxDrawingLine(line) ? "auto" : "visible",
+            }}
+          >
+            {line}
+          </span>
+        ))}
+      </pre>
+      <button
+        onClick={copyError}
+        className={
+          copied
+            ? "btn btn--icon is-success error-message__copy"
+            : "btn btn--icon error-message__copy"
+        }
+        title="Copy error"
+      >
+        {copied ? "✓" : "⎘"}
+      </button>
+    </div>
   );
 }
 

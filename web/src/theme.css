@@ -455,6 +455,19 @@ body {
 }
 
 /* Monospace error rendering (preserves box-drawing alignment). */
+.error-message {
+  position: relative;
+}
+.error-message__copy {
+  position: absolute;
+  top: 0;
+  right: 0;
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+.error-message:hover .error-message__copy {
+  opacity: 1;
+}
 .error-pre {
   font-family: var(--font-mono);
   font-size: 13px;
