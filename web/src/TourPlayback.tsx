@@ -44,24 +44,51 @@ const SCHEMA_EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOptions
 };
 
 /**
+ * Apply inline Markdown transforms (bold, italic, links, inline code) to a
+ * string. Does NOT handle the newline → <br> replacement — that only applies
+ * to paragraph text, not to headings or list items.
+ */
+function applyInline(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
+    )
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+/**
  * Render a subset of Markdown to safe HTML: paragraphs, bold, italic,
- * inline code, and links. No external dependency — covers everything likely
- * to appear in tour prose.
+ * inline code, links, headings (h1–h3), and unordered lists. No external
+ * dependency — covers everything likely to appear in tour prose.
  */
 function renderMarkdown(prose: string): string {
   if (!prose) return "";
   return prose
     .split(/\n\n+/)
     .map((para) => {
-      const inner = para
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/\*(.+?)\*/g, "<em>$1</em>")
-        .replace(
-          /\[([^\]]+)\]\(([^)]+)\)/g,
-          '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-        )
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\n/g, "<br>");
+      // Headings: chunk starts with #, ##, or ###
+      const headingMatch = para.match(/^(#{1,3})\s+(.+)/s);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const text = applyInline(headingMatch[2].trim());
+        return `<h${level}>${text}</h${level}>`;
+      }
+
+      // Unordered lists: every non-empty line starts with "- " or "* "
+      const lines = para.split(/\n/);
+      if (lines.every((l) => /^[-*]\s/.test(l) || l.trim() === "")) {
+        const items = lines
+          .filter((l) => /^[-*]\s/.test(l))
+          .map((l) => `<li>${applyInline(l.replace(/^[-*]\s/, ""))}</li>`)
+          .join("");
+        return `<ul>${items}</ul>`;
+      }
+
+      // Paragraph fallback (unchanged behaviour)
+      const inner = applyInline(para).replace(/\n/g, "<br>");
       return `<p>${inner}</p>`;
     })
     .join("");

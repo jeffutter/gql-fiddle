@@ -1351,6 +1351,34 @@ body {
   padding: 1px 4px;
   border-radius: 3px;
 }
+.tour-playback__prose-content h1,
+.tour-playback__prose-content h2,
+.tour-playback__prose-content h3 {
+  margin: 0 0 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+.tour-playback__prose-content h1 {
+  font-size: 1.3em;
+}
+.tour-playback__prose-content h2 {
+  font-size: 1.15em;
+}
+.tour-playback__prose-content h3 {
+  font-size: 1em;
+}
+.tour-playback__prose-content ul {
+  margin: 0 0 0.75em;
+  padding-left: 1.4em;
+  list-style: disc;
+}
+.tour-playback__prose-content ul:last-child {
+  margin-bottom: 0;
+}
+.tour-playback__prose-content li {
+  margin-bottom: 0.25em;
+}
 
 .tour-playback__right {
   flex: 1;

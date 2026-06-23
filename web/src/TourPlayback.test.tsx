@@ -376,6 +376,93 @@ describe("TourPlayback", () => {
     });
   });
 
+  describe("renderMarkdown extensions (TASK-81)", () => {
+    function makeTourWithProse(prose: string): Tour {
+      return {
+        ...sampleTour,
+        steps: [{ ...sampleTour.steps[0], prose }, sampleTour.steps[1]],
+      };
+    }
+
+    it("AC#1: '# Heading' renders as <h1>", () => {
+      const { container } = render(<TourPlayback tour={makeTourWithProse("# Hello World")} />);
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const h1 = prose!.querySelector("h1");
+      expect(h1).not.toBeNull();
+      expect(h1!.textContent).toBe("Hello World");
+    });
+
+    it("AC#1: '## Heading' renders as <h2>", () => {
+      const { container } = render(<TourPlayback tour={makeTourWithProse("## Section Title")} />);
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const h2 = prose!.querySelector("h2");
+      expect(h2).not.toBeNull();
+      expect(h2!.textContent).toBe("Section Title");
+    });
+
+    it("AC#1: '### Heading' renders as <h3>", () => {
+      const { container } = render(<TourPlayback tour={makeTourWithProse("### Sub-section")} />);
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const h3 = prose!.querySelector("h3");
+      expect(h3).not.toBeNull();
+      expect(h3!.textContent).toBe("Sub-section");
+    });
+
+    it("AC#2: bold inside a heading renders <strong> inside <h1>", () => {
+      const { container } = render(<TourPlayback tour={makeTourWithProse("# **Bold** title")} />);
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const h1 = prose!.querySelector("h1");
+      expect(h1).not.toBeNull();
+      expect(h1!.querySelector("strong")).not.toBeNull();
+      expect(h1!.textContent).toBe("Bold title");
+    });
+
+    it("AC#3: paragraph of '- item' lines renders a <ul> with <li> children", () => {
+      const { container } = render(
+        <TourPlayback tour={makeTourWithProse("- Alpha\n- Beta\n- Gamma")} />,
+      );
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const ul = prose!.querySelector("ul");
+      expect(ul).not.toBeNull();
+      const items = ul!.querySelectorAll("li");
+      expect(items.length).toBe(3);
+      expect(items[0].textContent).toBe("Alpha");
+      expect(items[1].textContent).toBe("Beta");
+      expect(items[2].textContent).toBe("Gamma");
+    });
+
+    it("AC#3: '* item' lines also render as <ul>/<li>", () => {
+      const { container } = render(<TourPlayback tour={makeTourWithProse("* One\n* Two")} />);
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const ul = prose!.querySelector("ul");
+      expect(ul).not.toBeNull();
+      expect(ul!.querySelectorAll("li").length).toBe(2);
+    });
+
+    it("AC#4: inline code inside a list item renders <code> inside <li>", () => {
+      const { container } = render(
+        <TourPlayback tour={makeTourWithProse("- Use `foo` here\n- And `bar` too")} />,
+      );
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const ul = prose!.querySelector("ul");
+      expect(ul).not.toBeNull();
+      const firstLi = ul!.querySelectorAll("li")[0];
+      expect(firstLi!.querySelector("code")).not.toBeNull();
+      expect(firstLi!.textContent).toBe("Use foo here");
+    });
+
+    it("AC#5: an existing paragraph with bold still renders as <p> containing <strong>", () => {
+      const { container } = render(
+        <TourPlayback tour={makeTourWithProse("This has **bold** text.")} />,
+      );
+      const prose = container.querySelector(".tour-playback__prose-content");
+      const p = prose!.querySelector("p");
+      expect(p).not.toBeNull();
+      expect(p!.querySelector("strong")).not.toBeNull();
+      expect(p!.textContent).toBe("This has bold text.");
+    });
+  });
+
   describe("per-step pane visibility (TASK-71)", () => {
     it("schema panel is absent when paneVisibility.schema = false", () => {
       const tour: Tour = {
