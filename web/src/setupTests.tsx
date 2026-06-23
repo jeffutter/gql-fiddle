@@ -65,6 +65,10 @@ vi.mock("monaco-editor", () => ({
   editor: {
     setModelMarkers: vi.fn(),
   },
+  languages: {
+    registerCompletionItemProvider: vi.fn(() => ({ dispose: vi.fn() })),
+    CompletionItemKind: { Property: 9, EnumMember: 15 },
+  },
   MarkerSeverity: {
     Error: 8,
     Warning: 4,

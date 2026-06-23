@@ -16,7 +16,7 @@ use std::hash::{Hash, Hasher};
 /// Per-field override rule deserialized from the mock config JSON.
 ///
 /// The caller passes a JSON object keyed by `"TypeName.fieldName"`. Each value
-/// is one of the four override variants below. At most one variant should be
+/// is one of the five override variants below. At most one variant should be
 /// set per entry — if multiple are present the first matching branch wins.
 #[derive(Deserialize, Serialize, Default, Debug)]
 struct FieldOverride {
@@ -27,6 +27,11 @@ struct FieldOverride {
     /// Falls back to hash-pick if the name is not a valid member.
     #[serde(rename = "unionType")]
     union_type: Option<String>,
+    /// Hash-pick a concrete type from this list for a union/interface field.
+    /// Each entry must be a valid member/implementer; invalid names are skipped.
+    /// Falls back to default hash-pick if the list is empty or all names are invalid.
+    #[serde(rename = "oneOf")]
+    one_of: Option<Vec<String>>,
     /// Always emit this exact JSON scalar value.
     value: Option<Value>,
     /// Always emit JSON `null`. Ignored on NonNull fields (they keep their
@@ -321,6 +326,7 @@ fn walk_fields(
 /// 2. `value` — emit the literal JSON value directly.
 /// 3. `enum` — pick from the list by `hash % list.len()`.
 /// 4. `unionType` — force a union/interface field to the named concrete type.
+/// 5. `oneOf` — hash-pick a concrete type from a list of union/interface members.
 ///
 /// If no branch matches (empty override object), falls through to normal
 /// generation so the caller never panics.
@@ -408,6 +414,52 @@ fn apply_override(
                     }
                 }
             }
+        }
+    }
+
+    // oneOf override — hash-pick a concrete type from a list of union/interface members.
+    if let Some(ref candidates) = ovr.one_of {
+        if !candidates.is_empty() {
+            let (base_type, _, _) = unwrap_type(field_type);
+            // Collect the candidate names that are valid members of this abstract type.
+            let valid: Vec<String> = if let Some(union_type) = schema.get_union(&base_type) {
+                candidates
+                    .iter()
+                    .filter(|c| union_type.members.iter().any(|m| m.as_str() == c.as_str()))
+                    .cloned()
+                    .collect()
+            } else if schema.get_interface(&base_type).is_some() {
+                let implementers = schema.implementers_map();
+                let impl_set = implementers.get(&base_type);
+                candidates
+                    .iter()
+                    .filter(|c| {
+                        impl_set
+                            .map(|s| s.iter().any(|m| m.as_str() == c.as_str()))
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect()
+            } else {
+                vec![]
+            };
+            if !valid.is_empty() {
+                let idx = (hash_path(seed, &path) as usize) % valid.len();
+                if let Ok(concrete) = Name::new(&valid[idx]) {
+                    return walk_fields(
+                        schema,
+                        doc,
+                        nested_selection,
+                        &concrete,
+                        variable_definitions,
+                        variables,
+                        seed,
+                        path,
+                        config,
+                    );
+                }
+            }
+            // All candidates invalid — fall through to default hash-pick.
         }
     }
 
