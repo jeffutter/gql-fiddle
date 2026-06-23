@@ -7,6 +7,7 @@ import { computeOverrides } from "./store";
 
 interface TourAuthoringPanelProps {
   onCollapse: () => void;
+  onPreview: () => void;
 }
 
 /**
@@ -15,7 +16,7 @@ interface TourAuthoringPanelProps {
  * Reads from and writes to the global workspace store. No props carry data —
  * all state comes from useWorkspace.
  */
-export function TourAuthoringPanel({ onCollapse }: TourAuthoringPanelProps) {
+export function TourAuthoringPanel({ onCollapse, onPreview }: TourAuthoringPanelProps) {
   const {
     tourDraft,
     setTourDraft,
@@ -210,6 +211,9 @@ export function TourAuthoringPanel({ onCollapse }: TourAuthoringPanelProps) {
           placeholder="Tour title"
           aria-label="Tour title"
         />
+        <button className="btn" onClick={onPreview} title="Preview tour" aria-label="Preview tour">
+          Preview
+        </button>
         <button
           className="btn btn--icon"
           onClick={onCollapse}

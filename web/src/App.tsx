@@ -197,6 +197,7 @@ export default function App() {
     setMockConfig,
   } = useWorkspace();
   const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
+  const [tourPreviewMode, setTourPreviewMode] = useState(false);
   const [playbackTour, setPlaybackTour] = useState<Tour | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
@@ -1405,6 +1406,15 @@ export default function App() {
   if (playbackTour !== null) {
     return <TourPlayback tour={playbackTour} />;
   }
+  if (tourPreviewMode && tourDraft !== null) {
+    return (
+      <TourPlayback
+        tour={tourDraft}
+        initialStepIndex={tourActiveStep ?? 0}
+        onExitPreview={() => setTourPreviewMode(false)}
+      />
+    );
+  }
 
   if (isMobile) {
     return (
@@ -1642,7 +1652,10 @@ export default function App() {
                   overflow: "hidden",
                 }}
               >
-                <TourAuthoringPanel onCollapse={() => setMobileTab("schema")} />
+                <TourAuthoringPanel
+                  onCollapse={() => setMobileTab("schema")}
+                  onPreview={() => setTourPreviewMode(true)}
+                />
               </div>
             )}
           </div>
@@ -1937,7 +1950,10 @@ export default function App() {
           </Group>
           {tourDraft !== null && tourAuthoringOpen && (
             <div style={{ width: 280, flexShrink: 0, minHeight: 0 }}>
-              <TourAuthoringPanel onCollapse={() => setTourAuthoringOpen(false)} />
+              <TourAuthoringPanel
+                onCollapse={() => setTourAuthoringOpen(false)}
+                onPreview={() => setTourPreviewMode(true)}
+              />
             </div>
           )}
         </div>

@@ -80,6 +80,8 @@ function ProseRenderer({ prose }: { prose: string }) {
 
 interface TourPlaybackProps {
   tour: Tour;
+  initialStepIndex?: number;
+  onExitPreview?: () => void;
 }
 
 /**
@@ -89,10 +91,10 @@ interface TourPlaybackProps {
  * Zustand workspace store. Replaces the normal fiddle when the URL hash
  * starts with `#t=`.
  */
-export function TourPlayback({ tour }: TourPlaybackProps) {
+export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlaybackProps) {
   const isMobile = useMobile();
   const [mobileTab, setMobileTab] = useState<"tour" | "schema" | "plan">("tour");
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(initialStepIndex ?? 0);
   const [activeSubgraph, setActiveSubgraph] = useState(0);
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
@@ -313,9 +315,15 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
               Next →
             </button>
           </div>
-          <button className="btn btn--primary" onClick={openInFiddle}>
-            Open in Fiddle
-          </button>
+          {onExitPreview ? (
+            <button className="btn btn--primary" onClick={onExitPreview}>
+              Exit Preview
+            </button>
+          ) : (
+            <button className="btn btn--primary" onClick={openInFiddle}>
+              Open in Fiddle
+            </button>
+          )}
         </header>
 
         <div className="tour-playback__mobile-content">
@@ -503,9 +511,15 @@ export function TourPlayback({ tour }: TourPlaybackProps) {
           </button>
         </div>
 
-        <button className="btn btn--primary" onClick={openInFiddle}>
-          Open in Fiddle
-        </button>
+        {onExitPreview ? (
+          <button className="btn btn--primary" onClick={onExitPreview}>
+            Exit Preview
+          </button>
+        ) : (
+          <button className="btn btn--primary" onClick={openInFiddle}>
+            Open in Fiddle
+          </button>
+        )}
       </header>
 
       <div className="tour-playback__body">
