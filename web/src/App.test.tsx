@@ -1526,20 +1526,25 @@ describe("App", () => {
 
   it("TASK-58 AC#1: expand button appears when Entities tab is active", () => {
     render(<App />);
+    // Switch Results to Output (no expand) so only the Output panel button is present.
+    fireEvent.click(screen.getByRole("button", { name: /^Output$/ }));
     fireEvent.click(screen.getByRole("button", { name: /^Entities$/ }));
     expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
   });
 
   it("TASK-58 AC#1: expand button appears when Type Graph tab is active", () => {
     render(<App />);
+    // Switch Results to Output (no expand) so only the Output panel button is present.
+    fireEvent.click(screen.getByRole("button", { name: /^Output$/ }));
     fireEvent.click(screen.getByRole("button", { name: /Type Graph/ }));
     expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
   });
 
   it("TASK-58 AC#5: expand button absent when both panels show non-visual tabs", () => {
     render(<App />);
-    // Switch Output panel to SDL (no expand) while Results stays on Query Plan (no expand).
+    // Switch Output panel to SDL (no expand) and Results to Output (no expand).
     fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Output$/ }));
     expect(screen.queryByRole("button", { name: /Expand to full screen/ })).not.toBeInTheDocument();
   });
 
@@ -1620,11 +1625,62 @@ describe("App", () => {
 
   it("TASK-58: modal aria-label reflects the active tab name", () => {
     render(<App />);
+    // Switch Results to Output (no expand) so only the Output panel button is present.
+    fireEvent.click(screen.getByRole("button", { name: /^Output$/ }));
     fireEvent.click(screen.getByRole("button", { name: /Type Graph/ }));
     fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
 
     const dialog = screen.getByRole("dialog");
     expect(dialog.getAttribute("aria-label")).toMatch(/Type Graph/);
+  });
+
+  // ---- TASK-76: Fullscreen expand button for Query Plan tab ----
+
+  it("TASK-76 AC#1: expand button appears when Query Plan tab is active", () => {
+    render(<App />);
+    // Switch Output panel to SDL (no expand) so only the Results panel button is present.
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    // Results defaults to Query Plan tab; expand button should be visible.
+    expect(screen.getByRole("button", { name: /Expand to full screen/ })).toBeInTheDocument();
+  });
+
+  it("TASK-76 AC#2: clicking expand button on Query Plan opens modal", () => {
+    render(<App />);
+    // Switch Output panel to SDL (no expand) so only one expand button is present.
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.querySelector(".fullscreen-modal__title")?.textContent).toBe("Query Plan");
+  });
+
+  it("TASK-76 AC#3: Query Plan fullscreen modal closes on Escape", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("TASK-76 AC#4: modal aria-label for Query Plan matches VISUAL_TAB_LABELS", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-label")).toMatch(/Query Plan/);
+  });
+
+  it("TASK-76 AC#4: modal renders the Query Plan content", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Supergraph SDL/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand to full screen/ }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("Run a query to see the plan");
   });
 });
 
