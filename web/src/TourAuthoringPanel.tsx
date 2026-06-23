@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { useWorkspace } from "./store";
 import { encodeTour } from "./share";
-import type { PaneId, WorkspacePayload } from "./share";
+import type { PaneId } from "./share";
 import { resolveTourStep } from "./share";
-import { computeOverrides } from "./store";
 
 interface TourAuthoringPanelProps {
   onCollapse: () => void;
@@ -26,10 +25,6 @@ export function TourAuthoringPanel({ onCollapse, onPreview }: TourAuthoringPanel
     snapshotCurrentToStep,
     setStepAnchor,
     setStepPaneVisibility,
-    subgraphs,
-    queryTabs,
-    activeQueryTab,
-    seed,
   } = useWorkspace();
 
   // Track which step's prose textarea is expanded for editing.
@@ -43,18 +38,10 @@ export function TourAuthoringPanel({ onCollapse, onPreview }: TourAuthoringPanel
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  /** Check whether the current workspace differs from the resolved active step. */
-  function hasUnsavedChanges(stepIndex: number): boolean {
-    const resolved = resolveTourStep(draft, stepIndex);
-    const current: WorkspacePayload = { subgraphs, queryTabs, activeQueryTab, seed };
-    const diff = computeOverrides(resolved, current);
-    return diff !== undefined;
-  }
-
-  /** Navigate to a step after optionally warning about unsaved changes. */
+  /** Navigate to a step, autosaving the current step first. */
   function navigateToStep(targetIndex: number) {
-    if (tourActiveStep !== null && hasUnsavedChanges(tourActiveStep)) {
-      if (!window.confirm("You have unsaved changes to this step. Navigate away?")) return;
+    if (tourActiveStep !== null) {
+      snapshotCurrentToStep(tourActiveStep);
     }
     loadTourStep(targetIndex);
     setTourActiveStep(targetIndex);

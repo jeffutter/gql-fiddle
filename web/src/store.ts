@@ -195,6 +195,7 @@ export const useWorkspace = create<WorkspaceState>()(
             queryTabs: payload.queryTabs,
             activeQueryTab: payload.activeQueryTab,
             seed: payload.seed,
+            mockConfig: payload.mockConfig ?? "",
           };
         }),
 
