@@ -36,8 +36,13 @@ function wrap(ns: typeof wasm): GqlCore {
     plan(supergraphSdl: string, operation: string, opName?: string): PlanResult {
       return json(ns.plan(supergraphSdl, operation, opName ?? ""));
     },
-    executeMock(supergraphSdl: string, operation: string, seed: number): MockResult {
-      return json(ns.execute_mock(supergraphSdl, operation, BigInt(seed)));
+    executeMock(
+      supergraphSdl: string,
+      operation: string,
+      seed: number,
+      mockConfig: string,
+    ): MockResult {
+      return json(ns.execute_mock(supergraphSdl, operation, BigInt(seed), mockConfig));
     },
     nodeAtPosition(
       sdl: string,

@@ -22,6 +22,7 @@ const SAMPLE_PAYLOAD: WorkspacePayload = {
   queryTabs: [{ name: "Query 1", query: "query { products { id name } }" }],
   activeQueryTab: 0,
   seed: 42,
+  mockConfig: "",
 };
 
 describe("share.ts encode/decode", () => {
@@ -59,6 +60,7 @@ describe("share.ts encode/decode", () => {
       ],
       activeQueryTab: 1,
       seed: 77,
+      mockConfig: "",
     };
     const decoded = decode(encode(multiTabPayload));
     expect(decoded).toEqual(multiTabPayload);
@@ -82,6 +84,36 @@ describe("share.ts encode/decode", () => {
 
   it("throws on empty payload after prefix", () => {
     expect(() => decode("#w=")).toThrow();
+  });
+
+  it("backward compat (TASK-78): decodes a pre-TASK-78 URL without mockConfig, falling back to empty string", () => {
+    // Encode a v1 payload that has no mockConfig key.
+    const oldPayload = {
+      subgraphs: [{ name: "products", sdl: "type Query { products: [Product] }" }],
+      queryTabs: [{ name: "Q1", query: "{ products { id } }" }],
+      activeQueryTab: 0,
+      seed: 42,
+    };
+    const compressed = pako.gzip(JSON.stringify(oldPayload));
+    let bin = "";
+    for (const b of compressed) bin += String.fromCharCode(b);
+    const oldHash = "#w=" + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+
+    const decoded = decode(oldHash);
+    expect(decoded.mockConfig).toBe("");
+  });
+
+  it("round-trip preserves a non-empty mockConfig", () => {
+    const yamlConfig = "User.name:\n  enum: [Alice, Bob]\n";
+    const payload: WorkspacePayload = {
+      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+      queryTabs: [{ name: "Q1", query: "{ a }" }],
+      activeQueryTab: 0,
+      seed: 42,
+      mockConfig: yamlConfig,
+    };
+    const decoded = decode(encode(payload));
+    expect(decoded.mockConfig).toBe(yamlConfig);
   });
 
   it("backward compat: decodes a pre-TASK-30 URL with flat query/variables into a single queryTab", () => {

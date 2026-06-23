@@ -7,14 +7,53 @@
 use apollo_compiler::executable::{self as exe, SelectionSet, Type};
 use apollo_compiler::schema::NamedType;
 use apollo_compiler::{ExecutableDocument as ECExecDoc, Name, Schema};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+
+/// Per-field override rule deserialized from the mock config JSON.
+///
+/// The caller passes a JSON object keyed by `"TypeName.fieldName"`. Each value
+/// is one of the four override variants below. At most one variant should be
+/// set per entry — if multiple are present the first matching branch wins.
+#[derive(Deserialize, Serialize, Default, Debug)]
+struct FieldOverride {
+    /// Pick a value from this list by `hash % list.len()` — still deterministic.
+    #[serde(rename = "enum")]
+    enum_values: Option<Vec<String>>,
+    /// Force a union/interface field to always resolve to this concrete type.
+    /// Falls back to hash-pick if the name is not a valid member.
+    #[serde(rename = "unionType")]
+    union_type: Option<String>,
+    /// Always emit this exact JSON scalar value.
+    value: Option<Value>,
+    /// Always emit JSON `null`. Ignored on NonNull fields (they keep their
+    /// default generated value instead of violating the type system).
+    #[serde(rename = "null")]
+    always_null: Option<bool>,
+}
+
+/// Map from `"TypeName.fieldName"` keys to override rules.
+type MockConfig = HashMap<String, FieldOverride>;
 
 /// Mock-execute an operation. Deterministic in `seed`.
 /// Variables are auto-generated from the operation's declared variable
 /// definitions so callers never need to supply them manually.
-pub(crate) fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64) -> Value {
+///
+/// `mock_config` is a JSON string that maps `"TypeName.fieldName"` keys to
+/// [`FieldOverride`] objects. Pass `"{}"` (or any invalid JSON) to get the
+/// same behaviour as before this parameter was added.
+pub(crate) fn execute_mock(
+    supergraph_sdl: &str,
+    operation: &str,
+    seed: u64,
+    mock_config: &str,
+) -> Value {
+    // Parse the mock config — silently fall back to empty map on any parse error.
+    let config: MockConfig = serde_json::from_str(mock_config).unwrap_or_default();
+
     // Derive the API schema from the supergraph SDL.
     let api_sdl = match crate::api_schema::derive_api_schema(supergraph_sdl) {
         Ok(sdl) => sdl,
@@ -72,6 +111,7 @@ pub(crate) fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64) -> 
         &variables,
         seed,
         Vec::new(),
+        &config,
     );
 
     json!({ "data": data, "errors": [] })
@@ -111,6 +151,7 @@ fn walk_selection_set(
     variables: &Value,
     seed: u64,
     path: Vec<String>,
+    config: &MockConfig,
 ) -> Value {
     let root_type_name = match parent_type {
         exe::OperationType::Query => "Query",
@@ -130,6 +171,7 @@ fn walk_selection_set(
         variables,
         seed,
         path,
+        config,
     )
 }
 
@@ -144,6 +186,7 @@ fn walk_fields(
     variables: &Value,
     seed: u64,
     path: Vec<String>,
+    config: &MockConfig,
 ) -> Value {
     let mut result = serde_json::Map::new();
 
@@ -169,17 +212,36 @@ fn walk_fields(
                 // Look up the field definition in the schema object type.
                 let value = if let Some(obj_type) = schema.get_object(object_type) {
                     if let Some(field_def) = obj_type.fields.get(&field.name) {
-                        resolve_field(
-                            schema,
-                            doc,
-                            &field_def.ty,
-                            object_type,
-                            &field.selection_set,
-                            variable_definitions,
-                            variables,
-                            seed,
-                            field_path,
-                        )
+                        // Check for a mock config override keyed by "TypeName.fieldName".
+                        let override_key = format!("{}.{}", object_type, field.name);
+                        if let Some(ovr) = config.get(&override_key) {
+                            apply_override(
+                                schema,
+                                doc,
+                                ovr,
+                                &field_def.ty,
+                                object_type,
+                                &field.selection_set,
+                                variable_definitions,
+                                variables,
+                                seed,
+                                field_path.clone(),
+                                config,
+                            )
+                        } else {
+                            resolve_field(
+                                schema,
+                                doc,
+                                &field_def.ty,
+                                object_type,
+                                &field.selection_set,
+                                variable_definitions,
+                                variables,
+                                seed,
+                                field_path,
+                                config,
+                            )
+                        }
                     } else {
                         json!(null)
                     }
@@ -207,6 +269,7 @@ fn walk_fields(
                         variables,
                         seed,
                         path.clone(),
+                        config,
                     );
                     // Merge fragment fields into result.
                     for (k, v) in fragment_result.as_object().unwrap() {
@@ -237,6 +300,7 @@ fn walk_fields(
                         variables,
                         seed,
                         path.clone(),
+                        config,
                     );
                     for (k, v) in frag_result.as_object().unwrap() {
                         result.insert(k.clone(), v.clone());
@@ -247,6 +311,119 @@ fn walk_fields(
     }
 
     Value::Object(result)
+}
+
+/// Apply a [`FieldOverride`] for a field, falling back to default generation
+/// when the override variant cannot be honoured (e.g. invalid `unionType`).
+///
+/// Override priority (first matching branch wins):
+/// 1. `null: true` — emit `null` unless the field is NonNull.
+/// 2. `value` — emit the literal JSON value directly.
+/// 3. `enum` — pick from the list by `hash % list.len()`.
+/// 4. `unionType` — force a union/interface field to the named concrete type.
+///
+/// If no branch matches (empty override object), falls through to normal
+/// generation so the caller never panics.
+#[expect(clippy::too_many_arguments)]
+fn apply_override(
+    schema: &Schema,
+    doc: &ECExecDoc,
+    ovr: &FieldOverride,
+    field_type: &Type,
+    parent_type: &NamedType,
+    nested_selection: &SelectionSet,
+    variable_definitions: &[exe::VariableDefinition],
+    variables: &Value,
+    seed: u64,
+    path: Vec<String>,
+    config: &MockConfig,
+) -> Value {
+    let is_non_null = matches!(field_type, Type::NonNullNamed(_) | Type::NonNullList(_));
+
+    // null override — only honoured on nullable fields.
+    if ovr.always_null == Some(true) && !is_non_null {
+        return json!(null);
+    }
+
+    // value override — emit the literal scalar.
+    if let Some(ref v) = ovr.value {
+        return v.clone();
+    }
+
+    // enum override — hash-pick from the supplied list.
+    if let Some(ref list) = ovr.enum_values {
+        if !list.is_empty() {
+            let idx = (hash_path(seed, &path) as usize) % list.len();
+            return Value::String(list[idx].clone());
+        }
+    }
+
+    // unionType override — force a specific concrete type for union/interface.
+    if let Some(ref type_name) = ovr.union_type {
+        let (base_type, _, _) = unwrap_type(field_type);
+
+        // Try union first.
+        if let Some(union_type) = schema.get_union(&base_type) {
+            // Validate that the requested type is actually a member.
+            let is_valid_member = union_type
+                .members
+                .iter()
+                .any(|m| m.as_str() == type_name.as_str());
+            if is_valid_member {
+                if let Ok(concrete) = Name::new(type_name) {
+                    return walk_fields(
+                        schema,
+                        doc,
+                        nested_selection,
+                        &concrete,
+                        variable_definitions,
+                        variables,
+                        seed,
+                        path,
+                        config,
+                    );
+                }
+            }
+            // Invalid name — fall back to hash-pick (no crash, AC#11).
+        }
+
+        // Try interface.
+        if schema.get_interface(&base_type).is_some() {
+            let implementers = schema.implementers_map();
+            if let Some(impl_set) = implementers.get(&base_type) {
+                let is_valid_impl = impl_set.iter().any(|m| m.as_str() == type_name.as_str());
+                if is_valid_impl {
+                    if let Ok(concrete) = Name::new(type_name) {
+                        return walk_fields(
+                            schema,
+                            doc,
+                            nested_selection,
+                            &concrete,
+                            variable_definitions,
+                            variables,
+                            seed,
+                            path,
+                            config,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // No applicable override branch — fall through to default generation.
+    resolve_field(
+        schema,
+        doc,
+        field_type,
+        parent_type,
+        nested_selection,
+        variable_definitions,
+        variables,
+        seed,
+        path,
+        config,
+    )
 }
 
 /// Resolve a single field value based on its type.
@@ -262,6 +439,7 @@ fn resolve_field(
     variables: &Value,
     seed: u64,
     path: Vec<String>,
+    config: &MockConfig,
 ) -> Value {
     // Unwrap NonNull and List wrappers to find the base type.
     let (base_type, is_list, inner_type) = unwrap_type(field_type);
@@ -282,6 +460,7 @@ fn resolve_field(
                 variables,
                 seed,
                 item_path,
+                config,
             );
             items.push(item_value);
         }
@@ -302,6 +481,7 @@ fn resolve_field(
             variables,
             seed,
             path,
+            config,
         );
     }
 
@@ -321,6 +501,7 @@ fn resolve_field(
                 variables,
                 seed,
                 path,
+                config,
             );
         }
     }
@@ -344,6 +525,7 @@ fn resolve_field(
                 variables,
                 seed,
                 path,
+                config,
             )
         }
     }
@@ -632,7 +814,7 @@ mod tests {
     #[test]
     fn valid_query_returns_data_shaped_like_selection_set() {
         let supergraph_sdl = _compose_test_supergraph();
-        let result = execute_mock(&supergraph_sdl, "{ me { id name } }", 42);
+        let result = execute_mock(&supergraph_sdl, "{ me { id name } }", 42, "{}");
 
         // Top-level data key must exist and errors must be empty.
         assert!(
@@ -684,6 +866,7 @@ mod tests {
             &supergraph_sdl,
             "{ mostRecentReview { id body product { id } } }",
             42,
+            "{}",
         );
 
         assert!(result.get("data").is_some());
@@ -715,6 +898,7 @@ mod tests {
             &supergraph_sdl,
             "{ mostRecentReview { id body product { id reviews { id } } } }",
             42,
+            "{}",
         );
 
         let data = result["data"]
@@ -745,6 +929,7 @@ mod tests {
             &supergraph_sdl,
             "{ me { id } mostRecentReview { id body product { id reviews { id } } } }",
             42,
+            "{}",
         );
 
         let data = result["data"]
@@ -831,6 +1016,7 @@ mod tests {
             &json!({ "term": "test" }),
             42,
             vec!["search".to_string()],
+            &MockConfig::new(),
         );
 
         let search_arr = data
@@ -907,6 +1093,7 @@ mod tests {
             &json!({ "id": "1" }),
             42,
             vec!["node".to_string()],
+            &MockConfig::new(),
         );
 
         let node_obj = data
@@ -968,6 +1155,7 @@ mod tests {
             &json!({ "skip": true, "include": false }),
             42,
             vec!["user".to_string()],
+            &MockConfig::new(),
         );
 
         let user_a = data_a
@@ -1000,6 +1188,7 @@ mod tests {
             &json!({ "skip": false, "include": true }),
             42,
             vec!["user".to_string()],
+            &MockConfig::new(),
         );
 
         let user_b = data_b
@@ -1032,11 +1221,13 @@ mod tests {
             &supergraph_sdl,
             "{ me { id name } mostRecentReview { id body product { id title reviews { id } } } }",
             42,
+            "{}",
         );
         let result_b = execute_mock(
             &supergraph_sdl,
             "{ me { id name } mostRecentReview { id body product { id title reviews { id } } } }",
             42,
+            "{}",
         );
 
         // Byte-identical JSON strings.
@@ -1053,8 +1244,8 @@ mod tests {
     fn ac4_different_seed_produces_different_json() {
         let supergraph_sdl = _compose_test_supergraph();
 
-        let result_42 = execute_mock(&supergraph_sdl, "{ me { id name } }", 42);
-        let result_99 = execute_mock(&supergraph_sdl, "{ me { id name } }", 99);
+        let result_42 = execute_mock(&supergraph_sdl, "{ me { id name } }", 42, "{}");
+        let result_99 = execute_mock(&supergraph_sdl, "{ me { id name } }", 99, "{}");
 
         // Same inputs except seed → must differ.
         assert_ne!(
@@ -1108,6 +1299,7 @@ mod tests {
             &json!({ "skip": true }),
             42,
             vec!["user".to_string()],
+            &MockConfig::new(),
         );
 
         let user_a = data_a
@@ -1135,6 +1327,7 @@ mod tests {
             &json!({ "skip": false }),
             42,
             vec!["user".to_string()],
+            &MockConfig::new(),
         );
 
         let user_b = data_b
@@ -1146,6 +1339,196 @@ mod tests {
         assert!(
             user_b.contains_key("name"),
             "fragment spread with @skip(if: false) must NOT be skipped"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Mock config override tests (TASK-78.1)
+    // ---------------------------------------------------------------------------
+
+    fn _simple_schema_supergraph() -> String {
+        // Build a plain supergraph with a union and an enum for override tests.
+        let sdl = r#"
+            extend schema
+                @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+            {
+                query: Query
+            }
+
+            type Query {
+                user: User
+                search: SearchResult
+            }
+
+            union SearchResult = User | Product
+
+            type User @key(fields: "id") {
+                id: ID!
+                name: String
+                role: Role
+                deletedAt: String
+            }
+
+            type Product @key(fields: "id") {
+                id: ID!
+                price: Int
+            }
+
+            enum Role {
+                ADMIN
+                VIEWER
+                EDITOR
+            }
+        "#;
+        // Use compose via the public API.
+        let subgraph = crate::dto::SubgraphInput {
+            name: "main".to_string(),
+            sdl: sdl.to_string(),
+        };
+        crate::compose::compose(&[subgraph])
+            .get("supergraph_sdl")
+            .and_then(|v| v.as_str())
+            .expect("expected supergraph_sdl")
+            .to_string()
+    }
+
+    /// AC#13 — Passing mock_config='{}' produces identical output to no-config.
+    #[test]
+    fn mock_config_empty_produces_identical_output() {
+        let supergraph_sdl = _compose_test_supergraph();
+        let query = "{ me { id name } mostRecentReview { id body } }";
+
+        let without_config = execute_mock(&supergraph_sdl, query, 42, "{}");
+        let with_config = execute_mock(&supergraph_sdl, query, 42, "{}");
+
+        assert_eq!(
+            without_config.to_string(),
+            with_config.to_string(),
+            "empty mock_config must produce identical output (no regression)"
+        );
+    }
+
+    /// AC#6 — `enum` override: field returns a value from the supplied list.
+    #[test]
+    fn mock_config_enum_override_picks_from_list() {
+        let supergraph_sdl = _simple_schema_supergraph();
+        let config = r#"{"User.name": {"enum": ["Alice", "Bob", "Carol"]}}"#;
+        let result = execute_mock(&supergraph_sdl, "{ user { name } }", 42, config);
+
+        let name = result["data"]["user"]["name"]
+            .as_str()
+            .expect("name should be a string");
+        assert!(
+            matches!(name, "Alice" | "Bob" | "Carol"),
+            "enum override must pick from the supplied list, got: {name}"
+        );
+    }
+
+    /// AC#6 — enum override is still deterministic (same seed → same value).
+    #[test]
+    fn mock_config_enum_override_is_deterministic() {
+        let supergraph_sdl = _simple_schema_supergraph();
+        let config = r#"{"User.name": {"enum": ["Alice", "Bob"]}}"#;
+
+        let r1 = execute_mock(&supergraph_sdl, "{ user { name } }", 42, config);
+        let r2 = execute_mock(&supergraph_sdl, "{ user { name } }", 42, config);
+        assert_eq!(
+            r1.to_string(),
+            r2.to_string(),
+            "enum override must be deterministic"
+        );
+    }
+
+    /// AC#8 — `value` override: field always emits the exact JSON scalar.
+    #[test]
+    fn mock_config_value_override_emits_literal() {
+        let supergraph_sdl = _simple_schema_supergraph();
+        let config = r#"{"Product.price": {"value": 42}}"#;
+        let result = execute_mock(
+            &supergraph_sdl,
+            "{ search { ... on Product { price } } }",
+            42,
+            config,
+        );
+
+        // The search field resolves to either User or Product — only check if we got a Product.
+        let items = result["data"]["search"]
+            .as_object()
+            .expect("search should resolve to an object");
+        if items.contains_key("price") {
+            assert_eq!(
+                result["data"]["search"]["price"],
+                json!(42),
+                "value override must emit the literal value"
+            );
+        }
+    }
+
+    /// AC#9 — `null` override: nullable field emits JSON null.
+    #[test]
+    fn mock_config_null_override_emits_null_for_nullable_field() {
+        let supergraph_sdl = _simple_schema_supergraph();
+        let config = r#"{"User.deletedAt": {"null": true}}"#;
+        let result = execute_mock(&supergraph_sdl, "{ user { deletedAt } }", 42, config);
+
+        assert_eq!(
+            result["data"]["user"]["deletedAt"],
+            json!(null),
+            "null override must emit JSON null on a nullable field"
+        );
+    }
+
+    /// AC#9 — `null` override: NonNull field ignores the null override.
+    #[test]
+    fn mock_config_null_override_ignored_for_nonnull_field() {
+        let supergraph_sdl = _simple_schema_supergraph();
+        // User.id is ID! (NonNull) — the null override must be ignored.
+        let config = r#"{"User.id": {"null": true}}"#;
+        let result = execute_mock(&supergraph_sdl, "{ user { id } }", 42, config);
+
+        // The id must still be a non-null string (default generation).
+        assert!(
+            result["data"]["user"]["id"].is_string(),
+            "null override on a NonNull field must be ignored; id should still be a string"
+        );
+    }
+
+    /// AC#7 — `unionType` override: forces a union field to a specific concrete type.
+    #[test]
+    fn mock_config_union_type_override_forces_concrete_type() {
+        let supergraph_sdl = _simple_schema_supergraph();
+        let config = r#"{"Query.search": {"unionType": "Product"}}"#;
+        let result = execute_mock(
+            &supergraph_sdl,
+            "{ search { __typename ... on Product { id price } } }",
+            42,
+            config,
+        );
+
+        let typename = result["data"]["search"]["__typename"]
+            .as_str()
+            .expect("__typename must be present");
+        assert_eq!(
+            typename, "Product",
+            "unionType override must force the field to resolve as Product"
+        );
+    }
+
+    /// AC#7 / AC#11 — invalid `unionType` falls back to hash-pick (no crash).
+    #[test]
+    fn mock_config_invalid_union_type_falls_back_silently() {
+        let supergraph_sdl = _simple_schema_supergraph();
+        let config = r#"{"Query.search": {"unionType": "NotARealType"}}"#;
+        // Must not panic; result must still be a valid object.
+        let result = execute_mock(&supergraph_sdl, "{ search { __typename } }", 42, config);
+
+        let typename = result["data"]["search"]["__typename"]
+            .as_str()
+            .expect("__typename must be present even with invalid unionType override");
+        assert!(
+            typename == "User" || typename == "Product",
+            "invalid unionType must fall back to hash-pick, got: {typename}"
         );
     }
 }

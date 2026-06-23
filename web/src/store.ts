@@ -24,6 +24,7 @@ export function computeOverrides(
   if (current.activeQueryTab !== base.activeQueryTab)
     overrides.activeQueryTab = current.activeQueryTab;
   if (current.seed !== base.seed) overrides.seed = current.seed;
+  if (current.mockConfig !== base.mockConfig) overrides.mockConfig = current.mockConfig;
   return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
@@ -33,6 +34,8 @@ export interface WorkspaceState {
   queryTabs: QueryTab[];
   activeQueryTab: number;
   seed: number;
+  /** Raw YAML string for mock field overrides. Empty string means no overrides. */
+  mockConfig: string;
 
   // Composition results (persisted so later panes can read them independently).
   supergraphSdl: string | null;
@@ -75,6 +78,8 @@ export interface WorkspaceState {
    * existing tours without flags continue to show all panes.
    */
   setStepPaneVisibility: (stepIndex: number, pane: PaneId, visible: boolean) => void;
+
+  setMockConfig: (yaml: string) => void;
 
   addSubgraph: (name: string) => void;
   removeSubgraph: (index: number) => void;
@@ -172,6 +177,7 @@ export const useWorkspace = create<WorkspaceState>()(
       queryTabs: DEFAULT_QUERY_TABS,
       activeQueryTab: 0,
       seed: DEFAULT_SEED,
+      mockConfig: "",
 
       tourDraft: null,
       setTourDraft: (tour) => set({ tourDraft: tour }),
@@ -200,6 +206,7 @@ export const useWorkspace = create<WorkspaceState>()(
             queryTabs: state.queryTabs,
             activeQueryTab: state.activeQueryTab,
             seed: state.seed,
+            mockConfig: state.mockConfig,
           };
           const overrides = computeOverrides(state.tourDraft.base, current);
           if (stepIndex === "new") {
@@ -303,6 +310,7 @@ export const useWorkspace = create<WorkspaceState>()(
         })),
       setActiveQueryTab: (index) => set({ activeQueryTab: index }),
       setSeed: (seed) => set({ seed }),
+      setMockConfig: (yaml) => set({ mockConfig: yaml }),
       setComposeResult: (sdl, errors, hintCount) =>
         set((state) => ({
           supergraphSdl: sdl ?? state.supergraphSdl,
@@ -327,7 +335,7 @@ export const useWorkspace = create<WorkspaceState>()(
       // delete the old key for no user-visible benefit. Intentionally
       // decoupled from the product's display name.
       name: "graphql-playground",
-      version: 1,
+      version: 2,
       migrate: (persistedState: unknown, version: number) => {
         if (version === 0) {
           const { query, ...rest } = persistedState as Record<string, unknown>;
@@ -336,6 +344,14 @@ export const useWorkspace = create<WorkspaceState>()(
             ...rest,
             queryTabs: [{ name: "Query 1", query: q }],
             activeQueryTab: 0,
+            mockConfig: "",
+          } as unknown as WorkspaceState;
+        }
+        if (version === 1) {
+          // v1 → v2: add mockConfig field with empty default.
+          return {
+            ...(persistedState as Record<string, unknown>),
+            mockConfig: "",
           } as unknown as WorkspaceState;
         }
         return persistedState as WorkspaceState;
@@ -347,6 +363,7 @@ export const useWorkspace = create<WorkspaceState>()(
         activeQueryTab: state.activeQueryTab,
         seed: state.seed,
         tourDraft: state.tourDraft,
+        mockConfig: state.mockConfig,
       }),
     },
   ),
