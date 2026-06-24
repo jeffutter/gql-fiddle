@@ -150,6 +150,9 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
   const [mobileTab, setMobileTab] = useState<"tour" | "schema" | "plan">("tour");
   const [stepIndex, setStepIndex] = useState(initialStepIndex ?? 0);
   const [activeSubgraph, setActiveSubgraph] = useState(0);
+  // Tracks whether the viewer is at the current step's anchor subgraph.
+  // Drives the "Return to step" button visibility.
+  const [atAnchor, setAtAnchor] = useState(true);
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   // Schema editor instance and monaco — needed for tour step highlight decorations.
@@ -186,12 +189,20 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
   const schemaVisible = activeStep?.paneVisibility?.schema !== false;
   const planVisible = activeStep?.paneVisibility?.plan !== false;
 
-  // Reset activeSubgraph to 0 when moving between steps (in case a new step
-  // has fewer subgraphs than the previous one).
+  // When the step changes, auto-navigate to the step's anchor subgraph (AC#4)
+  // and reset atAnchor so the "Return to step" button is hidden initially.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveSubgraph(0);
-  }, [stepIndex]);
+    const step = tour.steps[stepIndex];
+    if (step?.anchor) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveSubgraph(step.anchor.subgraphIndex);
+    } else {
+      // Reset to subgraph 0 when there is no anchor (guards against a previous
+      // step having more subgraphs than the current one).
+      setActiveSubgraph(0);
+    }
+    setAtAnchor(true);
+  }, [stepIndex, tour.steps]);
 
   // Keyboard navigation: ArrowRight advances, ArrowLeft retreats (AC#1–5).
   // Only registered when TourPlayback is mounted, so shortcuts are inherently
@@ -245,6 +256,9 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
 
   // Apply tour step highlight decorations on the schema editor when the active
   // step or active subgraph changes. Mirrors the same logic in App.tsx.
+  // NOTE: This effect no longer calls setActiveSubgraph — auto-navigation on
+  // step change is handled by the separate stepIndex effect above. Removing
+  // the auto-snap here is the fix for the "lock" that prevented free browsing.
   useEffect(() => {
     tourHighlightHandleRef.current?.dispose();
     tourHighlightHandleRef.current = null;
@@ -254,14 +268,6 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
 
     const step = tour.steps[stepIndex];
     if (!step) return;
-
-    // If the anchor targets a different subgraph, switch to it first.
-    // The effect will re-run after the state update.
-    if (step.anchor && step.anchor.subgraphIndex !== activeSubgraph) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setActiveSubgraph(step.anchor.subgraphIndex);
-      return;
-    }
 
     const currentSdl = subgraphs[activeSubgraph]?.sdl ?? "";
     const prevPayload = stepIndex > 0 ? resolveTourStep(tour, stepIndex - 1) : tour.base;
@@ -420,12 +426,33 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
                   <button
                     key={i}
                     className={i === activeSubgraph ? "tab is-active" : "tab"}
-                    onClick={() => setActiveSubgraph(i)}
+                    onClick={() => {
+                      setActiveSubgraph(i);
+                      const step = tour.steps[stepIndex];
+                      if (step?.anchor && step.anchor.subgraphIndex !== i) {
+                        setAtAnchor(false);
+                      } else {
+                        setAtAnchor(true);
+                      }
+                    }}
                     aria-pressed={i === activeSubgraph}
                   >
                     {sg.name}
                   </button>
                 ))}
+                {!atAnchor && activeStep?.anchor && (
+                  <button
+                    className="btn tour-playback__return-btn"
+                    data-testid="return-to-anchor"
+                    onClick={() => {
+                      setActiveSubgraph(activeStep.anchor!.subgraphIndex);
+                      setAtAnchor(true);
+                    }}
+                    aria-label="Return to step anchor"
+                  >
+                    ↩ Return to step
+                  </button>
+                )}
               </nav>
               <div className="editor" style={{ flex: 1, minHeight: 0 }}>
                 <Editor
@@ -626,12 +653,33 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
                   <button
                     key={i}
                     className={i === activeSubgraph ? "tab is-active" : "tab"}
-                    onClick={() => setActiveSubgraph(i)}
+                    onClick={() => {
+                      setActiveSubgraph(i);
+                      const step = tour.steps[stepIndex];
+                      if (step?.anchor && step.anchor.subgraphIndex !== i) {
+                        setAtAnchor(false);
+                      } else {
+                        setAtAnchor(true);
+                      }
+                    }}
                     aria-pressed={i === activeSubgraph}
                   >
                     {sg.name}
                   </button>
                 ))}
+                {!atAnchor && activeStep?.anchor && (
+                  <button
+                    className="btn tour-playback__return-btn"
+                    data-testid="return-to-anchor"
+                    onClick={() => {
+                      setActiveSubgraph(activeStep.anchor!.subgraphIndex);
+                      setAtAnchor(true);
+                    }}
+                    aria-label="Return to step anchor"
+                  >
+                    ↩ Return to step
+                  </button>
+                )}
               </nav>
               <div className="editor" style={{ flex: 1, minHeight: 0 }}>
                 <Editor

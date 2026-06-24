@@ -1555,3 +1555,19 @@ body {
 .tour-step-index__item.is-active .tour-step-index__num {
   color: var(--accent);
 }
+
+/* ── Tour return-to-anchor button ─────────────────────────────── */
+/* Pushes to the far right of the tab-strip flex container so it
+   doesn't crowd the subgraph tab buttons. */
+.tour-playback__return-btn {
+  margin-inline-start: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  color: var(--accent);
+  border-color: var(--accent);
+  opacity: 0.85;
+}
+
+.tour-playback__return-btn:hover {
+  opacity: 1;
+}

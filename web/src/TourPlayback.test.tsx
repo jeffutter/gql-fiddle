@@ -632,4 +632,130 @@ describe("TourPlayback", () => {
       });
     });
   });
+
+  describe("free browsing during playback (TASK-84)", () => {
+    // A tour fixture where the first step anchors to the "reviews" subgraph (index 1).
+    const anchoredTour: Tour = {
+      title: "Anchored Tour",
+      base: {
+        subgraphs: [
+          { name: "products", sdl: "type Query { products: [Product] }\ntype Product { id: ID! }" },
+          { name: "reviews", sdl: "type Query { reviews: [Review] }\ntype Review { id: ID! }" },
+        ],
+        queryTabs: [{ name: "Query 1", query: "{ products { id } }" }],
+        activeQueryTab: 0,
+        seed: 42,
+      },
+      steps: [
+        {
+          label: "Anchored Step",
+          prose: "This step anchors to the reviews subgraph.",
+          anchor: { subgraphIndex: 1, typeName: "Review" },
+        },
+        {
+          label: "No Anchor Step",
+          prose: "This step has no anchor.",
+        },
+      ],
+    };
+
+    it("AC#4: on mount with an anchored step, the anchor subgraph tab is active", () => {
+      render(<TourPlayback tour={anchoredTour} />);
+      const reviewsTab = screen.getByRole("button", { name: "reviews" });
+      expect(reviewsTab.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("AC#5: return-to-anchor button is absent when viewer is at the anchor subgraph", () => {
+      render(<TourPlayback tour={anchoredTour} />);
+      // Initially at anchor subgraph — button must not appear.
+      expect(screen.queryByTestId("return-to-anchor")).toBeNull();
+    });
+
+    it("AC#1: switching to a non-anchor subgraph does NOT snap back (tab stays changed)", () => {
+      render(<TourPlayback tour={anchoredTour} />);
+      // Start is at "reviews" (anchor, index 1). Switch to "products" (index 0).
+      const productsTab = screen.getByRole("button", { name: "products" });
+      fireEvent.click(productsTab);
+      // The products tab should now be active — no auto-snap back.
+      expect(productsTab.getAttribute("aria-pressed")).toBe("true");
+      const reviewsTab = screen.getByRole("button", { name: "reviews" });
+      expect(reviewsTab.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("AC#2: return-to-anchor button appears after switching to a non-anchor subgraph", () => {
+      render(<TourPlayback tour={anchoredTour} />);
+      // Switch away from the anchor subgraph.
+      fireEvent.click(screen.getByRole("button", { name: "products" }));
+      expect(screen.getByTestId("return-to-anchor")).toBeTruthy();
+    });
+
+    it("AC#3: clicking return-to-anchor navigates back to the anchor subgraph", () => {
+      render(<TourPlayback tour={anchoredTour} />);
+      // Switch away from anchor.
+      fireEvent.click(screen.getByRole("button", { name: "products" }));
+      // Click the return button.
+      fireEvent.click(screen.getByTestId("return-to-anchor"));
+      // Should be back at reviews (anchor, index 1).
+      const reviewsTab = screen.getByRole("button", { name: "reviews" });
+      expect(reviewsTab.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("AC#5: return-to-anchor button disappears after clicking it", () => {
+      render(<TourPlayback tour={anchoredTour} />);
+      fireEvent.click(screen.getByRole("button", { name: "products" }));
+      expect(screen.getByTestId("return-to-anchor")).toBeTruthy();
+      fireEvent.click(screen.getByTestId("return-to-anchor"));
+      expect(screen.queryByTestId("return-to-anchor")).toBeNull();
+    });
+
+    it("AC#5: manually switching back to the anchor subgraph hides the return button", () => {
+      render(<TourPlayback tour={anchoredTour} />);
+      // Switch away from anchor.
+      fireEvent.click(screen.getByRole("button", { name: "products" }));
+      expect(screen.getByTestId("return-to-anchor")).toBeTruthy();
+      // Manually switch back to the anchor subgraph.
+      fireEvent.click(screen.getByRole("button", { name: "reviews" }));
+      // Button should disappear since we're at the anchor.
+      expect(screen.queryByTestId("return-to-anchor")).toBeNull();
+    });
+
+    it("AC#4: advancing to a new step auto-navigates to the new step's anchor", () => {
+      // Tour where step 0 has no anchor and step 1 anchors to reviews (index 1).
+      const tourStepOneAnchored: Tour = {
+        ...anchoredTour,
+        steps: [
+          { label: "No anchor", prose: "First step." },
+          {
+            label: "Anchored",
+            prose: "Second step.",
+            anchor: { subgraphIndex: 1, typeName: "Review" },
+          },
+        ],
+      };
+      render(<TourPlayback tour={tourStepOneAnchored} />);
+      // Step 0 — products (index 0) is active by default.
+      const productsTab = screen.getByRole("button", { name: "products" });
+      expect(productsTab.getAttribute("aria-pressed")).toBe("true");
+      // Advance to step 1.
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      // Step 1 — should auto-navigate to reviews (index 1).
+      const reviewsTab = screen.getByRole("button", { name: "reviews" });
+      expect(reviewsTab.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("AC#2+AC#5: return button is absent when step has no anchor", () => {
+      // Start on step 0 (no anchor) — there should never be a return button.
+      const tourNoAnchor: Tour = {
+        ...anchoredTour,
+        steps: [
+          { label: "No anchor", prose: "No anchor here." },
+          { label: "Also no anchor", prose: "Still no anchor." },
+        ],
+      };
+      render(<TourPlayback tour={tourNoAnchor} />);
+      // Switch tabs — no button since there is no anchor.
+      fireEvent.click(screen.getByRole("button", { name: "reviews" }));
+      expect(screen.queryByTestId("return-to-anchor")).toBeNull();
+    });
+  });
 });
