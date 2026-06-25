@@ -42,6 +42,10 @@ export interface WorkspaceState {
   composeErrors: CompositionError[] | null;
   composeHints: number;
 
+  /** Whether vim keybindings are enabled on all Monaco editors. */
+  vimMode: boolean;
+  setVimMode: (enabled: boolean) => void;
+
   tourDraft: Tour | null;
   setTourDraft: (tour: Tour | null) => void;
 
@@ -178,6 +182,9 @@ export const useWorkspace = create<WorkspaceState>()(
       activeQueryTab: 0,
       seed: DEFAULT_SEED,
       mockConfig: "",
+
+      vimMode: false,
+      setVimMode: (enabled) => set({ vimMode: enabled }),
 
       tourDraft: null,
       setTourDraft: (tour) => set({ tourDraft: tour }),
@@ -336,7 +343,7 @@ export const useWorkspace = create<WorkspaceState>()(
       // delete the old key for no user-visible benefit. Intentionally
       // decoupled from the product's display name.
       name: "graphql-playground",
-      version: 2,
+      version: 3,
       migrate: (persistedState: unknown, version: number) => {
         if (version === 0) {
           const { query, ...rest } = persistedState as Record<string, unknown>;
@@ -355,6 +362,13 @@ export const useWorkspace = create<WorkspaceState>()(
             mockConfig: "",
           } as unknown as WorkspaceState;
         }
+        if (version === 2) {
+          // v2 → v3: add vimMode with false default.
+          return {
+            ...(persistedState as Record<string, unknown>),
+            vimMode: false,
+          } as unknown as WorkspaceState;
+        }
         return persistedState as WorkspaceState;
       },
       partialize: (state) => ({
@@ -365,6 +379,7 @@ export const useWorkspace = create<WorkspaceState>()(
         seed: state.seed,
         tourDraft: state.tourDraft,
         mockConfig: state.mockConfig,
+        vimMode: state.vimMode,
       }),
     },
   ),

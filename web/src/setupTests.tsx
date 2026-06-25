@@ -60,6 +60,12 @@ globalThis.ResizeObserver = class ResizeObserver {
 // Polyfill browser APIs that Monaco depends on but jsdom does not provide.
 document.queryCommandSupported = vi.fn(() => false);
 
+// Mock monaco-vim so the vim emulation module never loads in tests
+// (it imports Monaco's browser-only editor.api which is unavailable in jsdom).
+vi.mock("monaco-vim", () => ({
+  initVimMode: vi.fn(() => ({ dispose: vi.fn() })),
+}));
+
 // Mock monaco-editor so the heavy WASM-adjacent module never loads in tests.
 vi.mock("monaco-editor", () => ({
   editor: {
