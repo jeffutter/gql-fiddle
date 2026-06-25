@@ -232,7 +232,9 @@ export default function App() {
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [showMockConfig, setShowMockConfig] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [outputTab, setOutputTab] = useState<"type-graph" | "entities" | "sdl">("type-graph");
+  const [outputTab, setOutputTab] = useState<"type-graph" | "entities" | "sdl" | "api-sdl">(
+    "type-graph",
+  );
   const [resultsTab, setResultsTab] = useState<
     "plan" | "sequence" | "timeline" | "schema-tree" | "output"
   >("plan");
@@ -1221,6 +1223,16 @@ export default function App() {
     </div>
   );
 
+  const apiSdlContent = (
+    <div className="scroll">
+      {compose === null ? (
+        <pre className="code-block">Loading core…</pre>
+      ) : compose.ok ? (
+        <pre className="code-block">{compose.api_schema_sdl}</pre>
+      ) : null}
+    </div>
+  );
+
   const compositionErrorContent =
     compose !== null && !compose.ok ? (
       <div className="scroll">
@@ -1644,12 +1656,20 @@ export default function App() {
                   >
                     Supergraph SDL
                   </button>
+                  <button
+                    onClick={() => setOutputTab("api-sdl")}
+                    aria-pressed={outputTab === "api-sdl"}
+                    className={outputTab === "api-sdl" ? "tab is-active" : "tab"}
+                  >
+                    API SDL
+                  </button>
                 </nav>
                 {compositionErrorContent ?? (
                   <>
                     {outputTab === "type-graph" && typeGraphContent}
                     {outputTab === "entities" && entitiesContent}
                     {outputTab === "sdl" && sdlContent}
+                    {outputTab === "api-sdl" && apiSdlContent}
                   </>
                 )}
               </div>
@@ -1838,6 +1858,13 @@ export default function App() {
                       >
                         Supergraph SDL
                       </button>
+                      <button
+                        onClick={() => setOutputTab("api-sdl")}
+                        aria-pressed={outputTab === "api-sdl"}
+                        className={outputTab === "api-sdl" ? "tab is-active" : "tab"}
+                      >
+                        API SDL
+                      </button>
                       {(outputTab === "type-graph" || outputTab === "entities") && (
                         <button
                           className="btn btn--icon"
@@ -1870,6 +1897,7 @@ export default function App() {
                         {outputTab === "type-graph" && typeGraphContent}
                         {outputTab === "entities" && entitiesContent}
                         {outputTab === "sdl" && sdlContent}
+                        {outputTab === "api-sdl" && apiSdlContent}
                       </>
                     )}
                   </div>
