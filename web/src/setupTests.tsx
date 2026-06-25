@@ -64,6 +64,7 @@ document.queryCommandSupported = vi.fn(() => false);
 // (it imports Monaco's browser-only editor.api which is unavailable in jsdom).
 vi.mock("monaco-vim", () => ({
   initVimMode: vi.fn(() => ({ dispose: vi.fn() })),
+  VimMode: { Vim: { defineEx: vi.fn(), map: vi.fn() } },
 }));
 
 // Mock monaco-editor so the heavy WASM-adjacent module never loads in tests.

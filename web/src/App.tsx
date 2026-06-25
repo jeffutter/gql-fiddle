@@ -30,7 +30,26 @@ import { TypeGraph } from "./TypeGraph";
 import { QueryShape } from "./QueryShape";
 import * as jsYaml from "js-yaml";
 import { buildSchema, getNamedType, isInterfaceType, isObjectType, isUnionType } from "graphql";
-import { initVimMode } from "monaco-vim";
+import { initVimMode, VimMode } from "monaco-vim";
+
+// VimMode is the CodeMirror default export from keymap_vim; Vim is attached as CodeMirror.Vim.
+// It is not re-exported from monaco-vim's public API so we access it via VimMode.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Vim = (VimMode as any).Vim as {
+  defineEx: (
+    name: string,
+    abbrev: string,
+    fn: (cm: { editor: import("monaco-editor").editor.IStandaloneCodeEditor }) => void,
+  ) => void;
+  map: (lhs: string, rhs: string, ctx: string) => void;
+};
+
+// gc in visual mode toggles line comments via Monaco's built-in action.
+// cm.editor is the IStandaloneCodeEditor for whichever editor fired the command.
+Vim.defineEx("Commentary", "", (cm) => {
+  cm.editor.getAction("editor.action.commentLine")?.run();
+});
+Vim.map("gc", ":Commentary<CR>", "visual");
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
