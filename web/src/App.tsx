@@ -30,6 +30,7 @@ import { TypeGraph } from "./TypeGraph";
 import { QueryShape } from "./QueryShape";
 import * as jsYaml from "js-yaml";
 import { buildSchema, getNamedType, isInterfaceType, isObjectType, isUnionType } from "graphql";
+import { initVimMode } from "monaco-vim";
 
 // Singleton monaco-graphql API — initialized once on first successful compose.
 let monacoGraphQLAPI: MonacoGraphQLAPI | null = null;
@@ -195,6 +196,8 @@ export default function App() {
     setStepAnchor,
     mockConfig,
     setMockConfig,
+    vimMode,
+    setVimMode,
   } = useWorkspace();
   const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
   const [tourPreviewMode, setTourPreviewMode] = useState(false);
@@ -244,6 +247,12 @@ export default function App() {
   const mockConfigFieldKeysRef = useRef<string[]>([]);
   // Concrete type names per field key — only populated for union/interface return types.
   const mockConfigConcreteTypesRef = useRef<Record<string, string[]>>({});
+  // Mock-config editor instance — needed to attach vim keybindings when vimMode is on.
+  const mockConfigEditorRef = useRef<_monaco.editor.IStandaloneCodeEditor | null>(null);
+  // DOM node for the vim mode status bar (normal/insert/visual indicator).
+  const vimStatusBarRef = useRef<HTMLDivElement>(null);
+  // Disposers for active vim mode instances — cleared on toggle-off or editor remount.
+  const vimDisposersRef = useRef<(() => void)[]>([]);
   const isMobile = useMobile();
   const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output" | "results" | "tour">(
     "schema",
@@ -829,6 +838,34 @@ export default function App() {
     return () => provider.dispose();
   }, []);
 
+  // Vim keybindings effect — attaches or detaches monaco-vim on all editors
+  // whenever vimMode changes or the schema editor instance is replaced.
+  useEffect(() => {
+    // Always dispose existing vim instances before re-evaluating.
+    vimDisposersRef.current.forEach((d) => d());
+    vimDisposersRef.current = [];
+
+    if (!vimMode || !vimStatusBarRef.current) return;
+
+    const statusEl = vimStatusBarRef.current;
+    const editors: (_monaco.editor.IStandaloneCodeEditor | null)[] = [
+      editor,
+      queryEditorRef.current,
+      mockConfigEditorRef.current,
+    ];
+
+    for (const ed of editors) {
+      if (!ed) continue;
+      const vimInst = initVimMode(ed, statusEl);
+      vimDisposersRef.current.push(() => vimInst.dispose());
+    }
+
+    return () => {
+      vimDisposersRef.current.forEach((d) => d());
+      vimDisposersRef.current = [];
+    };
+  }, [vimMode, editor]);
+
   function copyForLLM() {
     const parts: string[] = [];
 
@@ -1320,6 +1357,15 @@ export default function App() {
         onChange={(e) => setSeed(Number(e.target.value))}
         className="input input--seed"
       />
+      <button
+        onClick={() => setVimMode(!vimMode)}
+        aria-pressed={vimMode}
+        className={vimMode ? "btn is-active" : "btn"}
+        title="Toggle vim keybindings"
+      >
+        Vim
+      </button>
+      <div ref={vimStatusBarRef} className="vim-statusbar" />
     </div>
   );
 
@@ -1511,6 +1557,9 @@ export default function App() {
                       options={MOCK_CONFIG_EDITOR_OPTIONS}
                       theme={MONACO_THEME}
                       beforeMount={(m) => defineMonacoTheme(m)}
+                      onMount={(ed) => {
+                        mockConfigEditorRef.current = ed;
+                      }}
                     />
                   </div>
                 ) : (
@@ -1847,6 +1896,9 @@ export default function App() {
                           options={MOCK_CONFIG_EDITOR_OPTIONS}
                           theme={MONACO_THEME}
                           beforeMount={(m) => defineMonacoTheme(m)}
+                          onMount={(ed) => {
+                            mockConfigEditorRef.current = ed;
+                          }}
                         />
                       </div>
                     ) : (
@@ -1975,6 +2027,15 @@ export default function App() {
             onChange={(e) => setSeed(Number(e.target.value))}
             className="input input--seed"
           />
+          <button
+            onClick={() => setVimMode(!vimMode)}
+            aria-pressed={vimMode}
+            className={vimMode ? "btn is-active" : "btn"}
+            title="Toggle vim keybindings"
+          >
+            Vim
+          </button>
+          <div ref={vimStatusBarRef} className="vim-statusbar" />
         </footer>
       </div>
 
