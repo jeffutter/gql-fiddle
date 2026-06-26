@@ -1,9 +1,9 @@
-// Integration tests for the workspace sync REST API (TASK-88.4).
-// Uses the D1 mock + inline KV mock; the endpoint handlers are imported
-// directly and invoked without a real HTTP server.
+// Integration tests for the workspace sync REST API (TASK-88.4 + TASK-88.8).
+// Uses the D1 mock + inline KV mock + DO namespace mock; the endpoint handlers
+// are imported directly and invoked without a real HTTP server.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { onRequestGet } from "../api/workspaces/index";
 import { onRequestPut, onRequestDelete } from "../api/workspaces/[id]";
 import { SESSION_COOKIE_NAME, mintSession } from "../_lib/auth";
@@ -35,12 +35,55 @@ function createKVMock(): KVNamespace {
 }
 
 // ---------------------------------------------------------------------------
+// Durable Object namespace mock (USER_SYNC)
+//
+// Captures every stub.fetch() call so tests can assert that a broadcast was
+// fired after an accepted PUT or DELETE.
+// ---------------------------------------------------------------------------
+
+interface DOStubCall {
+  url: string;
+  method: string;
+  body: string;
+}
+
+interface DONamespaceMock {
+  namespace: DurableObjectNamespace;
+  stubCalls: DOStubCall[];
+}
+
+function createDONamespaceMock(): DONamespaceMock {
+  const stubCalls: DOStubCall[] = [];
+
+  const stub = {
+    fetch: vi.fn(async (req: Request) => {
+      const body = await req.text();
+      stubCalls.push({ url: req.url, method: req.method, body });
+      return new Response("ok");
+    }),
+  };
+
+  const namespace = {
+    idFromName: (_name: string) =>
+      ({ toString: () => _name }) as DurableObjectId,
+    get: (_id: DurableObjectId) => stub as unknown as DurableObjectStub,
+    newUniqueId: () => ({ toString: () => "unique" }) as DurableObjectId,
+    idFromString: (s: string) => ({ toString: () => s }) as DurableObjectId,
+    jurisdiction: (_jsd: DurableObjectJurisdiction) =>
+      namespace as DurableObjectNamespace,
+  } as unknown as DurableObjectNamespace;
+
+  return { namespace, stubCalls };
+}
+
+// ---------------------------------------------------------------------------
 // Context builder helpers
 // ---------------------------------------------------------------------------
 
 interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
+  USER_SYNC: DurableObjectNamespace;
 }
 
 function makeGetCtx(
@@ -69,6 +112,7 @@ function makeIdCtx(
   method: string,
   body?: unknown,
   cookie?: string,
+  waitUntil?: (p: Promise<unknown>) => void,
 ): Parameters<PagesFunction<Env>>[0] {
   return {
     request: new Request(`http://localhost/api/workspaces/${id}`, {
@@ -81,7 +125,7 @@ function makeIdCtx(
     }),
     env,
     params: { id },
-    waitUntil: () => {},
+    waitUntil: waitUntil ?? (() => {}),
     passThroughOnException: () => {},
     next: async () => new Response(null, { status: 404 }),
     data: {},
@@ -96,6 +140,7 @@ function makeIdCtx(
 
 let db: D1Database;
 let kv: KVNamespace;
+let doMock: DONamespaceMock;
 let env: Env;
 let userCookie: string;
 let userId: string;
@@ -103,7 +148,8 @@ let userId: string;
 beforeEach(async () => {
   db = createD1Mock(migrationSql);
   kv = createKVMock();
-  env = { DB: db, SESSIONS: kv };
+  doMock = createDONamespaceMock();
+  env = { DB: db, SESSIONS: kv, USER_SYNC: doMock.namespace };
 
   const user = await getOrCreateUser(db, {
     github_id: 1,
@@ -138,8 +184,24 @@ describe("GET /api/workspaces — full snapshot", () => {
     const id1 = crypto.randomUUID();
     const id2 = crypto.randomUUID();
 
-    await onRequestPut(makeIdCtx(env, id1, "PUT", { name: "WS1", payload: "{}", version: 1 }, userCookie));
-    await onRequestPut(makeIdCtx(env, id2, "PUT", { name: "WS2", payload: "{}", version: 1 }, userCookie));
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id1,
+        "PUT",
+        { name: "WS1", payload: "{}", version: 1 },
+        userCookie,
+      ),
+    );
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id2,
+        "PUT",
+        { name: "WS2", payload: "{}", version: 1 },
+        userCookie,
+      ),
+    );
     await onRequestDelete(makeIdCtx(env, id2, "DELETE", undefined, userCookie));
 
     const ctx = makeGetCtx(env, "http://localhost/api/workspaces", userCookie);
@@ -160,17 +222,31 @@ describe("GET /api/workspaces — full snapshot", () => {
 describe("GET /api/workspaces?since=<ts>", () => {
   it("includes soft-deleted rows so clients learn of deletions", async () => {
     const id = crypto.randomUUID();
-    await onRequestPut(makeIdCtx(env, id, "PUT", { name: "WS", payload: "{}", version: 1 }, userCookie));
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "WS", payload: "{}", version: 1 },
+        userCookie,
+      ),
+    );
 
     const before = Date.now();
     await new Promise((r) => setTimeout(r, 2)); // ensure updated_at > before
 
     await onRequestDelete(makeIdCtx(env, id, "DELETE", undefined, userCookie));
 
-    const ctx = makeGetCtx(env, `http://localhost/api/workspaces?since=${before}`, userCookie);
+    const ctx = makeGetCtx(
+      env,
+      `http://localhost/api/workspaces?since=${before}`,
+      userCookie,
+    );
     const res = await onRequestGet(ctx);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { workspaces: Array<{ id: string; deleted_at: number | null }> };
+    const body = (await res.json()) as {
+      workspaces: Array<{ id: string; deleted_at: number | null }>;
+    };
     const ws = body.workspaces.find((w) => w.id === id);
     expect(ws).toBeDefined();
     expect(ws!.deleted_at).not.toBeNull();
@@ -184,11 +260,24 @@ describe("GET /api/workspaces?since=<ts>", () => {
 describe("GET cross-user isolation", () => {
   it("does not return another user's workspaces", async () => {
     // Create a second user and seed a workspace
-    const bob = await getOrCreateUser(db, { github_id: 2, login: "bob", name: "Bob", avatar_url: null });
+    const bob = await getOrCreateUser(db, {
+      github_id: 2,
+      login: "bob",
+      name: "Bob",
+      avatar_url: null,
+    });
     const bobToken = await mintSession(kv, bob.id);
     const bobCookie = `${SESSION_COOKIE_NAME}=${bobToken}`;
     const bobWsId = crypto.randomUUID();
-    await onRequestPut(makeIdCtx(env, bobWsId, "PUT", { name: "BobWS", payload: "{}", version: 1 }, bobCookie));
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        bobWsId,
+        "PUT",
+        { name: "BobWS", payload: "{}", version: 1 },
+        bobCookie,
+      ),
+    );
 
     // Alice's GET should not see Bob's workspace
     const ctx = makeGetCtx(env, "http://localhost/api/workspaces", userCookie);
@@ -205,23 +294,47 @@ describe("GET cross-user isolation", () => {
 describe("PUT /api/workspaces/:id", () => {
   it("inserts a new workspace and returns 200 with the workspace row", async () => {
     const id = crypto.randomUUID();
-    const ctx = makeIdCtx(env, id, "PUT", { name: "New WS", payload: '{"x":1}', version: 1 }, userCookie);
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "New WS", payload: '{"x":1}', version: 1 },
+      userCookie,
+    );
     const res = await onRequestPut(ctx);
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { workspace: { id: string; name: string } };
+    const body = (await res.json()) as {
+      workspace: { id: string; name: string };
+    };
     expect(body.workspace.id).toBe(id);
     expect(body.workspace.name).toBe("New WS");
   });
 
   it("accepts an update with a higher version", async () => {
     const id = crypto.randomUUID();
-    await onRequestPut(makeIdCtx(env, id, "PUT", { name: "v1", payload: "{}", version: 1 }, userCookie));
-    const ctx = makeIdCtx(env, id, "PUT", { name: "v2", payload: "{}", version: 2 }, userCookie);
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "v1", payload: "{}", version: 1 },
+        userCookie,
+      ),
+    );
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "v2", payload: "{}", version: 2 },
+      userCookie,
+    );
     const res = await onRequestPut(ctx);
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { workspace: { name: string; version: number } };
+    const body = (await res.json()) as {
+      workspace: { name: string; version: number };
+    };
     expect(body.workspace.name).toBe("v2");
     expect(body.workspace.version).toBe(2);
   });
@@ -229,13 +342,30 @@ describe("PUT /api/workspaces/:id", () => {
   it("returns 409 with the current server row when version is stale", async () => {
     const id = crypto.randomUUID();
     // Insert at version 5
-    await onRequestPut(makeIdCtx(env, id, "PUT", { name: "v5", payload: "{}", version: 5 }, userCookie));
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "v5", payload: "{}", version: 5 },
+        userCookie,
+      ),
+    );
     // Try to overwrite at version 3 (stale)
-    const ctx = makeIdCtx(env, id, "PUT", { name: "stale", payload: "{}", version: 3 }, userCookie);
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "stale", payload: "{}", version: 3 },
+      userCookie,
+    );
     const res = await onRequestPut(ctx);
 
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { conflict: boolean; current: { name: string; version: number } };
+    const body = (await res.json()) as {
+      conflict: boolean;
+      current: { name: string; version: number };
+    };
     expect(body.conflict).toBe(true);
     expect(body.current.name).toBe("v5");
     expect(body.current.version).toBe(5);
@@ -244,28 +374,57 @@ describe("PUT /api/workspaces/:id", () => {
   it("returns 413 when payload exceeds 1 MB", async () => {
     const id = crypto.randomUUID();
     const bigPayload = "x".repeat(1_048_577);
-    const ctx = makeIdCtx(env, id, "PUT", { name: "big", payload: bigPayload, version: 1 }, userCookie);
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "big", payload: bigPayload, version: 1 },
+      userCookie,
+    );
     const res = await onRequestPut(ctx);
     expect(res.status).toBe(413);
   });
 
   it("returns 404 when the workspace id belongs to another user", async () => {
     // Bob creates a workspace
-    const bob = await getOrCreateUser(db, { github_id: 3, login: "bob2", name: "Bob", avatar_url: null });
+    const bob = await getOrCreateUser(db, {
+      github_id: 3,
+      login: "bob2",
+      name: "Bob",
+      avatar_url: null,
+    });
     const bobToken = await mintSession(kv, bob.id);
     const bobCookie = `${SESSION_COOKIE_NAME}=${bobToken}`;
     const id = crypto.randomUUID();
-    await onRequestPut(makeIdCtx(env, id, "PUT", { name: "BobWS", payload: "{}", version: 1 }, bobCookie));
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "BobWS", payload: "{}", version: 1 },
+        bobCookie,
+      ),
+    );
 
     // Alice tries to overwrite Bob's workspace
-    const ctx = makeIdCtx(env, id, "PUT", { name: "Alice hijack", payload: "{}", version: 2 }, userCookie);
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "Alice hijack", payload: "{}", version: 2 },
+      userCookie,
+    );
     const res = await onRequestPut(ctx);
     expect(res.status).toBe(404);
   });
 
   it("returns 401 without a valid session", async () => {
     const id = crypto.randomUUID();
-    const ctx = makeIdCtx(env, id, "PUT", { name: "WS", payload: "{}", version: 1 });
+    const ctx = makeIdCtx(env, id, "PUT", {
+      name: "WS",
+      payload: "{}",
+      version: 1,
+    });
     const res = await onRequestPut(ctx);
     expect(res.status).toBe(401);
   });
@@ -279,27 +438,54 @@ describe("DELETE /api/workspaces/:id", () => {
   it("soft-deletes a workspace and it is visible in ?since read", async () => {
     const id = crypto.randomUUID();
     const ts = Date.now() - 10;
-    await onRequestPut(makeIdCtx(env, id, "PUT", { name: "ToDelete", payload: "{}", version: 1 }, userCookie));
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "ToDelete", payload: "{}", version: 1 },
+        userCookie,
+      ),
+    );
 
     const delCtx = makeIdCtx(env, id, "DELETE", undefined, userCookie);
     const delRes = await onRequestDelete(delCtx);
     expect(delRes.status).toBe(204);
 
     // Should appear in delta read with deleted_at set
-    const sinceCtx = makeGetCtx(env, `http://localhost/api/workspaces?since=${ts}`, userCookie);
+    const sinceCtx = makeGetCtx(
+      env,
+      `http://localhost/api/workspaces?since=${ts}`,
+      userCookie,
+    );
     const sinceRes = await onRequestGet(sinceCtx);
-    const body = (await sinceRes.json()) as { workspaces: Array<{ id: string; deleted_at: number | null }> };
+    const body = (await sinceRes.json()) as {
+      workspaces: Array<{ id: string; deleted_at: number | null }>;
+    };
     const ws = body.workspaces.find((w) => w.id === id);
     expect(ws).toBeDefined();
     expect(ws!.deleted_at).not.toBeNull();
   });
 
   it("returns 404 when the workspace belongs to another user", async () => {
-    const bob = await getOrCreateUser(db, { github_id: 4, login: "bob3", name: "Bob", avatar_url: null });
+    const bob = await getOrCreateUser(db, {
+      github_id: 4,
+      login: "bob3",
+      name: "Bob",
+      avatar_url: null,
+    });
     const bobToken = await mintSession(kv, bob.id);
     const bobCookie = `${SESSION_COOKIE_NAME}=${bobToken}`;
     const id = crypto.randomUUID();
-    await onRequestPut(makeIdCtx(env, id, "PUT", { name: "BobWS", payload: "{}", version: 1 }, bobCookie));
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "BobWS", payload: "{}", version: 1 },
+        bobCookie,
+      ),
+    );
 
     const ctx = makeIdCtx(env, id, "DELETE", undefined, userCookie);
     const res = await onRequestDelete(ctx);
@@ -310,5 +496,127 @@ describe("DELETE /api/workspaces/:id", () => {
     const ctx = makeIdCtx(env, crypto.randomUUID(), "DELETE");
     const res = await onRequestDelete(ctx);
     expect(res.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Broadcast invalidation tests (TASK-88.8)
+//
+// Verifies that ctx.waitUntil is called with a broadcast fetch after accepted
+// PUT/DELETE, but NOT after a rejected (409) PUT.
+// ---------------------------------------------------------------------------
+
+describe("broadcast invalidation after workspace write", () => {
+  it("calls waitUntil with a broadcast fetch after an accepted PUT", async () => {
+    const id = crypto.randomUUID();
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const waitUntil = (p: Promise<unknown>) => {
+      waitUntilPromises.push(p);
+    };
+
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "WS", payload: "{}", version: 1 },
+      userCookie,
+      waitUntil,
+    );
+    const res = await onRequestPut(ctx);
+    expect(res.status).toBe(200);
+
+    // Flush all waitUntil promises so the stub receives the call.
+    await Promise.all(waitUntilPromises);
+
+    expect(doMock.stubCalls.length).toBe(1);
+    expect(doMock.stubCalls[0].url).toContain("/broadcast");
+    const body = JSON.parse(doMock.stubCalls[0].body) as {
+      changedId: string;
+      version: number;
+    };
+    expect(body.changedId).toBe(id);
+    expect(typeof body.version).toBe("number");
+  });
+
+  it("calls waitUntil with a broadcast fetch after a successful DELETE", async () => {
+    const id = crypto.randomUUID();
+    // Seed the workspace.  Collect and flush the seed PUT's broadcast so that
+    // its async stub call doesn't land after we reset stubCalls below.
+    const seedPromises: Promise<unknown>[] = [];
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "WS", payload: "{}", version: 1 },
+        userCookie,
+        (p) => {
+          seedPromises.push(p);
+        },
+      ),
+    );
+    await Promise.all(seedPromises); // flush seed broadcast
+    doMock.stubCalls.length = 0; // clear the broadcast from the seed PUT
+
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const waitUntil = (p: Promise<unknown>) => {
+      waitUntilPromises.push(p);
+    };
+
+    const ctx = makeIdCtx(env, id, "DELETE", undefined, userCookie, waitUntil);
+    const res = await onRequestDelete(ctx);
+    expect(res.status).toBe(204);
+
+    await Promise.all(waitUntilPromises);
+
+    expect(doMock.stubCalls.length).toBe(1);
+    expect(doMock.stubCalls[0].url).toContain("/broadcast");
+    const body = JSON.parse(doMock.stubCalls[0].body) as {
+      changedId: string;
+      version: null;
+    };
+    expect(body.changedId).toBe(id);
+    expect(body.version).toBeNull();
+  });
+
+  it("does NOT broadcast when a PUT is rejected with 409 (stale version)", async () => {
+    const id = crypto.randomUUID();
+    // Insert at version 5.  Flush the seed broadcast before resetting.
+    const seedPromises: Promise<unknown>[] = [];
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "v5", payload: "{}", version: 5 },
+        userCookie,
+        (p) => {
+          seedPromises.push(p);
+        },
+      ),
+    );
+    await Promise.all(seedPromises); // flush seed broadcast
+    doMock.stubCalls.length = 0; // clear the initial broadcast
+
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const waitUntil = (p: Promise<unknown>) => {
+      waitUntilPromises.push(p);
+    };
+
+    // Stale PUT — should be rejected with 409, no broadcast.
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "stale", payload: "{}", version: 3 },
+      userCookie,
+      waitUntil,
+    );
+    const res = await onRequestPut(ctx);
+    expect(res.status).toBe(409);
+
+    await Promise.all(waitUntilPromises);
+
+    expect(doMock.stubCalls.length).toBe(0);
   });
 });
