@@ -4,12 +4,14 @@ title: 'web: auth client & login/logout UI'
 status: Backlog
 assignee: []
 created_date: '2026-06-26 12:12'
+updated_date: '2026-06-26 20:56'
 labels:
   - web
   - auth
   - ui
 dependencies:
   - TASK-88.3
+  - TASK-88.9
 parent_task_id: TASK-88
 priority: high
 ordinal: 101000
@@ -24,11 +26,12 @@ Gives users a way to sign in and surfaces login state in the UI (parent TASK-88)
 
 ## Depends on
 
-TASK-88.3 — `/api/auth/github`, `/api/auth/me`, `/api/auth/logout`.
+- TASK-88.3 — `/api/auth/me`, `/api/auth/logout`.
+- TASK-88.9 — `/api/auth/login` (the unified redirect endpoint that routes to GitHub OAuth in prod or the dev bypass locally).
 
 ## Scope
 
-- Add a small auth client module (e.g. `web/src/auth.ts`): `fetchCurrentUser()` (calls `/api/auth/me`), `login()` (navigates to `/api/auth/github`), `logout()` (POST `/api/auth/logout`). All requests use `credentials: 'include'` (same-origin, so the cookie rides along).
+- Add a small auth client module (e.g. `web/src/auth.ts`): `fetchCurrentUser()` (calls `/api/auth/me`), `login()` (navigates to `/api/auth/login` — **not** `/api/auth/github` directly; the server decides which flow to use based on environment), `logout()` (POST `/api/auth/logout`). All requests use `credentials: 'include'` (same-origin, so the cookie rides along).
 - Hold auth state in the app (a small Zustand slice or React context): `{ user: User | null, status: 'loading' | 'anonymous' | 'authed' }`. Resolve on app mount via `fetchCurrentUser()`.
 - UI in the `page-header` action area (consistent with the committed aesthetic — use existing `.btn` classes / tokens from `web/src/theme.css`, no hardcoded colors):
   - Logged out: a **"Sign in with GitHub"** button.
