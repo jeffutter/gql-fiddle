@@ -111,11 +111,19 @@ separate Worker or service is needed.
 functions/
   api/
     health.ts         GET /api/health → { ok: true, bindings: { db, sessions } }
+    auth/
+      github.ts       GET /api/auth/github — generate state, redirect to GitHub
+      github/
+        callback.ts   GET /api/auth/github/callback — validate state, exchange code, mint session
+      me.ts           GET /api/auth/me — return current user or 401
+      logout.ts       POST /api/auth/logout — delete session from KV, clear cookie
   _lib/
     db.ts             D1 data-access helpers (getOrCreateUser, listWorkspaces, upsertWorkspace, softDeleteWorkspace)
+    auth.ts           Auth primitives: state, session, requireUser, cookie helpers
   __tests__/
     d1-mock.ts        better-sqlite3-backed D1Database shim for tests
     db.test.ts        Unit tests for db.ts (8 tests)
+    auth.test.ts      Unit tests for auth.ts (13 tests)
     tsconfig.json     Test-only TypeScript config (adds node + better-sqlite3 types)
   tsconfig.json       Workers-runtime TypeScript config (excludes __tests__)
 migrations/
@@ -141,6 +149,52 @@ wrangler pages dev web/dist
 `wrangler pages dev` hot-reloads Functions but not the Vite frontend. Run
 `pnpm build` (from `web/`) to rebuild the frontend, then refresh. Local D1
 state lives in `.wrangler/state/v3/d1/` (gitignored).
+
+### Auth (GitHub OAuth)
+
+The auth flow uses GitHub OAuth 2.0 (Authorization Code). Sessions are stored
+in KV as opaque tokens; the GitHub access token is used once to fetch the user
+profile and is then discarded — it is never persisted.
+
+#### OAuth App setup
+
+1. GitHub → Settings → Developer settings → OAuth Apps → **New OAuth App**
+   - **Homepage URL:** `https://<project>.pages.dev`
+   - **Authorization callback URL:** `https://<project>.pages.dev/api/auth/github/callback`
+2. For local dev, add a second callback URL (or a separate app):
+   `http://localhost:8788/api/auth/github/callback`
+3. Copy the **Client ID** and generate a **Client Secret**.
+
+#### Required secrets
+
+Never commit these values. Set them via Wrangler or the Cloudflare dashboard:
+
+```sh
+wrangler pages secret put GITHUB_CLIENT_ID
+wrangler pages secret put GITHUB_CLIENT_SECRET
+```
+
+For local dev, add to `.dev.vars` (gitignored by default):
+
+```ini
+GITHUB_CLIENT_ID=<your_client_id>
+GITHUB_CLIENT_SECRET=<your_client_secret>
+```
+
+#### Session design
+
+- Cookie name: `__session`, attributes: `HttpOnly; Secure; SameSite=Lax`
+- **Fixed 30-day TTL** — no sliding renewal. A new login always mints a fresh
+  token. Old tokens expire naturally after 30 days of non-use.
+- Tokens are stored in KV as `session:<uuid>` → `{ user_id, created_at }`.
+
+#### State tokens (CSRF prevention)
+
+OAuth state tokens are stored in KV as `state:<uuid>` with a **10-minute TTL**
+and deleted immediately upon use (one-time tokens). If the callback receives a
+state that does not match a KV entry, the request is rejected with 400.
+
+---
 
 ### Provisioning (one-time, per Cloudflare account)
 
@@ -206,9 +260,16 @@ comfortably fit within the free tier for personal use.
 functions/
   api/
     health.ts       GET /api/health (liveness + binding probe)
+    auth/
+      github.ts     GET /api/auth/github (OAuth initiation)
+      github/
+        callback.ts GET /api/auth/github/callback (OAuth callback)
+      me.ts         GET /api/auth/me (current user or 401)
+      logout.ts     POST /api/auth/logout (invalidate session)
   _lib/
     db.ts           D1 data-access helpers
-  __tests__/        Unit tests with better-sqlite3 D1 shim
+    auth.ts         Auth primitives (state, session, requireUser, cookies)
+  __tests__/        Unit tests with better-sqlite3 D1 shim and KV mock
   tsconfig.json     Workers-runtime TypeScript config
 migrations/
   0001_initial.sql  users + workspaces schema
