@@ -1,5 +1,5 @@
 # Git hooks. pre-commit is fast (staged files, formatting/lint/typecheck);
-# pre-push runs the test suites. WASM headless-browser tests run in CI only.
+# pre-push runs the test suites including WASM headless-browser tests.
 # All tools come from the Nix flake, so versions match CI exactly.
 
 pre-commit:
@@ -37,3 +37,6 @@ pre-push:
     web-test:
       root: "web/"
       run: pnpm test run
+    wasm-browser-test:
+      glob: "crates/**/*.rs"
+      run: wasm-pack test --headless --chrome crates/gql-core
