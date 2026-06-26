@@ -38,6 +38,7 @@
         webInputs = [
           pkgs.nodejs_22
           pkgs.pnpm
+          pkgs.wrangler
         ];
 
         # Core Rust + WASM build inputs, without a browser (used in CI jobs
