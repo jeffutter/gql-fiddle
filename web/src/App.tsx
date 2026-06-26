@@ -640,6 +640,28 @@ export default function App() {
     };
   }, [subgraphs]);
 
+  // When workspace switches, stale Monaco models may exist at the new index's
+  // paths (e.g., workspace index is reused after removal). Sync them to the
+  // store so the editor doesn't show leftover content from a previous workspace.
+  const staleModelSubgraphsRef = useRef(subgraphs);
+  useEffect(() => {
+    staleModelSubgraphsRef.current = subgraphs;
+  });
+  useEffect(() => {
+    if (!monacoInstance) return;
+    try {
+      staleModelSubgraphsRef.current.forEach((sg, i) => {
+        const uri = monacoInstance.Uri.parse(`inmemory://model/ws-${activeWorkspaceIndex}-sg-${i}`);
+        const model = monacoInstance.editor.getModel(uri);
+        if (model && model.getValue() !== sg.sdl) {
+          model.setValue(sg.sdl);
+        }
+      });
+    } catch {
+      // monacoInstance may be a partial mock (e.g., in tests); skip gracefully.
+    }
+  }, [activeWorkspaceIndex, monacoInstance]);
+
   // Auto-run effect: re-executes the query whenever inputs change.
   useEffect(() => {
     if (supergraphSdl === null) return;
@@ -1531,6 +1553,27 @@ export default function App() {
       ))}
       <button
         className="btn btn--icon"
+        onClick={() => cloneWorkspace()}
+        title="Clone active workspace"
+        data-testid="workspace-clone-btn"
+      >
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 13 13"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="0.75" y="3.75" width="8.5" height="8.5" rx="1" />
+          <path d="M3.75 3.75V2A1.25 1.25 0 0 1 5 .75h6A1.25 1.25 0 0 1 12.25 2v6A1.25 1.25 0 0 1 11 9.25H9.25" />
+        </svg>
+      </button>
+      <button
+        className="btn btn--icon"
         onClick={() => addWorkspace()}
         title="Add workspace"
         data-testid="workspace-add-btn"
@@ -1601,14 +1644,6 @@ export default function App() {
             </button>
           </>
         )}
-        <button
-          onClick={() => cloneWorkspace()}
-          className="btn"
-          title="Clone active workspace"
-          data-testid="workspace-clone-btn"
-        >
-          Clone
-        </button>
         <button
           onClick={() => {
             if (window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")) {
