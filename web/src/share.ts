@@ -10,14 +10,22 @@ export interface WorkspacePayload {
 }
 
 /**
- * A single named workspace entry stored in the v4 localStorage shape.
+ * A single named workspace entry stored in the v5 localStorage shape.
  *
- * v4 localStorage root (key: "graphql-playground"):
+ * v5 localStorage root (key: "graphql-playground"):
  * { workspaces: WorkspaceEntry[], activeWorkspaceIndex: number, vimMode: boolean }
+ *
+ * `id` and `version` are optional for backward compatibility with v4 data that
+ * is in the process of being migrated; the v4→v5 migration in store.ts
+ * backfills them via crypto.randomUUID() and version=1.
  */
 export interface WorkspaceEntry {
   /** User-visible workspace name, e.g. "Workspace 1". */
   name: string;
+  /** Stable client-generated UUID for cloud sync. Added in store v5. */
+  id?: string;
+  /** Monotonic version counter for last-write-wins. Bumped on each cloud sync push. */
+  version?: number;
   subgraphs: { name: string; sdl: string }[];
   activeSubgraph: number;
   queryTabs: { name: string; query: string }[];

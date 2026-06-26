@@ -1,0 +1,18 @@
+# Local-only secrets for wrangler pages dev.
+# Copy this file to .dev.vars (gitignored) and fill in your values.
+#
+# To apply: wrangler pages dev web/dist reads .dev.vars automatically.
+
+# "development" enables the /api/auth/dev-login bypass (default when unset).
+# Set to "production" to test real GitHub OAuth locally (requires a registered
+# OAuth App with http://localhost:8788/api/auth/github/callback as callback URL).
+ENVIRONMENT=development
+
+# Synthetic user identity for /api/auth/dev-login.
+# Change to "dev-user-2" (and run a second wrangler dev on a different port)
+# to simulate two different users for cross-device sync testing.
+DEV_USER_ID=dev-user-1
+
+# Required only when ENVIRONMENT=production or for real OAuth testing:
+GITHUB_CLIENT_ID=your_client_id_here
+GITHUB_CLIENT_SECRET=your_client_secret_here

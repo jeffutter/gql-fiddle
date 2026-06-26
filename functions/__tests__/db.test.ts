@@ -85,7 +85,7 @@ describe("upsertWorkspace and listWorkspaces", () => {
       avatar_url: null,
     });
 
-    const ws = await upsertWorkspace(db, {
+    const { accepted, row: ws } = await upsertWorkspace(db, {
       id: "ws-aaaa-0001",
       user_id: user.id,
       name: "My Workspace",
@@ -93,6 +93,7 @@ describe("upsertWorkspace and listWorkspaces", () => {
       version: 1,
     });
 
+    expect(accepted).toBe(true);
     expect(ws.id).toBe("ws-aaaa-0001");
     expect(ws.name).toBe("My Workspace");
     expect(ws.deleted_at).toBeNull();

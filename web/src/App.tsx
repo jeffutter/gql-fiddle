@@ -10,6 +10,8 @@ import { initializeMode } from "monaco-graphql/initializeMode";
 import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
 import { useWorkspace, activeWorkspace, DEFAULT_SUBGRAPHS, DEFAULT_QUERY_TABS } from "./store";
+import { useAuth, fetchCurrentUser, login, logout } from "./auth";
+import { initSync } from "./sync";
 import { loadCore } from "./core";
 import { decode, encode, encodeTour, decodeTour, resolveTourStep } from "./share";
 import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
@@ -291,6 +293,20 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output" | "results" | "tour">(
     "schema",
   );
+
+  // Auth state — resolved on mount by fetchCurrentUser()
+  const { user, status: authStatus, syncStatus } = useAuth();
+
+  // Bootstrap auth state on mount — picks up the session cookie if the user
+  // already logged in (or just returned from the OAuth redirect).
+  useEffect(() => {
+    void fetchCurrentUser().then((u) => {
+      useAuth.getState().setAuth(u);
+    });
+  }, []);
+
+  // Initialize cloud sync engine — subscribes to auth + workspace changes.
+  useEffect(() => initSync(), []);
   const [viewSource, setViewSource] = useState<{
     title: string;
     value: string;
@@ -1654,6 +1670,43 @@ export default function App() {
         >
           Reset to defaults
         </button>
+        {authStatus === "authed" && (
+          <span
+            className={`sync-status sync-status--${syncStatus}`}
+            title={
+              syncStatus === "saving"
+                ? "Saving…"
+                : syncStatus === "error"
+                  ? "Sync error"
+                  : syncStatus === "offline"
+                    ? "Offline"
+                    : "Synced"
+            }
+            aria-label={`Sync: ${syncStatus}`}
+          />
+        )}
+        {authStatus !== "loading" &&
+          (authStatus === "anonymous" ? (
+            <button onClick={login} className="btn">
+              Sign in with GitHub
+            </button>
+          ) : (
+            <div className="auth-user">
+              {user?.avatar_url && (
+                <img
+                  src={user.avatar_url}
+                  alt={user.login}
+                  className="auth-user__avatar"
+                  width={24}
+                  height={24}
+                />
+              )}
+              <span className="auth-user__name">{user?.login}</span>
+              <button onClick={() => void logout()} className="btn">
+                Sign out
+              </button>
+            </div>
+          ))}
       </div>
     </header>
   );
