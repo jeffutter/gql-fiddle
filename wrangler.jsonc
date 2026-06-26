@@ -1,0 +1,38 @@
+{
+  // Cloudflare Pages project configuration.
+  // See https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+  "$schema": "./web/node_modules/wrangler/config-schema.json",
+  "name": "gql-fiddle",
+  "pages_build_output_dir": "web/dist",
+  "compatibility_date": "2026-06-01",
+
+  // D1 SQLite database for workspace persistence (TASK-88.2 adds the schema).
+  //
+  // To provision:
+  //   wrangler d1 create gql-fiddle-db
+  // Replace database_id with the ID printed by that command.
+  // For production, configure the binding in the Pages project settings
+  // (dashboard or wrangler) using the real database_id.
+  // Local dev always uses a local SQLite file (.wrangler/state/v3/d1/).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gql-fiddle-db",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+
+  // KV namespace for session tokens (TASK-88.3 adds the auth logic).
+  //
+  // To provision:
+  //   wrangler kv namespace create SESSIONS
+  // Replace id with the namespace_id printed by that command.
+  // For production, configure the binding in the Pages project settings.
+  // Local dev always uses in-memory storage.
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "00000000-0000-0000-0000-000000000001"
+    }
+  ]
+}
