@@ -69,9 +69,11 @@ pub fn node_at_position(sdl: &str, line: u32, col: u32) -> Value {
                     }
                 }
 
-                // Check the enclosing type definition span.
+                // Check the enclosing type definition span, excluding the closing-brace line.
                 if let Some(range) = obj.line_column_range(sources) {
-                    if contains(range) {
+                    let start_line = range.start.line as u32;
+                    let end_line = range.end.line as u32;
+                    if contains(range) && (start_line == end_line || line < end_line) {
                         return json!({ "typeName": type_name.as_str() });
                     }
                 }
@@ -93,7 +95,9 @@ pub fn node_at_position(sdl: &str, line: u32, col: u32) -> Value {
                 }
 
                 if let Some(range) = iface.line_column_range(sources) {
-                    if contains(range) {
+                    let start_line = range.start.line as u32;
+                    let end_line = range.end.line as u32;
+                    if contains(range) && (start_line == end_line || line < end_line) {
                         return json!({ "typeName": type_name.as_str() });
                     }
                 }
@@ -168,6 +172,18 @@ interface Node {\n\
         let result = node_at_position(TEST_SDL, 5, 4);
         assert_eq!(result["typeName"].as_str().unwrap(), "Product");
         assert_eq!(result["fieldName"].as_str().unwrap(), "id");
+    }
+
+    #[test]
+    fn closing_brace_returns_null() {
+        // Closing `}` on line 3 is not a meaningful position — must return null.
+        let sdl = "type Query {\n  hello: String\n}";
+        let result = node_at_position(sdl, 3, 1);
+        assert_eq!(
+            result,
+            Value::Null,
+            "closing brace position must return null"
+        );
     }
 
     #[test]
