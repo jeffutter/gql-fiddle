@@ -1,11 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import App from "./App";
-import { useWorkspace } from "./store";
+import { useWorkspace, activeWorkspace } from "./store";
 import * as monaco from "monaco-editor";
 import type { Diagnostic } from "./core/types";
 import { encode, encodeTour } from "./share";
-import type { Tour } from "./share";
+import type { Tour, WorkspaceEntry } from "./share";
+
+/** Update only workspace-level fields on the active workspace. */
+function setWs(patch: Partial<WorkspaceEntry>) {
+  useWorkspace.setState((s) => ({
+    workspaces: s.workspaces.map((ws, i) =>
+      i === s.activeWorkspaceIndex ? { ...ws, ...patch } : ws,
+    ),
+  }));
+}
+
+/** Shortcut to get the active workspace from the current store state. */
+const aw = () => activeWorkspace(useWorkspace.getState());
 
 let validateSubgraphCallCount = 0;
 
@@ -76,10 +88,19 @@ describe("App", () => {
       configurable: true,
     });
     useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      activeSubgraph: 0,
-      queryTabs: [{ name: "Query 1", query: "" }],
-      activeQueryTab: 0,
+      workspaces: [
+        {
+          name: "Workspace 1",
+          subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+          activeSubgraph: 0,
+          queryTabs: [{ name: "Query 1", query: "" }],
+          activeQueryTab: 0,
+          seed: 42,
+          mockConfig: "",
+          tourDraft: null,
+        },
+      ],
+      activeWorkspaceIndex: 0,
       supergraphSdl: null,
       composeErrors: null,
       composeHints: 0,
@@ -100,7 +121,7 @@ describe("App", () => {
 
   it("switching subgraph tabs shows that subgraph's SDL in the editor", () => {
     // Set up two subgraphs with distinct SDLs.
-    useWorkspace.setState({
+    setWs({
       subgraphs: [
         { name: "products", sdl: "type Query { products }" },
         { name: "reviews", sdl: "type Query { reviews }" },
@@ -111,7 +132,7 @@ describe("App", () => {
     const { container } = render(<App />);
 
     // Initially the first tab is active.
-    expect(useWorkspace.getState().activeSubgraph).toBe(0);
+    expect(aw().activeSubgraph).toBe(0);
 
     // Click the second tab button ("reviews").
     const reviewsBtn = container.querySelector("button[aria-pressed='false']")!;
@@ -119,7 +140,7 @@ describe("App", () => {
 
     // The active index should now be 1, so the Editor's value prop becomes
     // subgraphs[1].sdl — confirming the editor displays the correct SDL.
-    expect(useWorkspace.getState().activeSubgraph).toBe(1);
+    expect(aw().activeSubgraph).toBe(1);
   });
 
   it("editing a subgraph updates the store and re-runs composition", async () => {
@@ -140,8 +161,7 @@ describe("App", () => {
     });
 
     // Verify the store actually contains the new SDL.
-    const state = useWorkspace.getState();
-    expect(state.subgraphs[0].sdl).toBe("type Query { b: String }");
+    expect(aw().subgraphs[0].sdl).toBe("type Query { b: String }");
   });
 
   it("fixing the error clears the underline", async () => {
@@ -361,7 +381,6 @@ describe("App", () => {
 
     // Pre-populate the store with a previously successful SDL.
     useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       supergraphSdl: "# previous supergraph",
       composeErrors: null,
       composeHints: 0,
@@ -398,7 +417,6 @@ describe("App", () => {
 
     // Pre-populate with a stale supergraph SDL.
     useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       supergraphSdl: "# previous supergraph",
       composeErrors: null,
       composeHints: 0,
@@ -430,7 +448,6 @@ describe("App", () => {
 
     // Start with supergraphSdl: null (already the default in beforeEach).
     useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
       supergraphSdl: null,
       composeErrors: null,
       composeHints: 0,
@@ -477,7 +494,7 @@ describe("App", () => {
   // ---- AC#3: Tab switching shows correct SDL ----
 
   it("editor displays the active subgraph's SDL after clicking a different tab (AC #3)", () => {
-    useWorkspace.setState({
+    setWs({
       subgraphs: [
         { name: "products", sdl: "type Query { products }" },
         { name: "reviews", sdl: "type Query { reviews }" },
@@ -495,7 +512,7 @@ describe("App", () => {
     fireEvent.click(reviewsBtn);
 
     // The active index should now be 1.
-    expect(useWorkspace.getState().activeSubgraph).toBe(1);
+    expect(aw().activeSubgraph).toBe(1);
 
     // The editor should now display the second subgraph's SDL.
     expect(container.textContent).toContain("type Query { reviews }");
@@ -503,7 +520,7 @@ describe("App", () => {
   });
 
   it("editor shows empty SDL for a newly added subgraph (AC #3)", () => {
-    useWorkspace.setState({
+    setWs({
       subgraphs: [{ name: "products", sdl: "type Query { a }" }],
       activeSubgraph: 0,
     });
@@ -511,12 +528,12 @@ describe("App", () => {
     const { container } = render(<App />);
 
     // Click the [+] button to add a new subgraph.
-    const nav = document.querySelector("nav")!;
+    const nav = document.querySelector("nav.tab-strip")!;
     const addBtn = nav.querySelector("button:last-child")!;
     fireEvent.click(addBtn);
 
     // The new subgraph is appended and becomes active (index 1).
-    expect(useWorkspace.getState().activeSubgraph).toBe(1);
+    expect(aw().activeSubgraph).toBe(1);
 
     // A newly added subgraph has an empty SDL, so the editor should not
     // contain any old content — just be blank.
@@ -524,7 +541,7 @@ describe("App", () => {
   });
 
   it("editor shows correct SDL after removing a subgraph (AC #3)", () => {
-    useWorkspace.setState({
+    setWs({
       subgraphs: [
         { name: "products", sdl: "type Query { products }" },
         { name: "reviews", sdl: "type Query { reviews }" },
@@ -539,15 +556,17 @@ describe("App", () => {
     expect(container.textContent).toContain("type Query { orders }");
 
     // Remove the active tab (orders at index 2) - find close spans by content.
-    // 3 subgraph tabs + 1 query tab = 4 close spans total.
+    // 1 workspace tab + 3 subgraph tabs + 1 query tab = 5 close spans total.
     const closeSpans = Array.from(container.querySelectorAll("span")).filter(
       (s) => s.textContent === "×",
     );
-    expect(closeSpans).toHaveLength(4);
-    fireEvent.click(closeSpans[2]);
+    expect(closeSpans).toHaveLength(5);
+    // closeSpans[0] is the workspace ×; subgraph ×s start at index 1.
+    // "orders" is the 3rd subgraph, so its × is at index 3.
+    fireEvent.click(closeSpans[3]);
 
     // removeSubgraph sets activeSubgraph to the nearest neighbor automatically.
-    expect(useWorkspace.getState().activeSubgraph).toBe(1);
+    expect(aw().activeSubgraph).toBe(1);
 
     // The editor should now display reviews' SDL, not orders'.
     expect(container.textContent).toContain("type Query { reviews }");
@@ -558,7 +577,7 @@ describe("App", () => {
 
   it("renders a [+] button at the end of the tab bar", () => {
     render(<App />);
-    const nav = document.querySelector("nav");
+    const nav = document.querySelector("nav.tab-strip");
     expect(nav).toBeInTheDocument();
     const addBtn = nav!.querySelector("button:last-child");
     expect(addBtn).toBeInTheDocument();
@@ -571,7 +590,7 @@ describe("App", () => {
     render(<App />);
 
     // Locate the [+] button (last child of nav).
-    const nav = document.querySelector("nav")!;
+    const nav = document.querySelector("nav.tab-strip")!;
     const addBtn = nav.querySelector("button:last-child")!;
 
     fireEvent.click(addBtn);
@@ -580,16 +599,16 @@ describe("App", () => {
     expect(addSpy).toHaveBeenCalledWith("subgraph-1");
 
     // The new subgraph is appended and becomes active.
-    const state = useWorkspace.getState();
-    expect(state.subgraphs).toHaveLength(2);
-    expect(state.subgraphs[1].name).toBe("subgraph-1");
-    expect(state.activeSubgraph).toBe(1);
+    const ws = aw();
+    expect(ws.subgraphs).toHaveLength(2);
+    expect(ws.subgraphs[1].name).toBe("subgraph-1");
+    expect(ws.activeSubgraph).toBe(1);
   });
 
   it("adding subgraphs with interleaved removals never produces duplicate names", () => {
     // Start with [{name: "products"}]
     render(<App />);
-    const nav = document.querySelector("nav")!;
+    const nav = document.querySelector("nav.tab-strip")!;
 
     // Add two subgraphs: should produce subgraph-1, subgraph-2
     fireEvent.click(nav.querySelector("button:last-child")!);
@@ -604,7 +623,7 @@ describe("App", () => {
     // Add again: should produce subgraph-1 (the gap), not subgraph-3
     fireEvent.click(nav.querySelector("button:last-child")!);
 
-    const names = useWorkspace.getState().subgraphs.map((s) => s.name);
+    const names = aw().subgraphs.map((s) => s.name);
     expect(new Set(names).size).toBe(names.length); // all unique
   });
 
@@ -619,7 +638,7 @@ describe("App", () => {
     globalThis.__editorTestHarness.onMount!(mockEditor, monaco);
 
     // Locate and click the [+] button.
-    const nav = document.querySelector("nav")!;
+    const nav = document.querySelector("nav.tab-strip")!;
     const addBtn = nav.querySelector("button:last-child")!;
     fireEvent.click(addBtn);
 
@@ -699,11 +718,8 @@ describe("App", () => {
     const testSeed = 99;
 
     // Pre-set the store so supergraphSdl is non-null (Run button enabled).
-    useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      supergraphSdl: "# supergraph",
-      composeErrors: null,
-      composeHints: 0,
+    useWorkspace.setState({ supergraphSdl: "# supergraph", composeErrors: null, composeHints: 0 });
+    setWs({
       queryTabs: [{ name: "Query 1", query: testQuery }],
       activeQueryTab: 0,
       seed: testSeed,
@@ -748,11 +764,8 @@ describe("App", () => {
 
     const testSeed = 42;
 
-    useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      supergraphSdl: "# supergraph",
-      composeErrors: null,
-      composeHints: 0,
+    useWorkspace.setState({ supergraphSdl: "# supergraph", composeErrors: null, composeHints: 0 });
+    setWs({
       queryTabs: [{ name: "Query 1", query: "query { hello }" }],
       activeQueryTab: 0,
       seed: testSeed,
@@ -787,11 +800,8 @@ describe("App", () => {
     const initialSeed = 42;
     const changedSeed = 99;
 
-    useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      supergraphSdl: "# supergraph",
-      composeErrors: null,
-      composeHints: 0,
+    useWorkspace.setState({ supergraphSdl: "# supergraph", composeErrors: null, composeHints: 0 });
+    setWs({
       queryTabs: [{ name: "Query 1", query: "query { hello }" }],
       activeQueryTab: 0,
       seed: initialSeed,
@@ -822,54 +832,45 @@ describe("App", () => {
 
   it("AC#2: query editor renders a Monaco editor showing the store query value", () => {
     const initialQuery = "query {\n  products {\n    id\n    name\n  }\n}\n";
-    useWorkspace.setState({
-      queryTabs: [{ name: "Query 1", query: initialQuery }],
-      activeQueryTab: 0,
-    });
+    setWs({ queryTabs: [{ name: "Query 1", query: initialQuery }], activeQueryTab: 0 });
 
     const { container } = render(<App />);
 
     // The query editor must be a Monaco editor (not a plain <pre> or <textarea>).
-    // It renders with path="query-0.graphql" (per-tab path) so we can identify it.
-    const queryEditor = container.querySelector('[data-path="query-0.graphql"]');
+    // It renders with path="ws-0-query-0.graphql" (workspace-namespaced path) so we can identify it.
+    const queryEditor = container.querySelector('[data-path="ws-0-query-0.graphql"]');
     expect(queryEditor).not.toBeNull();
     expect(queryEditor!.textContent).toContain("products");
   });
 
   it("AC#2: onChange on the query editor calls setQueryTabQuery in the store", () => {
     const initialQuery = "query { products { id } }";
-    useWorkspace.setState({
-      queryTabs: [{ name: "Query 1", query: initialQuery }],
-      activeQueryTab: 0,
-    });
+    setWs({ queryTabs: [{ name: "Query 1", query: initialQuery }], activeQueryTab: 0 });
 
     render(<App />);
 
-    // The mock harness captures onChange by path (query-0.graphql for first tab).
-    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query-0.graphql"];
+    // The mock harness captures onChange by path (ws-0-query-0.graphql for first tab).
+    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["ws-0-query-0.graphql"];
     expect(onChangeQuery).toBeDefined();
 
     // Simulate the user typing a new query.
     const newQuery = "query { products { name } }";
     onChangeQuery!(newQuery);
 
-    expect(useWorkspace.getState().queryTabs[0].query).toBe(newQuery);
+    expect(aw().queryTabs[0].query).toBe(newQuery);
   });
 
   it("AC#2: onChange on the query editor with undefined falls back to empty string", () => {
-    useWorkspace.setState({
-      queryTabs: [{ name: "Query 1", query: "query { x }" }],
-      activeQueryTab: 0,
-    });
+    setWs({ queryTabs: [{ name: "Query 1", query: "query { x }" }], activeQueryTab: 0 });
 
     render(<App />);
 
-    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["query-0.graphql"];
+    const onChangeQuery = globalThis.__editorTestHarness.onChangeByPath["ws-0-query-0.graphql"];
     expect(onChangeQuery).toBeDefined();
 
     onChangeQuery!(undefined);
 
-    expect(useWorkspace.getState().queryTabs[0].query).toBe("");
+    expect(aw().queryTabs[0].query).toBe("");
   });
 
   // ---- AC#1: setModeConfiguration enables autocomplete on init ----
@@ -1213,13 +1214,13 @@ describe("App", () => {
 
     render(<App />);
 
-    const state = useWorkspace.getState();
-    expect(state.subgraphs).toHaveLength(1);
-    expect(state.subgraphs[0].name).toBe("shared");
-    expect(state.queryTabs[0].query).toBe("query { shared }");
-    expect(state.seed).toBe(77);
-    expect(state.activeSubgraph).toBe(0);
-    expect(state.activeQueryTab).toBe(0);
+    const ws = aw();
+    expect(ws.subgraphs).toHaveLength(1);
+    expect(ws.subgraphs[0].name).toBe("shared");
+    expect(ws.queryTabs[0].query).toBe("query { shared }");
+    expect(ws.seed).toBe(77);
+    expect(ws.activeSubgraph).toBe(0);
+    expect(ws.activeQueryTab).toBe(0);
   });
 
   // ---- TASK-43 AC#3: Hash stripped via history.replaceState after restore ----
@@ -1276,14 +1277,14 @@ describe("App", () => {
 
     render(<App />);
 
-    const state = useWorkspace.getState();
-    expect(state.subgraphs).toHaveLength(1);
-    expect(state.subgraphs[0].name).toBe("hydrated");
-    expect(state.subgraphs[0].sdl).toBe("type Query { hello: String }");
-    expect(state.queryTabs[0].query).toBe("query { hello }");
-    expect(state.seed).toBe(42);
-    expect(state.activeSubgraph).toBe(0);
-    expect(state.activeQueryTab).toBe(0);
+    const ws = aw();
+    expect(ws.subgraphs).toHaveLength(1);
+    expect(ws.subgraphs[0].name).toBe("hydrated");
+    expect(ws.subgraphs[0].sdl).toBe("type Query { hello: String }");
+    expect(ws.queryTabs[0].query).toBe("query { hello }");
+    expect(ws.seed).toBe(42);
+    expect(ws.activeSubgraph).toBe(0);
+    expect(ws.activeQueryTab).toBe(0);
   });
 
   // ---- TASK-43 AC#6: Share button shows "Copied!" feedback that reverts ----
@@ -1372,8 +1373,7 @@ describe("App", () => {
     warnSpy.mockRestore();
 
     // Store must still be in a usable state (defaults from beforeEach).
-    const state = useWorkspace.getState();
-    expect(state.subgraphs.length).toBeGreaterThan(0);
+    expect(aw().subgraphs.length).toBeGreaterThan(0);
   });
 
   it("TASK-25 AC#3: seed restored from URL hash is passed to executeMock on Run", async () => {
@@ -1390,13 +1390,15 @@ describe("App", () => {
       writable: true,
       configurable: true,
     });
-    useWorkspace.setState({ supergraphSdl: "# supergraph" });
     mockExecuteMock.mockClear();
     mockExecuteMock.mockReturnValueOnce({ data: {}, errors: [] } as never);
 
     render(<App />);
+    // Set supergraphSdl AFTER render so the hash-loading code (which resets
+    // supergraphSdl to null) does not clear it before we click Run.
+    useWorkspace.setState({ supergraphSdl: "# supergraph" });
 
-    expect(useWorkspace.getState().seed).toBe(urlSeed);
+    expect(aw().seed).toBe(urlSeed);
 
     const runButton = screen.getByRole("button", { name: /run/i });
     fireEvent.click(runButton);
@@ -1433,14 +1435,7 @@ describe("App", () => {
       configurable: true,
     });
 
-    // Set workspace state to match the payload we'll assert against.
-    useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      queryTabs: [{ name: "Query 1", query: "" }],
-      activeQueryTab: 0,
-      seed: 42,
-      activeSubgraph: 0,
-    });
+    // Set workspace state to match the payload we'll assert against (beforeEach already sets this).
 
     render(<App />);
 
@@ -1711,10 +1706,19 @@ describe("App — tour playback", () => {
       configurable: true,
     });
     useWorkspace.setState({
-      subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
-      activeSubgraph: 0,
-      queryTabs: [{ name: "Query 1", query: "" }],
-      activeQueryTab: 0,
+      workspaces: [
+        {
+          name: "Workspace 1",
+          subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+          activeSubgraph: 0,
+          queryTabs: [{ name: "Query 1", query: "" }],
+          activeQueryTab: 0,
+          seed: 42,
+          mockConfig: "",
+          tourDraft: null,
+        },
+      ],
+      activeWorkspaceIndex: 0,
       supergraphSdl: null,
       composeErrors: null,
       composeHints: 0,

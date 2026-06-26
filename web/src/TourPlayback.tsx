@@ -136,6 +136,11 @@ interface TourPlaybackProps {
   tour: Tour;
   initialStepIndex?: number;
   onExitPreview?: () => void;
+  /**
+   * When provided, renders an "Open in workspace" button in the playback UI.
+   * Callback is responsible for creating the new workspace and exiting playback mode.
+   */
+  onOpenInWorkspace?: () => void;
 }
 
 /**
@@ -145,7 +150,12 @@ interface TourPlaybackProps {
  * Zustand workspace store. Replaces the normal fiddle when the URL hash
  * starts with `#t=`.
  */
-export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlaybackProps) {
+export function TourPlayback({
+  tour,
+  initialStepIndex,
+  onExitPreview,
+  onOpenInWorkspace,
+}: TourPlaybackProps) {
   const isMobile = useMobile();
   const [mobileTab, setMobileTab] = useState<"tour" | "schema" | "plan">("tour");
   const [stepIndex, setStepIndex] = useState(initialStepIndex ?? 0);
@@ -379,6 +389,14 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
             <button className="btn btn--primary" onClick={onExitPreview}>
               Exit Preview
             </button>
+          ) : onOpenInWorkspace ? (
+            <button
+              className="btn btn--primary"
+              onClick={onOpenInWorkspace}
+              data-testid="open-in-workspace-btn"
+            >
+              Open in workspace
+            </button>
           ) : (
             <button className="btn btn--primary" onClick={openInFiddle}>
               Open in Fiddle
@@ -596,6 +614,14 @@ export function TourPlayback({ tour, initialStepIndex, onExitPreview }: TourPlay
         {onExitPreview ? (
           <button className="btn btn--primary" onClick={onExitPreview}>
             Exit Preview
+          </button>
+        ) : onOpenInWorkspace ? (
+          <button
+            className="btn btn--primary"
+            onClick={onOpenInWorkspace}
+            data-testid="open-in-workspace-btn"
+          >
+            Open in workspace
           </button>
         ) : (
           <button className="btn btn--primary" onClick={openInFiddle}>

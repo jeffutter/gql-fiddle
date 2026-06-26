@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CompositionError, QueryTab, SubgraphInput } from "./core/types";
-import type { PaneId, Tour, WorkspacePayload } from "./share";
+import type { PaneId, Tour, WorkspaceEntry, WorkspacePayload } from "./share";
 import { resolveTourStep } from "./share";
 
 // Single source of truth for the workspace. Composition output is *derived*
@@ -28,83 +28,11 @@ export function computeOverrides(
   return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
-export interface WorkspaceState {
-  subgraphs: SubgraphInput[];
-  activeSubgraph: number;
-  queryTabs: QueryTab[];
-  activeQueryTab: number;
-  seed: number;
-  /** Raw YAML string for mock field overrides. Empty string means no overrides. */
-  mockConfig: string;
+// ──────────────────────────────────────────────────────────────────────────────
+// Default workspace content
+// ──────────────────────────────────────────────────────────────────────────────
 
-  // Composition results (persisted so later panes can read them independently).
-  supergraphSdl: string | null;
-  composeErrors: CompositionError[] | null;
-  composeHints: number;
-
-  /** Whether vim keybindings are enabled on all Monaco editors. */
-  vimMode: boolean;
-  setVimMode: (enabled: boolean) => void;
-
-  tourDraft: Tour | null;
-  setTourDraft: (tour: Tour | null) => void;
-
-  // Session-only tour authoring state — NOT persisted.
-  tourActiveStep: number | null;
-  setTourActiveStep: (i: number | null) => void;
-
-  /**
-   * Load the resolved workspace for a given step index into the live editors.
-   * Calls resolveTourStep and writes the result into the workspace state.
-   */
-  loadTourStep: (stepIndex: number) => void;
-
-  /**
-   * Snapshot the current workspace into a tour step.
-   * 'new' appends a new TourStep; a number updates the existing step's overrides.
-   * Computes overrides as the diff of the current workspace against tour.base.
-   */
-  snapshotCurrentToStep: (stepIndex: number | "new") => void;
-
-  /**
-   * Set or clear the anchor for a specific step. The anchor identifies a
-   * GraphQL type or field in a subgraph's schema that should be highlighted
-   * during tour playback.
-   */
-  setStepAnchor: (
-    stepIndex: number,
-    anchor: { subgraphIndex: number; typeName: string; fieldName?: string } | undefined,
-  ) => void;
-
-  /**
-   * Set the visibility of a specific pane for a given step. Only an explicit
-   * `false` hides the pane — `undefined` and `true` both mean visible, so
-   * existing tours without flags continue to show all panes.
-   */
-  setStepPaneVisibility: (stepIndex: number, pane: PaneId, visible: boolean) => void;
-
-  setMockConfig: (yaml: string) => void;
-
-  addSubgraph: (name: string) => void;
-  removeSubgraph: (index: number) => void;
-  renameSubgraph: (index: number, name: string) => void;
-  setSubgraphSdl: (index: number, sdl: string) => void;
-  setActiveSubgraph: (index: number) => void;
-  addQueryTab: () => void;
-  removeQueryTab: (index: number) => void;
-  renameQueryTab: (index: number, name: string) => void;
-  setQueryTabQuery: (index: number, query: string) => void;
-  setActiveQueryTab: (index: number) => void;
-  setSeed: (seed: number) => void;
-  setComposeResult: (
-    sdl: string | null,
-    errors: CompositionError[] | null,
-    hintCount: number,
-  ) => void;
-  resetToDefaults: () => void;
-}
-
-const DEFAULT_SUBGRAPHS: SubgraphInput[] = [
+export const DEFAULT_SUBGRAPHS: SubgraphInput[] = [
   {
     name: "users",
     sdl: `extend schema
@@ -153,7 +81,7 @@ extend type User @key(fields: "id") {
   },
 ];
 
-const DEFAULT_QUERY = `query {
+export const DEFAULT_QUERY = `query {
   topProducts {
     id
     name
@@ -171,167 +99,423 @@ const DEFAULT_QUERY = `query {
 `;
 const DEFAULT_SEED = 42;
 
-const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT_QUERY }];
+export const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT_QUERY }];
+
+function makeDefaultWorkspace(name: string): WorkspaceEntry {
+  return {
+    name,
+    subgraphs: DEFAULT_SUBGRAPHS,
+    activeSubgraph: 0,
+    queryTabs: DEFAULT_QUERY_TABS,
+    activeQueryTab: 0,
+    seed: DEFAULT_SEED,
+    mockConfig: "",
+    tourDraft: null,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// State interface
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface WorkspaceState {
+  /** All named workspaces. At least one entry is always present. */
+  workspaces: WorkspaceEntry[];
+  /** Index into workspaces[] for the currently active workspace. */
+  activeWorkspaceIndex: number;
+
+  // Composition results — session-only (not persisted).
+  supergraphSdl: string | null;
+  composeErrors: CompositionError[] | null;
+  composeHints: number;
+
+  /** Whether vim keybindings are enabled on all Monaco editors (global). */
+  vimMode: boolean;
+  setVimMode: (enabled: boolean) => void;
+
+  // Session-only tour authoring state — NOT persisted.
+  tourActiveStep: number | null;
+  setTourActiveStep: (i: number | null) => void;
+
+  // ── Workspace CRUD ──────────────────────────────────────────────────────────
+
+  /** Append a blank default workspace and switch to it. */
+  addWorkspace: () => void;
+  /** Deep-copy the active workspace, append it (named "Workspace N"), and switch to it. */
+  cloneWorkspace: () => void;
+  /**
+   * Remove the workspace at `index`. If it was the last workspace, a single
+   * blank default workspace is created in its place. `activeWorkspaceIndex` is
+   * adjusted so it always points to a valid entry.
+   */
+  removeWorkspace: (index: number) => void;
+  /** Rename the workspace at `index`. */
+  renameWorkspace: (index: number, name: string) => void;
+  /**
+   * Switch to the workspace at `index`. Clears session-only derived state
+   * (`supergraphSdl`, `composeErrors`, `composeHints`) so compose re-runs
+   * against the newly active workspace's subgraphs.
+   */
+  setActiveWorkspace: (index: number) => void;
+
+  // ── Per-workspace actions (operate on workspaces[activeWorkspaceIndex]) ──────
+
+  /**
+   * Load the resolved workspace for a given step index into the live editors.
+   * Calls resolveTourStep and writes the result into the active workspace.
+   */
+  loadTourStep: (stepIndex: number) => void;
+
+  /**
+   * Snapshot the current workspace into a tour step.
+   * 'new' appends a new TourStep; a number updates the existing step's overrides.
+   * Computes overrides as the diff of the current workspace against tour.base.
+   */
+  snapshotCurrentToStep: (stepIndex: number | "new") => void;
+
+  /**
+   * Set or clear the anchor for a specific step. The anchor identifies a
+   * GraphQL type or field in a subgraph's schema that should be highlighted
+   * during tour playback.
+   */
+  setStepAnchor: (
+    stepIndex: number,
+    anchor: { subgraphIndex: number; typeName: string; fieldName?: string } | undefined,
+  ) => void;
+
+  /**
+   * Set the visibility of a specific pane for a given step. Only an explicit
+   * `false` hides the pane — `undefined` and `true` both mean visible, so
+   * existing tours without flags continue to show all panes.
+   */
+  setStepPaneVisibility: (stepIndex: number, pane: PaneId, visible: boolean) => void;
+
+  setTourDraft: (tour: Tour | null) => void;
+  setMockConfig: (yaml: string) => void;
+
+  addSubgraph: (name: string) => void;
+  removeSubgraph: (index: number) => void;
+  renameSubgraph: (index: number, name: string) => void;
+  setSubgraphSdl: (index: number, sdl: string) => void;
+  setActiveSubgraph: (index: number) => void;
+  addQueryTab: () => void;
+  removeQueryTab: (index: number) => void;
+  renameQueryTab: (index: number, name: string) => void;
+  setQueryTabQuery: (index: number, query: string) => void;
+  setActiveQueryTab: (index: number) => void;
+  setSeed: (seed: number) => void;
+  setComposeResult: (
+    sdl: string | null,
+    errors: CompositionError[] | null,
+    hintCount: number,
+  ) => void;
+  resetToDefaults: () => void;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Selector helper
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns the currently active workspace entry.
+ * Use in `useWorkspace(s => activeWorkspace(s).subgraphs)` etc.
+ */
+export function activeWorkspace(state: WorkspaceState): WorkspaceEntry {
+  return state.workspaces[state.activeWorkspaceIndex];
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Helper: update a single field on the active workspace immutably
+// ──────────────────────────────────────────────────────────────────────────────
+
+function updateActive(
+  state: WorkspaceState,
+  patch: Partial<WorkspaceEntry>,
+): Pick<WorkspaceState, "workspaces"> {
+  const idx = state.activeWorkspaceIndex;
+  const updated = state.workspaces.map((ws, i) => (i === idx ? { ...ws, ...patch } : ws));
+  return { workspaces: updated };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Store
+// ──────────────────────────────────────────────────────────────────────────────
 
 export const useWorkspace = create<WorkspaceState>()(
   persist(
     (set) => ({
-      subgraphs: DEFAULT_SUBGRAPHS,
-      activeSubgraph: 0,
-      queryTabs: DEFAULT_QUERY_TABS,
-      activeQueryTab: 0,
-      seed: DEFAULT_SEED,
-      mockConfig: "",
+      workspaces: [makeDefaultWorkspace("Workspace 1")],
+      activeWorkspaceIndex: 0,
 
       vimMode: false,
       setVimMode: (enabled) => set({ vimMode: enabled }),
-
-      tourDraft: null,
-      setTourDraft: (tour) => set({ tourDraft: tour }),
 
       // Session-only authoring state — not in partialize.
       tourActiveStep: null,
       setTourActiveStep: (i) => set({ tourActiveStep: i }),
 
+      // Composition results — session-only.
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+
+      // ── Workspace CRUD ────────────────────────────────────────────────────────
+
+      addWorkspace: () =>
+        set((state) => {
+          // Auto-name: "Workspace N" where N is the next available number.
+          let n = 1;
+          while (state.workspaces.some((ws) => ws.name === `Workspace ${n}`)) n++;
+          const newWs = makeDefaultWorkspace(`Workspace ${n}`);
+          return {
+            workspaces: [...state.workspaces, newWs],
+            activeWorkspaceIndex: state.workspaces.length,
+            // Clear session-only derived state so compose re-runs.
+            supergraphSdl: null,
+            composeErrors: null,
+            composeHints: 0,
+          };
+        }),
+
+      cloneWorkspace: () =>
+        set((state) => {
+          const src = activeWorkspace(state);
+          let n = 1;
+          while (state.workspaces.some((ws) => ws.name === `Workspace ${n}`)) n++;
+          const cloned: WorkspaceEntry = {
+            ...(JSON.parse(JSON.stringify(src)) as WorkspaceEntry),
+            name: `Workspace ${n}`,
+          };
+          return {
+            workspaces: [...state.workspaces, cloned],
+            activeWorkspaceIndex: state.workspaces.length,
+            supergraphSdl: null,
+            composeErrors: null,
+            composeHints: 0,
+          };
+        }),
+
+      removeWorkspace: (index) =>
+        set((state) => {
+          const remaining = state.workspaces.filter((_, i) => i !== index);
+          const workspaces =
+            remaining.length === 0 ? [makeDefaultWorkspace("Workspace 1")] : remaining;
+          const activeWorkspaceIndex =
+            remaining.length === 0
+              ? 0
+              : Math.min(
+                  state.activeWorkspaceIndex === index
+                    ? Math.max(index - 1, 0)
+                    : state.activeWorkspaceIndex > index
+                      ? state.activeWorkspaceIndex - 1
+                      : state.activeWorkspaceIndex,
+                  workspaces.length - 1,
+                );
+          return {
+            workspaces,
+            activeWorkspaceIndex,
+            supergraphSdl: null,
+            composeErrors: null,
+            composeHints: 0,
+          };
+        }),
+
+      renameWorkspace: (index, name) =>
+        set((state) => ({
+          workspaces: state.workspaces.map((ws, i) => (i === index ? { ...ws, name } : ws)),
+        })),
+
+      setActiveWorkspace: (index) =>
+        set({
+          activeWorkspaceIndex: index,
+          // Clear derived session state so compose re-runs for the new workspace.
+          supergraphSdl: null,
+          composeErrors: null,
+          composeHints: 0,
+        }),
+
+      // ── Per-workspace actions ──────────────────────────────────────────────────
+
       loadTourStep: (stepIndex) =>
         set((state) => {
-          if (!state.tourDraft) return state;
-          const payload = resolveTourStep(state.tourDraft, stepIndex);
-          return {
+          const ws = activeWorkspace(state);
+          if (!ws.tourDraft) return state;
+          const payload = resolveTourStep(ws.tourDraft, stepIndex);
+          return updateActive(state, {
             subgraphs: payload.subgraphs,
             queryTabs: payload.queryTabs,
             activeQueryTab: payload.activeQueryTab,
             seed: payload.seed,
             mockConfig: payload.mockConfig ?? "",
-          };
+          });
         }),
 
       snapshotCurrentToStep: (stepIndex) =>
         set((state) => {
-          if (!state.tourDraft) return state;
+          const ws = activeWorkspace(state);
+          if (!ws.tourDraft) return state;
           const current: WorkspacePayload = {
-            subgraphs: state.subgraphs,
-            queryTabs: state.queryTabs,
-            activeQueryTab: state.activeQueryTab,
-            seed: state.seed,
-            mockConfig: state.mockConfig,
+            subgraphs: ws.subgraphs,
+            queryTabs: ws.queryTabs,
+            activeQueryTab: ws.activeQueryTab,
+            seed: ws.seed,
+            mockConfig: ws.mockConfig,
           };
-          const overrides = computeOverrides(state.tourDraft.base, current);
+          const overrides = computeOverrides(ws.tourDraft.base, current);
           if (stepIndex === "new") {
             const newStep = {
-              label: `Step ${state.tourDraft.steps.length + 1}`,
+              label: `Step ${ws.tourDraft.steps.length + 1}`,
               prose: "",
               overrides,
             };
-            return {
-              tourDraft: { ...state.tourDraft, steps: [...state.tourDraft.steps, newStep] },
-            };
+            return updateActive(state, {
+              tourDraft: { ...ws.tourDraft, steps: [...ws.tourDraft.steps, newStep] },
+            });
           } else {
-            const updatedSteps = state.tourDraft.steps.map((step, i) =>
+            const updatedSteps = ws.tourDraft.steps.map((step, i) =>
               i === stepIndex ? { ...step, overrides } : step,
             );
-            return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
+            return updateActive(state, { tourDraft: { ...ws.tourDraft, steps: updatedSteps } });
           }
         }),
 
       setStepAnchor: (stepIndex, anchor) =>
         set((state) => {
-          if (!state.tourDraft) return state;
-          const updatedSteps = state.tourDraft.steps.map((step, i) =>
+          const ws = activeWorkspace(state);
+          if (!ws.tourDraft) return state;
+          const updatedSteps = ws.tourDraft.steps.map((step, i) =>
             i === stepIndex ? { ...step, anchor } : step,
           );
-          return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
+          return updateActive(state, { tourDraft: { ...ws.tourDraft, steps: updatedSteps } });
         }),
 
       setStepPaneVisibility: (stepIndex, pane, visible) =>
         set((state) => {
-          if (!state.tourDraft) return state;
-          const updatedSteps = state.tourDraft.steps.map((step, i) => {
+          const ws = activeWorkspace(state);
+          if (!ws.tourDraft) return state;
+          const updatedSteps = ws.tourDraft.steps.map((step, i) => {
             if (i !== stepIndex) return step;
             const pv = { ...(step.paneVisibility ?? {}), [pane]: visible };
             return { ...step, paneVisibility: pv };
           });
-          return { tourDraft: { ...state.tourDraft, steps: updatedSteps } };
+          return updateActive(state, { tourDraft: { ...ws.tourDraft, steps: updatedSteps } });
         }),
 
-      supergraphSdl: null,
-      composeErrors: null,
-      composeHints: 0,
+      setTourDraft: (tour) => set((state) => updateActive(state, { tourDraft: tour })),
 
       addSubgraph: (name) =>
-        set((state) => ({
-          subgraphs: [...state.subgraphs, { name, sdl: "" }],
-          activeSubgraph: state.subgraphs.length,
-        })),
+        set((state) => {
+          const ws = activeWorkspace(state);
+          return updateActive(state, {
+            subgraphs: [...ws.subgraphs, { name, sdl: "" }],
+            activeSubgraph: ws.subgraphs.length,
+          });
+        }),
+
       removeSubgraph: (index) =>
         set((state) => {
-          const remaining = state.subgraphs.filter((_, i) => i !== index);
+          const ws = activeWorkspace(state);
+          const remaining = ws.subgraphs.filter((_, i) => i !== index);
           if (remaining.length === 0) return state; // keep at least 1
           const newActive = Math.min(index, remaining.length - 1);
-          return { subgraphs: remaining, activeSubgraph: newActive };
+          return updateActive(state, { subgraphs: remaining, activeSubgraph: newActive });
         }),
+
       renameSubgraph: (index, name) =>
-        set((state) => ({
-          subgraphs: state.subgraphs.map((sg, i) => (i === index ? { ...sg, name } : sg)),
-        })),
+        set((state) => {
+          const ws = activeWorkspace(state);
+          return updateActive(state, {
+            subgraphs: ws.subgraphs.map((sg, i) => (i === index ? { ...sg, name } : sg)),
+          });
+        }),
+
       setSubgraphSdl: (index, sdl) =>
-        set((state) => ({
-          subgraphs: state.subgraphs.map((sg, i) => (i === index ? { ...sg, sdl } : sg)),
-        })),
-      setActiveSubgraph: (index) => set({ activeSubgraph: index }),
+        set((state) => {
+          const ws = activeWorkspace(state);
+          return updateActive(state, {
+            subgraphs: ws.subgraphs.map((sg, i) => (i === index ? { ...sg, sdl } : sg)),
+          });
+        }),
+
+      setActiveSubgraph: (index) => set((state) => updateActive(state, { activeSubgraph: index })),
+
       addQueryTab: () =>
         set((state) => {
+          const ws = activeWorkspace(state);
           let n = 1;
-          while (state.queryTabs.some((t) => t.name === `Query ${n}`)) n++;
+          while (ws.queryTabs.some((t) => t.name === `Query ${n}`)) n++;
           const newTab: QueryTab = { name: `Query ${n}`, query: "" };
-          return {
-            queryTabs: [...state.queryTabs, newTab],
-            activeQueryTab: state.queryTabs.length,
-          };
+          return updateActive(state, {
+            queryTabs: [...ws.queryTabs, newTab],
+            activeQueryTab: ws.queryTabs.length,
+          });
         }),
+
       removeQueryTab: (index) =>
         set((state) => {
-          const remaining = state.queryTabs.filter((_, i) => i !== index);
+          const ws = activeWorkspace(state);
+          const remaining = ws.queryTabs.filter((_, i) => i !== index);
           if (remaining.length === 0) {
-            return {
+            return updateActive(state, {
               queryTabs: [{ name: "Query 1", query: "" }],
               activeQueryTab: 0,
-            };
+            });
           }
           let newActive: number;
-          if (state.activeQueryTab === index) {
+          if (ws.activeQueryTab === index) {
             newActive = Math.min(index, remaining.length - 1);
-          } else if (state.activeQueryTab > index) {
-            newActive = state.activeQueryTab - 1;
+          } else if (ws.activeQueryTab > index) {
+            newActive = ws.activeQueryTab - 1;
           } else {
-            newActive = state.activeQueryTab;
+            newActive = ws.activeQueryTab;
           }
-          return { queryTabs: remaining, activeQueryTab: newActive };
+          return updateActive(state, { queryTabs: remaining, activeQueryTab: newActive });
         }),
+
       renameQueryTab: (index, name) =>
-        set((state) => ({
-          queryTabs: state.queryTabs.map((t, i) => (i === index ? { ...t, name } : t)),
-        })),
+        set((state) => {
+          const ws = activeWorkspace(state);
+          return updateActive(state, {
+            queryTabs: ws.queryTabs.map((t, i) => (i === index ? { ...t, name } : t)),
+          });
+        }),
+
       setQueryTabQuery: (index, query) =>
-        set((state) => ({
-          queryTabs: state.queryTabs.map((t, i) => (i === index ? { ...t, query } : t)),
-        })),
-      setActiveQueryTab: (index) => set({ activeQueryTab: index }),
-      setSeed: (seed) => set({ seed }),
-      setMockConfig: (yaml) => set({ mockConfig: yaml }),
+        set((state) => {
+          const ws = activeWorkspace(state);
+          return updateActive(state, {
+            queryTabs: ws.queryTabs.map((t, i) => (i === index ? { ...t, query } : t)),
+          });
+        }),
+
+      setActiveQueryTab: (index) => set((state) => updateActive(state, { activeQueryTab: index })),
+
+      setSeed: (seed) => set((state) => updateActive(state, { seed })),
+
+      setMockConfig: (yaml) => set((state) => updateActive(state, { mockConfig: yaml })),
+
       setComposeResult: (sdl, errors, hintCount) =>
         set((state) => ({
           supergraphSdl: sdl ?? state.supergraphSdl,
           composeErrors: errors,
           composeHints: hintCount,
         })),
+
       resetToDefaults: () =>
-        set({
-          subgraphs: DEFAULT_SUBGRAPHS,
-          activeSubgraph: 0,
-          queryTabs: DEFAULT_QUERY_TABS,
-          activeQueryTab: 0,
-          seed: DEFAULT_SEED,
+        set((state) => {
+          // Preserve the workspace name and tourDraft, reset content fields only.
+          const ws = activeWorkspace(state);
+          return updateActive(state, {
+            subgraphs: DEFAULT_SUBGRAPHS,
+            activeSubgraph: 0,
+            queryTabs: DEFAULT_QUERY_TABS,
+            activeQueryTab: 0,
+            seed: DEFAULT_SEED,
+            mockConfig: "",
+            // Preserve name and tourDraft
+            name: ws.name,
+            tourDraft: ws.tourDraft,
+          });
         }),
     }),
     {
@@ -343,42 +527,69 @@ export const useWorkspace = create<WorkspaceState>()(
       // delete the old key for no user-visible benefit. Intentionally
       // decoupled from the product's display name.
       name: "graphql-playground",
-      version: 3,
+      version: 4,
       migrate: (persistedState: unknown, version: number) => {
+        let state = persistedState as Record<string, unknown>;
+
         if (version === 0) {
-          const { query, ...rest } = persistedState as Record<string, unknown>;
+          const { query, ...rest } = state;
           const q = typeof query === "string" ? query : DEFAULT_QUERY;
-          return {
+          state = {
             ...rest,
             queryTabs: [{ name: "Query 1", query: q }],
             activeQueryTab: 0,
             mockConfig: "",
-          } as unknown as WorkspaceState;
+          };
+          // Fall through to version 1 migration
         }
-        if (version === 1) {
+
+        if (version <= 1) {
           // v1 → v2: add mockConfig field with empty default.
-          return {
-            ...(persistedState as Record<string, unknown>),
-            mockConfig: "",
-          } as unknown as WorkspaceState;
+          state = { ...state, mockConfig: "" };
         }
-        if (version === 2) {
+
+        if (version <= 2) {
           // v2 → v3: add vimMode with false default.
-          return {
-            ...(persistedState as Record<string, unknown>),
-            vimMode: false,
-          } as unknown as WorkspaceState;
+          state = { ...state, vimMode: false };
         }
-        return persistedState as WorkspaceState;
+
+        if (version <= 3) {
+          // v3 → v4: wrap flat workspace fields into a workspaces array.
+          const {
+            subgraphs,
+            activeSubgraph,
+            queryTabs,
+            activeQueryTab,
+            seed,
+            mockConfig,
+            tourDraft,
+            vimMode,
+            // Drop any other unknown keys from the old flat state.
+            ...rest
+          } = state;
+          const workspace1: WorkspaceEntry = {
+            name: "Workspace 1",
+            subgraphs: (subgraphs as SubgraphInput[]) ?? DEFAULT_SUBGRAPHS,
+            activeSubgraph: (activeSubgraph as number) ?? 0,
+            queryTabs: (queryTabs as QueryTab[]) ?? DEFAULT_QUERY_TABS,
+            activeQueryTab: (activeQueryTab as number) ?? 0,
+            seed: (seed as number) ?? DEFAULT_SEED,
+            mockConfig: (mockConfig as string) ?? "",
+            tourDraft: (tourDraft as Tour | null) ?? null,
+          };
+          void rest; // unused fields from old state
+          return {
+            workspaces: [workspace1],
+            activeWorkspaceIndex: 0,
+            vimMode: (vimMode as boolean) ?? false,
+          };
+        }
+
+        return state;
       },
       partialize: (state) => ({
-        subgraphs: state.subgraphs,
-        activeSubgraph: state.activeSubgraph,
-        queryTabs: state.queryTabs,
-        activeQueryTab: state.activeQueryTab,
-        seed: state.seed,
-        tourDraft: state.tourDraft,
-        mockConfig: state.mockConfig,
+        workspaces: state.workspaces,
+        activeWorkspaceIndex: state.activeWorkspaceIndex,
         vimMode: state.vimMode,
       }),
     },

@@ -17,7 +17,8 @@ interface TourAuthoringPanelProps {
  */
 export function TourAuthoringPanel({ onCollapse, onPreview }: TourAuthoringPanelProps) {
   const {
-    tourDraft,
+    workspaces,
+    activeWorkspaceIndex,
     setTourDraft,
     tourActiveStep,
     setTourActiveStep,
@@ -26,6 +27,7 @@ export function TourAuthoringPanel({ onCollapse, onPreview }: TourAuthoringPanel
     setStepAnchor,
     setStepPaneVisibility,
   } = useWorkspace();
+  const tourDraft = workspaces[activeWorkspaceIndex].tourDraft;
 
   // Track which step's prose textarea is expanded for editing.
   const [editingStepIndex, setEditingStepIndex] = useState<number | null>(null);
@@ -50,11 +52,24 @@ export function TourAuthoringPanel({ onCollapse, onPreview }: TourAuthoringPanel
 
   /** Restore the base workspace (used when exiting or after deleting last step). */
   function restoreBase() {
-    useWorkspace.setState({
-      subgraphs: draft.base.subgraphs,
-      queryTabs: draft.base.queryTabs,
-      activeQueryTab: draft.base.activeQueryTab,
-      seed: draft.base.seed,
+    useWorkspace.setState((state) => {
+      const idx = state.activeWorkspaceIndex;
+      return {
+        workspaces: state.workspaces.map((ws, i) =>
+          i === idx
+            ? {
+                ...ws,
+                subgraphs: draft.base.subgraphs,
+                queryTabs: draft.base.queryTabs,
+                activeQueryTab: draft.base.activeQueryTab,
+                seed: draft.base.seed,
+              }
+            : ws,
+        ),
+        supergraphSdl: null,
+        composeErrors: null,
+        composeHints: 0,
+      };
     });
   }
 
@@ -141,11 +156,24 @@ export function TourAuthoringPanel({ onCollapse, onPreview }: TourAuthoringPanel
         setEditingStepIndex(newActive);
         // Load the new active step's resolved workspace.
         const resolved = resolveTourStep({ ...draft, steps: newSteps }, newActive);
-        useWorkspace.setState({
-          subgraphs: resolved.subgraphs,
-          queryTabs: resolved.queryTabs,
-          activeQueryTab: resolved.activeQueryTab,
-          seed: resolved.seed,
+        useWorkspace.setState((state) => {
+          const idx = state.activeWorkspaceIndex;
+          return {
+            workspaces: state.workspaces.map((ws, i) =>
+              i === idx
+                ? {
+                    ...ws,
+                    subgraphs: resolved.subgraphs,
+                    queryTabs: resolved.queryTabs,
+                    activeQueryTab: resolved.activeQueryTab,
+                    seed: resolved.seed,
+                  }
+                : ws,
+            ),
+            supergraphSdl: null,
+            composeErrors: null,
+            composeHints: 0,
+          };
         });
       } else if (tourActiveStep > stepIndex) {
         setTourActiveStep(tourActiveStep - 1);
