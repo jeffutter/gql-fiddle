@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["../../web/node_modules/@types", "../../web/node_modules"],
+    "types": ["node", "better-sqlite3", "@cloudflare/workers-types"],
+    "skipLibCheck": true
+  },
+  "include": ["./**/*.ts"],
+  "exclude": []
+}
