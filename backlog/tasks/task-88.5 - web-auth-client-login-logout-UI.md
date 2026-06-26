@@ -1,10 +1,10 @@
 ---
 id: TASK-88.5
 title: 'web: auth client & login/logout UI'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:12'
-updated_date: '2026-06-26 20:56'
+updated_date: '2026-06-26 21:14'
 labels:
   - web
   - auth

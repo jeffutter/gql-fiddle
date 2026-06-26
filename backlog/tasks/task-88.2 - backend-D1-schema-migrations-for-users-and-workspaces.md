@@ -1,9 +1,10 @@
 ---
 id: TASK-88.2
 title: 'backend: D1 schema & migrations for users and workspaces'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:11'
+updated_date: '2026-06-26 21:14'
 labels:
   - backend
   - database

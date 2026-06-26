@@ -1,9 +1,10 @@
 ---
 id: TASK-88.9
 title: 'backend+web: dev-mode auth bypass for local development'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 20:52'
+updated_date: '2026-06-26 21:14'
 labels:
   - backend
   - web

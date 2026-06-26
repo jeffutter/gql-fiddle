@@ -1,9 +1,10 @@
 ---
 id: TASK-88.3
 title: 'backend: GitHub OAuth login + KV-backed sessions'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:12'
+updated_date: '2026-06-26 21:14'
 labels:
   - backend
   - auth

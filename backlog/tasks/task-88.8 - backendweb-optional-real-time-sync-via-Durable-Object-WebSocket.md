@@ -1,9 +1,10 @@
 ---
 id: TASK-88.8
 title: 'backend+web: optional real-time sync via Durable Object WebSocket'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:14'
+updated_date: '2026-06-26 21:14'
 labels:
   - backend
   - web

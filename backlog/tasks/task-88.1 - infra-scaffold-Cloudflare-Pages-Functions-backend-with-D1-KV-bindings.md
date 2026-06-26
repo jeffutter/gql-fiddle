@@ -1,9 +1,10 @@
 ---
 id: TASK-88.1
 title: 'infra: scaffold Cloudflare Pages Functions backend with D1 + KV bindings'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:11'
+updated_date: '2026-06-26 21:14'
 labels:
   - infra
   - backend

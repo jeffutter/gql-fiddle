@@ -3,9 +3,10 @@ id: TASK-88.6
 title: >-
   web: cloud sync engine — pull-on-login, debounced auto-save, last-write-wins,
   offline fallback
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:13'
+updated_date: '2026-06-26 21:14'
 labels:
   - web
   - sync

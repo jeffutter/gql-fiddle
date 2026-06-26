@@ -3,10 +3,10 @@ id: TASK-88
 title: >-
   feat: cloud accounts, storage & cross-device workspace sync
   (Cloudflare-native)
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:11'
-updated_date: '2026-06-26 12:11'
+updated_date: '2026-06-26 21:14'
 labels:
   - feature
   - storage

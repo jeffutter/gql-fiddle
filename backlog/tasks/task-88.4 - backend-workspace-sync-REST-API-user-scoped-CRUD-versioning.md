@@ -1,9 +1,10 @@
 ---
 id: TASK-88.4
 title: 'backend: workspace sync REST API (user-scoped CRUD + versioning)'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:12'
+updated_date: '2026-06-26 21:14'
 labels:
   - backend
   - api

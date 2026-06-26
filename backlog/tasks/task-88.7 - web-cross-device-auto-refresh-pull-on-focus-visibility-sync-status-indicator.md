@@ -3,9 +3,10 @@ id: TASK-88.7
 title: >-
   web: cross-device auto-refresh (pull on focus/visibility + sync status
   indicator)
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-06-26 12:13'
+updated_date: '2026-06-26 21:14'
 labels:
   - web
   - sync
