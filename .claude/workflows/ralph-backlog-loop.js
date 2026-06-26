@@ -124,6 +124,7 @@ Find tickets in "Sequence 1" with status "To Do", in the order listed. If Sequen
 
 For each candidate in that order, run: backlog task <id> --plain
 Skip the candidate if:
+- its status is not exactly "To Do" (e.g. skip "Backlog" status tickets), or
 - its Labels include "no-ralph", or
 - it has an unresolved dependency (a listed dependency whose own status is not "Done")
 
