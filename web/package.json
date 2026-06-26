@@ -13,7 +13,8 @@
     "test": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "test:functions": "vitest run --config vitest.functions.config.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -51,6 +52,9 @@
     "vite": "^8.1.0",
     "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.9",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "better-sqlite3": "^11.10.0",
     "@cloudflare/workers-types": "^4.0.0",
     "wrangler": "^4.0.0"
   }

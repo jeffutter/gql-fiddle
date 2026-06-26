@@ -13,5 +13,6 @@
     "isolatedModules": true,
     "moduleDetection": "force"
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts"],
+  "exclude": ["./__tests__/**"]
 }
