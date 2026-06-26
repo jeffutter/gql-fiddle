@@ -115,11 +115,13 @@
             shellHook = rustShellHook;
           };
 
-          # Minimal CI shell for web-only jobs (lint, typecheck, e2e, deploy).
-          # No Rust toolchain or browser — pulls only Node/pnpm from nixpkgs,
-          # which are always available in cache.nixos.org without a cache upload.
+          # CI shell for web-only jobs (lint, typecheck, e2e, deploy).
+          # No Rust toolchain — pulls Node/pnpm/Chromium from nixpkgs binary cache.
+          # Chromium is included so Playwright uses CHROME rather than downloading
+          # its own browser bundle.
           web = pkgs.mkShell {
-            buildInputs = webInputs;
+            buildInputs = webInputs ++ [ pkgs.chromium ];
+            CHROME = "${pkgs.chromium}/bin/chromium";
           };
         };
       }
