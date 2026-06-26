@@ -3,12 +3,46 @@
 //
 // Both endpoints are authenticated and operate only on the caller's rows.
 // Cross-user access returns 404 (not 403) to avoid id enumeration.
+//
+// After an accepted PUT or DELETE, a lightweight invalidation signal is
+// broadcast to the user's other connected devices via the UserSyncDO (TASK-88.8).
+// The broadcast is fire-and-forget (ctx.waitUntil) — a failure never affects
+// the workspace API response.
 import { requireUser } from "../../_lib/auth";
-import { listWorkspaces, upsertWorkspace, softDeleteWorkspace } from "../../_lib/db";
+import { upsertWorkspace, softDeleteWorkspace } from "../../_lib/db";
 
 interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
+  USER_SYNC: DurableObjectNamespace;
+}
+
+// ---------------------------------------------------------------------------
+// Broadcast helper — fire-and-forget invalidation to the user's UserSyncDO.
+// Errors are swallowed; a failed broadcast must never break the API response.
+// ---------------------------------------------------------------------------
+
+function broadcastInvalidation(
+  env: Env,
+  ctx: Parameters<PagesFunction<Env>>[0],
+  userId: string,
+  changedId: string,
+  version: number | null,
+): void {
+  const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(userId));
+  ctx.waitUntil(
+    stub
+      .fetch(
+        new Request("https://do.internal/broadcast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ changedId, version }),
+        }),
+      )
+      .catch(() => {
+        /* broadcast is best-effort */
+      }),
+  );
 }
 
 const PAYLOAD_SIZE_LIMIT = 1_048_576; // 1 MB
@@ -28,18 +62,29 @@ export const onRequestPut: PagesFunction<Env> = async (ctx) => {
   }
 
   const { name, payload, version } = body;
-  if (typeof name !== "string" || typeof payload !== "string" || typeof version !== "number") {
-    return Response.json({ error: "Missing required fields: name, payload, version" }, { status: 400 });
+  if (
+    typeof name !== "string" ||
+    typeof payload !== "string" ||
+    typeof version !== "number"
+  ) {
+    return Response.json(
+      { error: "Missing required fields: name, payload, version" },
+      { status: 400 },
+    );
   }
 
   if (payload.length > PAYLOAD_SIZE_LIMIT) {
-    return Response.json({ error: "Payload too large (max 1 MB)" }, { status: 413 });
+    return Response.json(
+      { error: "Payload too large (max 1 MB)" },
+      { status: 413 },
+    );
   }
 
   // Ownership check: if this id already exists and belongs to another user,
   // return 404 to avoid leaking that the id is taken.
-  const existing = await ctx.env.DB
-    .prepare("SELECT user_id FROM workspaces WHERE id = ?")
+  const existing = await ctx.env.DB.prepare(
+    "SELECT user_id FROM workspaces WHERE id = ?",
+  )
     .bind(id)
     .first<{ user_id: string }>();
   if (existing && existing.user_id !== user.id) {
@@ -58,6 +103,9 @@ export const onRequestPut: PagesFunction<Env> = async (ctx) => {
     return Response.json({ conflict: true, current: row }, { status: 409 });
   }
 
+  // Broadcast invalidation to the user's other connected devices (best-effort).
+  broadcastInvalidation(ctx.env, ctx, user.id, id, row.version);
+
   return Response.json({ workspace: row });
 };
 
@@ -72,6 +120,9 @@ export const onRequestDelete: PagesFunction<Env> = async (ctx) => {
   if (!deleted) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
+
+  // Broadcast invalidation to the user's other connected devices (best-effort).
+  broadcastInvalidation(ctx.env, ctx, user.id, id, null);
 
   return new Response(null, { status: 204 });
 };

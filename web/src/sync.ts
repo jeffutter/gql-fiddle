@@ -1,16 +1,21 @@
-// Cloud sync engine (TASK-88.6) + cross-device auto-refresh (TASK-88.7).
+// Cloud sync engine (TASK-88.6) + cross-device auto-refresh (TASK-88.7)
+// + optional real-time WebSocket sync (TASK-88.8).
 //
 // Lifecycle:
 //   - Bootstrapped once in App.tsx via useEffect(() => initSync(), []).
 //   - On login (auth status → "authed"): full snapshot pull → merge → push
-//     local-only workspaces up.
+//     local-only workspaces up; also opens a WebSocket to /api/ws.
 //   - Auto-save: debounced 300 ms PUT per changed workspace; version bumped
 //     before each push; 409 causes client to adopt server row (LWW).
 //   - Delete while logged in: soft-delete via DELETE /api/workspaces/:id.
 //   - Cross-device refresh: window focus / visibilitychange → throttled delta
 //     GET ?since=<lastPullTs>; optional 60 s polling while tab is visible.
+//     When the WebSocket is connected, a received invalidation signal triggers
+//     an immediate (force=true) delta pull that bypasses the throttle.
 //   - Offline: edits queued in memory and flushed on "online" event / login.
 //   - Anonymous / logged-out: store subscription short-circuits, no API calls.
+//   - WebSocket unavailability degrades gracefully: focus/visibility pulls and
+//     60 s polling continue exactly as in TASK-88.7.
 import type { WorkspaceEntry, WorkspacePayload } from "./share";
 import { useWorkspace } from "./store";
 import { useAuth } from "./auth";
@@ -146,10 +151,10 @@ const THROTTLE_MS = 30_000; // at most one delta pull per 30 s
 // isSyncing is module-level so both initSync and deltaRefresh can check it.
 let isSyncing = false;
 
-export async function deltaRefresh(): Promise<void> {
+export async function deltaRefresh(force = false): Promise<void> {
   if (useAuth.getState().status !== "authed") return;
   const now = Date.now();
-  if (now - lastPullTs < THROTTLE_MS) return;
+  if (!force && now - lastPullTs < THROTTLE_MS) return;
   lastPullTs = now;
   try {
     const rows = await pullWorkspaces(lastPullTs);
@@ -165,6 +170,77 @@ export async function deltaRefresh(): Promise<void> {
   } catch (err) {
     console.error("Sync: delta refresh failed", err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket client for real-time invalidation signals (TASK-88.8)
+//
+// Opens a persistent WebSocket to /api/ws (the UserSyncDO upgrade endpoint).
+// On receiving a valid { changedId, version } message, immediately runs a
+// delta refresh bypassing the throttle — the server just committed a write.
+// Reconnects with exponential backoff (1 s → 60 s cap) on unexpected close.
+// Gracefully degrades: if the socket is unavailable the 88.7 pull-based
+// strategy (focus/visibility pulls + 60 s polling) continues uninterrupted.
+// ---------------------------------------------------------------------------
+
+const WS_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
+
+interface InvalidationMsg {
+  changedId: string;
+  version: number | null;
+}
+
+export function connectWs(): { close: () => void } {
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+  let stopped = false;
+
+  function connect() {
+    if (stopped || useAuth.getState().status !== "authed") return;
+    ws = new WebSocket("/api/ws");
+
+    ws.addEventListener("open", () => {
+      attempt = 0; // reset backoff on successful connection
+    });
+
+    ws.addEventListener("message", (ev) => {
+      try {
+        // Validate message shape; ignore anything that doesn't parse.
+        const msg = JSON.parse(ev.data as string) as InvalidationMsg;
+        if (typeof msg.changedId !== "string") return;
+        void deltaRefresh(true); // bypass throttle — server just wrote
+      } catch {
+        // Ignore malformed frames.
+      }
+    });
+
+    ws.addEventListener("close", (ev) => {
+      ws = null;
+      if (stopped || ev.code === 1000) return; // clean close — don't reconnect
+      const delay = WS_RECONNECT_DELAYS_MS[Math.min(attempt, WS_RECONNECT_DELAYS_MS.length - 1)];
+      attempt++;
+      reconnectTimer = setTimeout(connect, delay);
+    });
+
+    ws.addEventListener("error", () => {
+      // The "close" event always fires after "error"; reconnect logic lives there.
+    });
+  }
+
+  connect();
+
+  return {
+    close() {
+      stopped = true;
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (ws?.readyState === WebSocket.OPEN) ws.close(1000, "logout");
+      ws = null;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -248,10 +324,17 @@ export function initSync(): () => void {
     }
   }
 
-  // Subscribe to auth state changes — trigger pull-on-login.
+  // Subscribe to auth state changes — trigger pull-on-login and manage WS.
+  let wsConn: { close: () => void } | null = null;
+
   const unsubAuth = useAuth.subscribe((auth, prevAuth) => {
     if (auth.status === "authed" && prevAuth.status !== "authed") {
       void onLogin();
+      wsConn = connectWs(); // open WebSocket alongside the pull-on-login
+    }
+    if (auth.status !== "authed" && prevAuth.status === "authed") {
+      wsConn?.close();
+      wsConn = null; // close WebSocket on logout
     }
   });
 
@@ -321,6 +404,8 @@ export function initSync(): () => void {
   window.addEventListener("online", onOnline);
 
   return () => {
+    wsConn?.close();
+    wsConn = null;
     unsubAuth();
     unsubStore();
     window.removeEventListener("focus", onFocus);

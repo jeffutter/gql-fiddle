@@ -35,5 +35,32 @@
       "binding": "SESSIONS",
       "id": "00000000-0000-0000-0000-000000000001"
     }
+  ],
+
+  // Durable Object for per-user real-time WebSocket sync (TASK-88.8).
+  //
+  // One UserSyncDO instance per user (keyed by user.id).  Holds all open
+  // WebSocket connections for that user's devices and broadcasts lightweight
+  // invalidation signals on every accepted workspace write.
+  //
+  // Uses the hibernatable WebSocket API — no CPU is billed while sockets are
+  // idle, keeping usage within the free tier (1 M DO requests / month).
+  //
+  // No provisioning is required; the DO namespace is auto-created by wrangler
+  // when the migration is applied.  Run `wrangler types` after any binding
+  // change to regenerate worker-configuration.d.ts.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "USER_SYNC",
+        "class_name": "UserSyncDO"
+      }
+    ]
+  },
+
+  // DO class migrations (not D1 migrations).  Must be applied once before the
+  // DO can be instantiated.  wrangler handles this automatically on deploy.
+  "migrations": [
+    { "tag": "v1", "new_classes": ["UserSyncDO"] }
   ]
 }
