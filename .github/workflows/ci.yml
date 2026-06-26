@@ -18,11 +18,11 @@ jobs:
           workspaces: ". -> target"
 
       - name: Rust format
-        run: nix develop -c cargo fmt --check
+        run: nix develop .#rust -c cargo fmt --check
       - name: Rust clippy
-        run: nix develop -c cargo clippy --all-targets -- -D warnings
+        run: nix develop .#rust -c cargo clippy --all-targets -- -D warnings
       - name: Rust tests (native)
-        run: nix develop -c cargo test
+        run: nix develop .#rust -c cargo test
 
   wasm-build:
     runs-on: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
           workspaces: ". -> target"
 
       - name: WASM build
-        run: nix develop -c bash -c "cd web && pnpm build:wasm"
+        run: nix develop .#rust -c bash -c "cd web && pnpm build:wasm"
       - name: Upload WASM bindings
         uses: actions/upload-artifact@v7
         with:
@@ -57,7 +57,7 @@ jobs:
       # WASM headless browser tests — CI only (too slow for git hooks).
       # Separate wasm-bindgen-test harness build, independent of wasm-build.
       - name: WASM tests
-        run: nix develop -c wasm-pack test --headless --chrome crates/gql-core
+        run: nix develop .#wasm-test -c wasm-pack test --headless --chrome crates/gql-core
 
   web-checks:
     needs: wasm-build
@@ -65,7 +65,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Download WASM bindings
         uses: actions/download-artifact@v8
         with:
@@ -74,7 +73,7 @@ jobs:
 
       - name: Get pnpm store path
         id: pnpm-store
-        run: echo "path=$(nix develop -c bash -c 'cd web && pnpm store path' | tail -n1)" >> "$GITHUB_OUTPUT"
+        run: echo "path=$(nix develop .#web -c bash -c 'cd web && pnpm store path' | tail -n1)" >> "$GITHUB_OUTPUT"
       - name: Cache pnpm store
         uses: actions/cache@v5
         with:
@@ -84,13 +83,13 @@ jobs:
             pnpm-store-${{ runner.os }}-
 
       - name: Web install
-        run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
+        run: nix develop .#web -c bash -c "cd web && pnpm install --frozen-lockfile"
       - name: Web lint
-        run: nix develop -c bash -c "cd web && pnpm lint"
+        run: nix develop .#web -c bash -c "cd web && pnpm lint"
       - name: Web typecheck
-        run: nix develop -c bash -c "cd web && pnpm tsc --noEmit"
+        run: nix develop .#web -c bash -c "cd web && pnpm tsc --noEmit"
       - name: Web tests
-        run: nix develop -c bash -c "cd web && pnpm test run"
+        run: nix develop .#web -c bash -c "cd web && pnpm test run"
 
   e2e:
     needs: wasm-build
@@ -98,7 +97,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Download WASM bindings
         uses: actions/download-artifact@v8
         with:
@@ -107,7 +105,7 @@ jobs:
 
       - name: Get pnpm store path
         id: pnpm-store
-        run: echo "path=$(nix develop -c bash -c 'cd web && pnpm store path' | tail -n1)" >> "$GITHUB_OUTPUT"
+        run: echo "path=$(nix develop .#web -c bash -c 'cd web && pnpm store path' | tail -n1)" >> "$GITHUB_OUTPUT"
       - name: Cache pnpm store
         uses: actions/cache@v5
         with:
@@ -117,9 +115,9 @@ jobs:
             pnpm-store-${{ runner.os }}-
 
       - name: Web install
-        run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
+        run: nix develop .#web -c bash -c "cd web && pnpm install --frozen-lockfile"
       - name: Web e2e tests
-        run: nix develop -c bash -c "cd web && pnpm e2e"
+        run: nix develop .#web -c bash -c "cd web && pnpm e2e"
 
   deploy:
     needs: [rust-checks, wasm-build, wasm-browser-tests, web-checks, e2e]
@@ -131,7 +129,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Download WASM bindings
         uses: actions/download-artifact@v8
         with:
@@ -140,7 +137,7 @@ jobs:
 
       - name: Get pnpm store path
         id: pnpm-store
-        run: echo "path=$(nix develop -c bash -c 'cd web && pnpm store path' | tail -n1)" >> "$GITHUB_OUTPUT"
+        run: echo "path=$(nix develop .#web -c bash -c 'cd web && pnpm store path' | tail -n1)" >> "$GITHUB_OUTPUT"
       - name: Cache pnpm store
         uses: actions/cache@v5
         with:
@@ -150,9 +147,9 @@ jobs:
             pnpm-store-${{ runner.os }}-
 
       - name: Web install
-        run: nix develop -c bash -c "cd web && pnpm install --frozen-lockfile"
+        run: nix develop .#web -c bash -c "cd web && pnpm install --frozen-lockfile"
       - name: Web build
-        run: nix develop -c bash -c "cd web && pnpm build"
+        run: nix develop .#web -c bash -c "cd web && pnpm build"
 
       # Idempotent: fails (harmlessly) once the project already exists.
       - name: Ensure Cloudflare Pages project exists

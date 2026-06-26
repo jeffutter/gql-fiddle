@@ -33,50 +33,94 @@
           ];
         };
       in
+      let
+        # JS-only inputs shared between the web shell and the full dev shell.
+        webInputs = [
+          pkgs.nodejs_22
+          pkgs.pnpm
+        ];
+
+        # Core Rust + WASM build inputs, without a browser (used in CI jobs
+        # that build Rust/WASM but don't run headless browser tests).
+        rustInputs = [
+          rust
+
+          # WASM build chain. wasm-bindgen-cli MUST match the wasm-bindgen
+          # crate version in crates/gql-core/Cargo.toml — that is the single
+          # most common Nix/WASM footgun. If nixpkgs lags the crate, override
+          # this package's version.
+          pkgs.wasm-pack
+          pkgs.wasm-bindgen-cli
+          pkgs.binaryen # provides wasm-opt
+        ];
+
+        rustShellHook = ''
+          # Unset RUSTFLAGS so it does not leak from the parent shell into
+          # the dev environment. The getrandom wasm_js cfg must only ever
+          # apply to wasm32 builds via .cargo/config.toml.
+          unset RUSTFLAGS
+
+          echo "graphql-playground dev shell"
+          echo "  rust:          $(rustc --version)"
+          echo "  wasm-bindgen:  $(wasm-bindgen --version)"
+          echo "  node:          $(node --version)"
+        '';
+      in
       {
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            rust
+        devShells = {
+          # Full local-dev shell — includes browser for wasm-pack headless tests.
+          default = pkgs.mkShell {
+            buildInputs =
+              webInputs
+              ++ rustInputs
+              ++ [
+                # Git hooks.
+                pkgs.lefthook
 
-            # WASM build chain. wasm-bindgen-cli MUST match the wasm-bindgen
-            # crate version in crates/gql-core/Cargo.toml — that is the single
-            # most common Nix/WASM footgun. If nixpkgs lags the crate, override
-            # this package's version.
-            pkgs.wasm-pack
-            pkgs.wasm-bindgen-cli
-            pkgs.binaryen # provides wasm-opt
+                # Dev workflow.
+                pkgs.cargo-watch
+                pkgs.concurrently
 
-            # JS toolchain.
-            pkgs.nodejs_22
-            pkgs.pnpm
+                # Browser + driver for headless wasm-pack tests (pre-built binaries
+                # from wasm-pack don't work on Nix — missing shared libs).
+                pkgs.chromium
+                pkgs.chromedriver
+              ];
 
-            # Git hooks.
-            pkgs.lefthook
+            CHROME = "${pkgs.chromium}/bin/chromium";
+            CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
 
-            # Dev workflow.
-            pkgs.cargo-watch
-            pkgs.concurrently
+            shellHook = rustShellHook;
+          };
 
-            # Browser + driver for headless wasm-pack tests (pre-built binaries
-            # from wasm-pack don't work on Nix — missing shared libs).
-            pkgs.chromium
-            pkgs.chromedriver
-          ];
+          # CI shell for Rust/WASM builds — no browser, smaller Nix store footprint.
+          rust = pkgs.mkShell {
+            buildInputs = webInputs ++ rustInputs;
+            shellHook = rustShellHook;
+          };
 
-          CHROME = "${pkgs.chromium}/bin/chromium";
-          CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
+          # CI shell for headless wasm-pack browser tests — adds Chromium.
+          wasm-test = pkgs.mkShell {
+            buildInputs =
+              webInputs
+              ++ rustInputs
+              ++ [
+                pkgs.chromium
+                pkgs.chromedriver
+              ];
 
-          shellHook = ''
-            # Unset RUSTFLAGS so it does not leak from the parent shell into
-            # the dev environment. The getrandom wasm_js cfg must only ever
-            # apply to wasm32 builds via .cargo/config.toml.
-            unset RUSTFLAGS
+            CHROME = "${pkgs.chromium}/bin/chromium";
+            CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
 
-            echo "graphql-playground dev shell"
-            echo "  rust:          $(rustc --version)"
-            echo "  wasm-bindgen:  $(wasm-bindgen --version)"
-            echo "  node:          $(node --version)"
-          '';
+            shellHook = rustShellHook;
+          };
+
+          # Minimal CI shell for web-only jobs (lint, typecheck, e2e, deploy).
+          # No Rust toolchain or browser — pulls only Node/pnpm from nixpkgs,
+          # which are always available in cache.nixos.org without a cache upload.
+          web = pkgs.mkShell {
+            buildInputs = webInputs;
+          };
         };
       }
     );
