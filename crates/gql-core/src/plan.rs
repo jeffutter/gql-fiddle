@@ -11,7 +11,7 @@ use crate::dto::{DeferredBranch, PlanNode, RequiresSelection, ResolvedField};
 /// `{ ok: false, errors: [...] }` on failure.
 pub fn plan(supergraph_sdl: &str, operation: &str, op_name: Option<&str>) -> Value {
     // 1. Parse supergraph
-    let supergraph = match apollo_federation::Supergraph::new(supergraph_sdl) {
+    let supergraph = match apollo_federation::Supergraph::new_with_router_specs(supergraph_sdl) {
         Ok(sg) => sg,
         Err(err) => return error_envelope(err.to_string()),
     };
@@ -617,6 +617,79 @@ type Odds { id: ID! numerator: Int! denominator: Int! }"#;
             result["ok"].as_bool().unwrap_or(false),
             "plan failed:\n{}",
             json
+        );
+    }
+
+    /// Supergraphs that use `@context` (for: SECURITY) must be accepted by the
+    /// query planner, not rejected with "feature … is for: SECURITY but is unsupported".
+    #[test]
+    fn plan_accepts_context_spec() {
+        let layout = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key", "@inaccessible"])
+{
+  query: Query
+}
+type Query { page(id: ID!): Page }
+type Page { children: [Component!]! }
+union Component = MarketCardUI
+type MarketCardUI @key(fields: "id") { id: ID! data: Market @inaccessible }
+type Market @key(fields: "id") { id: ID! }"#;
+
+        let blueprint = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key", "@external", "@requires", "@inaccessible", "@context"])
+type Market @key(fields: "id") @context(name: "marketContext") {
+  id: ID!
+  name: String! @external
+  ui: MarketCardUI @requires(fields: "name")
+}
+type MarketCardUI @key(fields: "id") {
+  id: ID!
+  title: String! @requires(fields: "data { name }")
+  data: Market @external
+}"#;
+
+        let sportsbook = r#"extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key", "@external", "@requires", "@inaccessible"])
+{
+  query: Query
+}
+type Query { oldPage(id: ID!): OldPage }
+type OldPage { children: [OldPageChildren!]! }
+union OldPageChildren = Market
+type Market @key(fields: "id") { id: ID! name: String! }"#;
+
+        let subgraphs = vec![
+            crate::dto::SubgraphInput {
+                name: "layout".into(),
+                sdl: layout.into(),
+            },
+            crate::dto::SubgraphInput {
+                name: "blueprint".into(),
+                sdl: blueprint.into(),
+            },
+            crate::dto::SubgraphInput {
+                name: "sportsbook".into(),
+                sdl: sportsbook.into(),
+            },
+        ];
+
+        let compose_result = compose_inner(&subgraphs);
+        assert!(
+            compose_result["ok"].as_bool().unwrap_or(false),
+            "composition failed: {}",
+            compose_result
+        );
+        let supergraph_sdl = compose_result["supergraph_sdl"]
+            .as_str()
+            .expect("no supergraph_sdl in compose result");
+
+        let operation = r#"{ oldPage(id: "1") { children { ... on Market { ui { title } } } } }"#;
+        let result = plan(supergraph_sdl, operation, None);
+
+        assert!(
+            result["ok"].as_bool().unwrap_or(false),
+            "plan failed with @context supergraph — errors: {}",
+            result["errors"]
         );
     }
 }
