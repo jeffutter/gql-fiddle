@@ -599,6 +599,22 @@ body {
   margin-bottom: 8px;
 }
 
+.workspace-tab-strip {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin: 4px 0;
+  overflow-x: auto;
+}
+
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
 /* ========================================================================== *
  * Brand logo
  * ========================================================================== */
