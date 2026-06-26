@@ -104,6 +104,8 @@ export const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT
 function makeDefaultWorkspace(name: string): WorkspaceEntry {
   return {
     name,
+    id: crypto.randomUUID(),
+    version: 1,
     subgraphs: DEFAULT_SUBGRAPHS,
     activeSubgraph: 0,
     queryTabs: DEFAULT_QUERY_TABS,
@@ -527,7 +529,7 @@ export const useWorkspace = create<WorkspaceState>()(
       // delete the old key for no user-visible benefit. Intentionally
       // decoupled from the product's display name.
       name: "graphql-playground",
-      version: 4,
+      version: 5,
       migrate: (persistedState: unknown, version: number) => {
         let state = persistedState as Record<string, unknown>;
 
@@ -578,11 +580,25 @@ export const useWorkspace = create<WorkspaceState>()(
             tourDraft: (tourDraft as Tour | null) ?? null,
           };
           void rest; // unused fields from old state
-          return {
+          state = {
             workspaces: [workspace1],
             activeWorkspaceIndex: 0,
             vimMode: (vimMode as boolean) ?? false,
           };
+          // Fall through to v4 → v5 migration below
+        }
+
+        if (version <= 4) {
+          // v4 → v5: assign stable client-generated id + initial version to
+          // each workspace so the cloud sync engine can track them. Existing
+          // workspaces without an id are backfilled with crypto.randomUUID()
+          // and version=1 — their content is never overwritten here.
+          const workspaces = (state.workspaces as WorkspaceEntry[]).map((ws) => ({
+            ...ws,
+            id: ws.id ?? crypto.randomUUID(),
+            version: ws.version ?? 1,
+          }));
+          state = { ...state, workspaces };
         }
 
         return state;

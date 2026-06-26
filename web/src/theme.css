@@ -1605,3 +1605,54 @@ body {
 .tour-playback__return-btn:hover {
   opacity: 1;
 }
+
+/* ========================================================================== *
+ * Auth UI (TASK-88.5)
+ * ========================================================================== */
+
+.auth-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.auth-user__avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.auth-user__name {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+/* ========================================================================== *
+ * Sync status indicator (TASK-88.7)
+ * ========================================================================== */
+
+.sync-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sync-status--synced {
+  background: var(--success);
+}
+
+.sync-status--saving {
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+.sync-status--offline {
+  background: var(--text-muted);
+}
+
+.sync-status--error {
+  background: var(--danger);
+}
