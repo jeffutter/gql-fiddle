@@ -123,6 +123,13 @@ jobs:
     needs: [rust-checks, wasm-build, wasm-browser-tests, web-checks, e2e]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Required CLOUDFLARE_API_TOKEN permissions (create a custom token in the Cloudflare dashboard):
+    #   - Cloudflare Pages: Edit          (deploy the Pages project)
+    #   - D1: Edit                         (bind the D1 database to the Pages project)
+    #   - Workers KV Storage: Edit         (bind the KV namespace to the Pages project)
+    #   - Account Settings: Read           (resolve the account ID)
+    # CLOUDFLARE_ACCOUNT_ID is your numeric Cloudflare account ID (not a secret per se,
+    # but stored in GitHub secrets for convenience).
     permissions:
       contents: read
       deployments: write
@@ -160,6 +167,9 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages project create gql-fiddle --production-branch=main
 
+      # wrangler reads wrangler.toml from the repo root and picks up the
+      # functions/ directory automatically — no extra flags needed.
+      # D1 and KV bindings declared in wrangler.toml are uploaded with the deployment.
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:

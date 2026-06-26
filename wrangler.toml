@@ -1,0 +1,36 @@
+# Cloudflare Pages configuration for gql-fiddle.
+# See AGENTS.md § "Backend (Cloudflare Pages Functions)" for provisioning and local-dev instructions.
+#
+# PROVISIONING (one-time, per environment):
+#   1. wrangler d1 create gql-fiddle-db
+#      → copy the `database_id` into [[d1_databases]].database_id below.
+#   2. wrangler kv namespace create SESSIONS
+#      → copy the `id` into [[kv_namespaces]].id below.
+#   3. wrangler kv namespace create SESSIONS --preview
+#      → copy the `id` into [[kv_namespaces]].preview_id below.
+#   4. Commit wrangler.toml (IDs are not secrets; they identify public resources).
+#   5. In the Cloudflare Pages dashboard (or via wrangler), add the bindings
+#      to the production Pages project so they resolve on deployed Functions.
+#
+# The CLOUDFLARE_API_TOKEN used in CI must have the following permissions:
+#   - Cloudflare Pages: Edit
+#   - D1: Edit  (required to bind D1 to the Pages project)
+#   - Workers KV Storage: Edit  (required to bind KV to the Pages project)
+#   - Account Settings: Read
+
+name = "gql-fiddle"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "web/dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gql-fiddle-db"
+# Run `wrangler d1 create gql-fiddle-db` and replace this placeholder:
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+# Run `wrangler kv namespace create SESSIONS` and replace this placeholder:
+id = "00000000000000000000000000000000"
+# Run `wrangler kv namespace create SESSIONS --preview` and replace this placeholder:
+preview_id = "00000000000000000000000000000000"

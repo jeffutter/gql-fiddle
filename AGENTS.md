@@ -4,13 +4,14 @@ Guidance for AI coding agents working in this repository.
 
 ## What this is
 
-A browser-only GraphQL federation playground with no backend. Users author
-multiple subgraph schemas, compose them into a supergraph, inspect the query
-plan, and run queries against deterministic mock data — entirely client-side.
+A browser-first GraphQL federation playground. Users author multiple subgraph
+schemas, compose them into a supergraph, inspect the query plan, and run queries
+against deterministic mock data — entirely client-side via WebAssembly.
 
 The GraphQL brain is Rust compiled to WebAssembly (`crates/gql-core`) using
 `apollo-compiler` and `apollo-federation`. The UI is a TypeScript/React shell
-(`web/`). There is no server, no network calls, and no authentication.
+(`web/`). A lightweight backend in **Cloudflare Pages Functions** (`functions/`)
+handles cloud accounts and cross-device workspace sync (see § "Backend" below).
 
 ---
 
@@ -71,9 +72,83 @@ scoped to staged files where applicable. `pre-push` runs the full test suites.
 
 ---
 
+## Backend (Cloudflare Pages Functions)
+
+The backend lives in `functions/` at the project root. Cloudflare Pages
+bundles these alongside the static `web/dist` output automatically — no
+separate Worker or service is needed.
+
+### Layout
+
+```
+functions/
+  api/
+    health.js       GET /api/health → {ok:true}  (liveness probe)
+wrangler.toml       Pages project config: D1 + KV bindings
+```
+
+### Local development
+
+```sh
+# Build the frontend first (wrangler serves it as the static layer).
+cd web && pnpm build && cd ..
+
+# Start the Pages dev server with Functions + D1 (local SQLite) + KV (in-memory).
+wrangler pages dev web/dist
+# → http://localhost:8788
+# → http://localhost:8788/api/health  should return {"ok":true}
+```
+
+`wrangler pages dev` hot-reloads Functions but not the Vite frontend. Run
+`pnpm build:wasm && pnpm build` (from `web/`) to rebuild the frontend, then
+refresh.
+
+### Provisioning (one-time, per Cloudflare account)
+
+```sh
+# 1. Create the D1 database.
+wrangler d1 create gql-fiddle-db
+# Copy the output `database_id` into wrangler.toml [[d1_databases]].database_id
+
+# 2. Create the KV namespace (production).
+wrangler kv namespace create SESSIONS
+# Copy the output `id` into wrangler.toml [[kv_namespaces]].id
+
+# 3. Create the KV namespace (preview/local dev).
+wrangler kv namespace create SESSIONS --preview
+# Copy the output `id` into wrangler.toml [[kv_namespaces]].preview_id
+```
+
+Commit the updated `wrangler.toml` — resource IDs are not secrets. Actual
+credentials (GitHub OAuth client secret etc.) are added later as Pages secrets
+via `wrangler pages secret put <KEY>` or the Cloudflare dashboard.
+
+### Cloudflare free-tier limits (relevant to this project)
+
+| Resource | Free tier limit | Notes |
+|----------|-----------------|-------|
+| Pages Functions requests | 100,000 / day | Resets daily; hard limit on free plan |
+| Pages Functions CPU time | 10 ms / invocation | Burst to 50 ms; sync API calls are well within this |
+| D1 reads | 5,000,000 / day | Row reads, not query count |
+| D1 writes | 100,000 / day | Row writes |
+| D1 storage | 5 GB | Total across all databases |
+| KV reads | 100,000 / day | Eventually consistent |
+| KV writes | 1,000 / day | Strongly consistent |
+| KV storage | 1 GB | Total |
+
+All limits apply per Cloudflare account. The sync API is lightweight and will
+comfortably fit within the free tier for personal use.
+
+---
+
 ## Repository layout
 
 ```
+functions/
+  api/
+    health.js       GET /api/health (liveness + binding probe)
+wrangler.toml       Cloudflare Pages config (D1 + KV bindings)
+
 crates/gql-core/        Rust/WASM library
   src/
     lib.rs              WASM exports — thin JSON wrappers only
