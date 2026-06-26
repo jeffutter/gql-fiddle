@@ -122,8 +122,9 @@ vi.mock("@monaco-editor/react", () => ({
         }
         // Keep __editorTestHarness.onMount pointing to the subgraph editor
         // so existing tests that call it to set up the subgraph editor state
-        // continue to work. Subgraph editor paths start with "sg-".
-        if (!path || path.startsWith("sg-")) {
+        // continue to work. Subgraph editor paths contain "-sg-" (namespaced
+        // as "ws-N-sg-N") or start with "sg-" (legacy format).
+        if (!path || path.includes("-sg-") || path.startsWith("sg-")) {
           globalThis.__editorTestHarness.onMount = onMount;
         }
       }

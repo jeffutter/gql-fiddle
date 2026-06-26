@@ -9,10 +9,10 @@ import GraphQLWorker from "monaco-graphql/esm/graphql.worker?worker";
 import { initializeMode } from "monaco-graphql/initializeMode";
 import type { MonacoGraphQLAPI } from "monaco-graphql";
 import Editor from "@monaco-editor/react";
-import { useWorkspace } from "./store";
+import { useWorkspace, activeWorkspace, DEFAULT_SUBGRAPHS, DEFAULT_QUERY_TABS } from "./store";
 import { loadCore } from "./core";
 import { decode, encode, encodeTour, decodeTour, resolveTourStep } from "./share";
-import type { WorkspacePayload, Tour } from "./share";
+import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
 import { TourPlayback } from "./TourPlayback";
@@ -190,34 +190,45 @@ function diagnosticToMarker(
 }
 
 export default function App() {
+  // Global (non-workspace) state
   const {
-    subgraphs,
-    activeSubgraph,
+    workspaces,
+    activeWorkspaceIndex,
+    supergraphSdl,
+    vimMode,
+    setVimMode,
+    tourActiveStep,
+    setStepAnchor,
+    addWorkspace,
+    cloneWorkspace,
+    removeWorkspace,
+    renameWorkspace,
+    setActiveWorkspace,
     setActiveSubgraph,
     setSubgraphSdl,
     addSubgraph,
     removeSubgraph,
-    queryTabs,
-    activeQueryTab,
     setActiveQueryTab,
     addQueryTab,
     removeQueryTab,
     renameQueryTab,
     setQueryTabQuery,
-    supergraphSdl,
-    seed,
     setSeed,
     resetToDefaults,
     renameSubgraph,
-    tourDraft,
     setTourDraft,
-    tourActiveStep,
-    setStepAnchor,
-    mockConfig,
     setMockConfig,
-    vimMode,
-    setVimMode,
   } = useWorkspace();
+
+  // Active workspace fields via selector
+  const activeWs = workspaces[activeWorkspaceIndex];
+  const subgraphs = activeWs.subgraphs;
+  const activeSubgraph = activeWs.activeSubgraph;
+  const queryTabs = activeWs.queryTabs;
+  const activeQueryTab = activeWs.activeQueryTab;
+  const seed = activeWs.seed;
+  const mockConfig = activeWs.mockConfig;
+  const tourDraft = activeWs.tourDraft;
   const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
   const [tourPreviewMode, setTourPreviewMode] = useState(false);
   const [playbackTour, setPlaybackTour] = useState<Tour | null>(null);
@@ -228,6 +239,8 @@ export default function App() {
   const [renameValue, setRenameValue] = useState("");
   const [renamingQueryTab, setRenamingQueryTab] = useState<number | null>(null);
   const [renameQueryValue, setRenameQueryValue] = useState("");
+  const [renamingWorkspaceIndex, setRenamingWorkspaceIndex] = useState<number | null>(null);
+  const [renameWorkspaceValue, setRenameWorkspaceValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [showMockConfig, setShowMockConfig] = useState(false);
@@ -312,14 +325,57 @@ export default function App() {
     if (!hash.startsWith("#w=")) return;
     try {
       const payload = decode(hash);
-      useWorkspace.setState({
-        subgraphs: payload.subgraphs,
-        queryTabs: payload.queryTabs,
-        activeQueryTab: payload.activeQueryTab ?? 0,
-        seed: payload.seed,
-        mockConfig: payload.mockConfig ?? "",
-        activeSubgraph: 0,
-      });
+      const currentWorkspaces = useWorkspace.getState().workspaces;
+      // First visit (no existing workspaces with real content): replace.
+      // Returning visitor: append as a new workspace and switch to it.
+      const isFirstVisit =
+        currentWorkspaces.length === 0 ||
+        (currentWorkspaces.length === 1 &&
+          currentWorkspaces[0].subgraphs.length === DEFAULT_SUBGRAPHS.length &&
+          currentWorkspaces[0].queryTabs.length === 1 &&
+          currentWorkspaces[0].queryTabs[0].query === DEFAULT_QUERY_TABS[0].query);
+
+      if (isFirstVisit) {
+        // Replace the single default workspace with the shared one.
+        const sharedEntry: import("./share").WorkspaceEntry = {
+          name: "Workspace 1",
+          subgraphs: payload.subgraphs,
+          activeSubgraph: 0,
+          queryTabs: payload.queryTabs,
+          activeQueryTab: payload.activeQueryTab ?? 0,
+          seed: payload.seed,
+          mockConfig: payload.mockConfig ?? "",
+          tourDraft: null,
+        };
+        useWorkspace.setState({
+          workspaces: [sharedEntry],
+          activeWorkspaceIndex: 0,
+          supergraphSdl: null,
+          composeErrors: null,
+          composeHints: 0,
+        });
+      } else {
+        // Append as a new workspace named "Workspace N".
+        let n = 1;
+        while (currentWorkspaces.some((ws) => ws.name === `Workspace ${n}`)) n++;
+        const newEntry: import("./share").WorkspaceEntry = {
+          name: `Workspace ${n}`,
+          subgraphs: payload.subgraphs,
+          activeSubgraph: 0,
+          queryTabs: payload.queryTabs,
+          activeQueryTab: payload.activeQueryTab ?? 0,
+          seed: payload.seed,
+          mockConfig: payload.mockConfig ?? "",
+          tourDraft: null,
+        };
+        useWorkspace.setState({
+          workspaces: [...currentWorkspaces, newEntry],
+          activeWorkspaceIndex: currentWorkspaces.length,
+          supergraphSdl: null,
+          composeErrors: null,
+          composeHints: 0,
+        });
+      }
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     } catch (err) {
       console.warn("Failed to restore workspace from URL hash:", err);
@@ -407,7 +463,9 @@ export default function App() {
         };
 
         // If clicking the same anchor that's already set, toggle it off (clear).
-        const currentAnchor = useWorkspace.getState().tourDraft?.steps[tourActiveStep]?.anchor;
+        const currentAnchor = activeWorkspace(useWorkspace.getState()).tourDraft?.steps[
+          tourActiveStep
+        ]?.anchor;
         if (
           currentAnchor &&
           currentAnchor.subgraphIndex === newAnchor.subgraphIndex &&
@@ -634,7 +692,9 @@ export default function App() {
       void (async () => {
         const core = await loadCore();
         const result = core.validateQuery(supergraphSdl, currentQuery);
-        const uri = monacoInstance.Uri.parse(`inmemory://model/query-${activeQueryTab}.graphql`);
+        const uri = monacoInstance.Uri.parse(
+          `inmemory://model/ws-${activeWorkspaceIndex}-query-${activeQueryTab}.graphql`,
+        );
         const model = monacoInstance.editor.getModel(uri);
         if (model) {
           monacoInstance.editor.setModelMarkers(
@@ -723,7 +783,7 @@ export default function App() {
     const provider = _monaco.languages.registerCompletionItemProvider("yaml", {
       triggerCharacters: ["."],
       provideCompletionItems(model, position) {
-        if (!model.uri.path.endsWith("mock-config.yaml")) return { suggestions: [] };
+        if (!model.uri.path.endsWith("-mock-config.yaml")) return { suggestions: [] };
 
         const lineText = model.getLineContent(position.lineNumber);
         const isComment = lineText.trimStart().startsWith("#");
@@ -888,10 +948,11 @@ export default function App() {
   }, [vimMode, editor]);
 
   function copyForLLM() {
+    const ws = activeWorkspace(useWorkspace.getState());
     const parts: string[] = [];
 
     parts.push("## Subgraphs");
-    for (const sg of subgraphs) {
+    for (const sg of ws.subgraphs) {
       parts.push(`\n### Subgraph: ${sg.name}\n\`\`\`graphql\n${sg.sdl}\n\`\`\``);
     }
 
@@ -936,12 +997,13 @@ export default function App() {
   }
 
   function copyShareUrl() {
+    const ws = activeWorkspace(useWorkspace.getState());
     const payload: WorkspacePayload = {
-      subgraphs,
-      queryTabs,
-      activeQueryTab,
-      seed,
-      mockConfig,
+      subgraphs: ws.subgraphs,
+      queryTabs: ws.queryTabs,
+      activeQueryTab: ws.activeQueryTab,
+      seed: ws.seed,
+      mockConfig: ws.mockConfig,
     };
     const encodedHash = encode(payload);
     // Build origin — handle JSDOM where location.origin/hostname may be undefined.
@@ -971,7 +1033,14 @@ export default function App() {
   }
 
   function createTour() {
-    const base: WorkspacePayload = { subgraphs, queryTabs, activeQueryTab, seed, mockConfig };
+    const ws = activeWorkspace(useWorkspace.getState());
+    const base: WorkspacePayload = {
+      subgraphs: ws.subgraphs,
+      queryTabs: ws.queryTabs,
+      activeQueryTab: ws.activeQueryTab,
+      seed: ws.seed,
+      mockConfig: ws.mockConfig,
+    };
     setTourDraft({ title: "Untitled Tour", base, steps: [] });
     setTourAuthoringOpen(true);
   }
@@ -1115,7 +1184,7 @@ export default function App() {
   const subgraphEditor = (
     <div data-testid="subgraph-editor" className="editor">
       <Editor
-        path={`sg-${activeSubgraph}`}
+        path={`ws-${activeWorkspaceIndex}-sg-${activeSubgraph}`}
         value={subgraphs[activeSubgraph]?.sdl ?? ""}
         language="graphql"
         height="100%"
@@ -1400,6 +1469,77 @@ export default function App() {
     </div>
   );
 
+  const workspaceTabStrip = (
+    <nav className="workspace-tab-strip" aria-label="Workspaces" data-testid="workspace-tab-strip">
+      {workspaces.map((ws, i) => (
+        <button
+          key={i}
+          onClick={() => setActiveWorkspace(i)}
+          aria-pressed={i === activeWorkspaceIndex}
+          className={i === activeWorkspaceIndex ? "tab is-active" : "tab"}
+          data-testid={`workspace-tab-${i}`}
+        >
+          {renamingWorkspaceIndex === i ? (
+            <input
+              value={renameWorkspaceValue}
+              autoFocus
+              size={Math.max(renameWorkspaceValue.length, 3)}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setRenameWorkspaceValue(e.target.value)}
+              onBlur={() => {
+                const trimmed = renameWorkspaceValue.trim();
+                if (trimmed) renameWorkspace(i, trimmed);
+                setRenamingWorkspaceIndex(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const trimmed = renameWorkspaceValue.trim();
+                  if (trimmed) renameWorkspace(i, trimmed);
+                  setRenamingWorkspaceIndex(null);
+                } else if (e.key === "Escape") {
+                  setRenamingWorkspaceIndex(null);
+                }
+                e.stopPropagation();
+              }}
+              className="tab__rename"
+            />
+          ) : (
+            <span
+              onDoubleClick={(e) => {
+                if (i !== activeWorkspaceIndex) return;
+                e.stopPropagation();
+                setRenamingWorkspaceIndex(i);
+                setRenameWorkspaceValue(ws.name);
+              }}
+              title={i === activeWorkspaceIndex ? "Double-click to rename" : undefined}
+            >
+              {ws.name}
+            </span>
+          )}
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              removeWorkspace(i);
+            }}
+            className="tab__close"
+            aria-label={`Remove ${ws.name}`}
+            data-testid={`workspace-remove-${i}`}
+          >
+            ×
+          </span>
+        </button>
+      ))}
+      <button
+        className="btn btn--icon"
+        onClick={() => addWorkspace()}
+        title="Add workspace"
+        data-testid="workspace-add-btn"
+      >
+        +
+      </button>
+    </nav>
+  );
+
   const globalHeader = (
     <header className="page-header">
       <div className="logo" aria-label="GraphQL Fiddle">
@@ -1435,42 +1575,80 @@ export default function App() {
           <span className="logo__name">Fiddle</span>
         </div>
       </div>
-      <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
-        {copied ? "Copied!" : "Copy for LLM"}
-      </button>
-      {tourDraft !== null ? (
-        <>
-          <button onClick={copyTourShareUrl} className={copied ? "btn is-success" : "btn"}>
-            {copied ? "Copied!" : "Share Tour"}
-          </button>
-          {!tourAuthoringOpen && (
-            <button onClick={() => setTourAuthoringOpen(true)} className="btn">
-              Tour ›
+      {workspaceTabStrip}
+      <div className="page-header__actions">
+        <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
+          {copied ? "Copied!" : "Copy for LLM"}
+        </button>
+        {tourDraft !== null ? (
+          <>
+            <button onClick={copyTourShareUrl} className={copied ? "btn is-success" : "btn"}>
+              {copied ? "Copied!" : "Share Tour"}
             </button>
-          )}
-        </>
-      ) : (
-        <>
-          <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
-            {copied ? "Copied!" : "Share"}
-          </button>
-          <button onClick={createTour} className="btn">
-            Create Tour
-          </button>
-        </>
-      )}
-      <button
-        onClick={() => {
-          if (window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")) {
-            resetToDefaults();
-          }
-        }}
-        className="btn"
-      >
-        Reset to defaults
-      </button>
+            {!tourAuthoringOpen && (
+              <button onClick={() => setTourAuthoringOpen(true)} className="btn">
+                Tour ›
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
+              {copied ? "Copied!" : "Share"}
+            </button>
+            <button onClick={createTour} className="btn">
+              Create Tour
+            </button>
+          </>
+        )}
+        <button
+          onClick={() => cloneWorkspace()}
+          className="btn"
+          title="Clone active workspace"
+          data-testid="workspace-clone-btn"
+        >
+          Clone
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")) {
+              resetToDefaults();
+            }
+          }}
+          className="btn"
+        >
+          Reset to defaults
+        </button>
+      </div>
     </header>
   );
+
+  // Creates a new workspace from the playback tour's base + tourDraft, exits playback.
+  function handleOpenInWorkspace() {
+    if (!playbackTour) return;
+    const currentWorkspaces = useWorkspace.getState().workspaces;
+    let n = 1;
+    while (currentWorkspaces.some((ws) => ws.name === `Workspace ${n}`)) n++;
+    const newWs: WorkspaceEntry = {
+      name: `Workspace ${n}`,
+      subgraphs: playbackTour.base.subgraphs,
+      activeSubgraph: 0,
+      queryTabs: playbackTour.base.queryTabs,
+      activeQueryTab: playbackTour.base.activeQueryTab,
+      seed: playbackTour.base.seed,
+      mockConfig: playbackTour.base.mockConfig ?? "",
+      tourDraft: playbackTour,
+    };
+    useWorkspace.setState({
+      workspaces: [...currentWorkspaces, newWs],
+      activeWorkspaceIndex: currentWorkspaces.length,
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+    });
+    setPlaybackTour(null);
+    setTourAuthoringOpen(true);
+  }
 
   // Tour playback mode — render a completely separate layout.
   if (playbackError !== null) {
@@ -1481,7 +1659,7 @@ export default function App() {
     );
   }
   if (playbackTour !== null) {
-    return <TourPlayback tour={playbackTour} />;
+    return <TourPlayback tour={playbackTour} onOpenInWorkspace={handleOpenInWorkspace} />;
   }
   if (tourPreviewMode && tourDraft !== null) {
     return (
@@ -1574,7 +1752,7 @@ export default function App() {
                   >
                     <Editor
                       language="yaml"
-                      path="mock-config.yaml"
+                      path={`ws-${activeWorkspaceIndex}-mock-config.yaml`}
                       value={mockConfig}
                       defaultValue={[
                         "# Mock Config — override what the mock executor generates.",
@@ -1601,7 +1779,7 @@ export default function App() {
                   >
                     <Editor
                       language="graphql"
-                      path={`query-${activeQueryTab}.graphql`}
+                      path={`ws-${activeWorkspaceIndex}-query-${activeQueryTab}.graphql`}
                       value={currentQuery}
                       onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
                       height="100%"
@@ -1920,7 +2098,7 @@ export default function App() {
                       <div data-testid="mock-config-editor" className="editor">
                         <Editor
                           language="yaml"
-                          path="mock-config.yaml"
+                          path={`ws-${activeWorkspaceIndex}-mock-config.yaml`}
                           value={mockConfig}
                           defaultValue={[
                             "# Mock Config — override what the mock executor generates.",
@@ -1952,7 +2130,7 @@ export default function App() {
                       <div data-testid="query-editor" className="editor">
                         <Editor
                           language="graphql"
-                          path={`query-${activeQueryTab}.graphql`}
+                          path={`ws-${activeWorkspaceIndex}-query-${activeQueryTab}.graphql`}
                           value={currentQuery}
                           onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
                           height="100%"

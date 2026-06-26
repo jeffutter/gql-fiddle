@@ -9,6 +9,25 @@ export interface WorkspacePayload {
   mockConfig?: string;
 }
 
+/**
+ * A single named workspace entry stored in the v4 localStorage shape.
+ *
+ * v4 localStorage root (key: "graphql-playground"):
+ * { workspaces: WorkspaceEntry[], activeWorkspaceIndex: number, vimMode: boolean }
+ */
+export interface WorkspaceEntry {
+  /** User-visible workspace name, e.g. "Workspace 1". */
+  name: string;
+  subgraphs: { name: string; sdl: string }[];
+  activeSubgraph: number;
+  queryTabs: { name: string; query: string }[];
+  activeQueryTab: number;
+  seed: number;
+  /** Raw YAML string for mock field overrides. Empty string means no overrides. */
+  mockConfig: string;
+  tourDraft: Tour | null;
+}
+
 export type PaneId = "schema" | "plan";
 
 export interface PaneVisibility {

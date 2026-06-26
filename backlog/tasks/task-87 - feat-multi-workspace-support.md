@@ -1,14 +1,24 @@
 ---
 id: TASK-87
 title: 'feat: multi-workspace support'
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@ralph'
 created_date: '2026-06-26 12:02'
+updated_date: '2026-06-26 17:55'
 labels:
   - feature
   - ux
   - storage
-dependencies: []
+  - planned
+dependencies:
+  - TASK-87.1
+  - TASK-87.2
+  - TASK-87.3
+  - TASK-87.4
+  - TASK-87.5
+  - TASK-87.6
+  - TASK-87.7
 references:
   - web/src/store.ts
   - web/src/App.tsx
@@ -179,6 +189,82 @@ export interface WorkspaceEntry {
 - v3 localStorage data is migrated losslessly to a single "Workspace 1" in the v4 format
 - No hard cap on workspace count
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## Multi-Workspace Feature — Orchestration Plan
+
+This feature restructures the entire workspace model, so work must proceed bottom-up: types → store → UI → URL → TourPlayback → mobile → tests.
+
+### Execution Order
+
+1. **TASK-87.1** [planned, ready now] — Add `WorkspaceEntry` type to `share.ts` or a new `types.ts`. Trivial type-only change that all other tickets depend on.
+
+2. **TASK-87.2** [needs plan → then execute] — The biggest change: refactor `store.ts` to hold `workspaces: WorkspaceEntry[]` + `activeWorkspaceIndex`. Rewrite all existing workspace-mutating actions to operate on `workspaces[activeWorkspaceIndex]`. Add v4 migration, new CRUD actions, and the `activeWorkspace(state)` selector helper. TypeScript errors in App.tsx will appear after this step — that is expected and resolved in TASK-87.3.
+
+3. **TASK-87.3** [needs plan → then execute] (unblocked after TASK-87.2) — Update all App.tsx call sites to use `activeWorkspace(state)` selectors; add the workspace tab strip JSX to `globalHeader`; add rename-in-place logic; add "Clone" button; namespace Monaco editor paths with workspace index.
+
+4. **TASK-87.4** [needs plan → then execute] (unblocked after TASK-87.2) — Update `#w=` mount handler to append vs replace based on whether workspaces already exist. Wire up the `onOpenInWorkspace` action (creates workspace from tour.base + sets tourDraft) and pass it to TourPlayback as a prop.
+
+5. **TASK-87.5** [planned] (unblocked after TASK-87.4) — Add `onOpenInWorkspace?: () => void` prop to `TourPlayback.tsx`; render "Open in workspace" button when prop is provided.
+
+6. **TASK-87.6** [needs plan → then execute] (unblocked after TASK-87.3) — Add a workspace switcher (recommend `<select>` dropdown) to the mobile layout so users can switch/add/delete workspaces on small screens.
+
+7. **TASK-87.7** [needs plan → then execute] (unblocked after TASK-87.3, 87.4, 87.5, 87.6) — Write/update tests in `store.test.ts`, `App.test.tsx`, and `share.test.ts`.
+
+### Integration Notes
+
+- After TASK-87.2 is done, the app will not typecheck until TASK-87.3 is also done (App.tsx references flat state fields that no longer exist). These two should be executed in close succession.
+- TASK-87.3 and TASK-87.4 can proceed in parallel after TASK-87.2 since they touch different parts of App.tsx (UI vs URL mount effect).
+- The `computeOverrides` utility in `store.ts` and the `encode`/`decode` functions in `share.ts` operate on `WorkspacePayload` — these remain unchanged. Share/Copy for LLM will continue to work by extracting the active workspace as a `WorkspacePayload` before encoding.
+- `vimMode` remains global at the top level of the store; `tourActiveStep` also remains session-only at the top level.
+
+### Verification Checklist (after all sub-tickets done)
+- `pnpm tsc --noEmit` passes with zero errors
+- `pnpm test run` passes (all vitest unit tests)
+- Manual smoke: create 3 workspaces, switch between them, verify each retains its own subgraphs/queries
+- Manual smoke: share URL in workspace A → open in new tab → appears as new workspace alongside existing ones
+- Manual smoke: visit a `#t=` tour URL → playback shows "Open in workspace" button → clicking it opens the tour in authoring mode as a new workspace
+- v3 migration: clear localStorage, set a hand-crafted v3 value, reload → should appear as "Workspace 1"
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Multi-workspace support has been fully implemented across all 7 subtasks:
+
+**Architecture:**
+- `WorkspaceEntry` interface added to `web/src/share.ts` with fields: name, subgraphs, activeSubgraph, queryTabs, activeQueryTab, seed, mockConfig, tourDraft
+- `web/src/store.ts` refactored: flat workspace fields moved into `workspaces: WorkspaceEntry[]` + `activeWorkspaceIndex: number`; v4 localStorage migration wraps v3 flat data into `workspaces[0]` named "Workspace 1"; new CRUD actions: addWorkspace, cloneWorkspace, removeWorkspace, renameWorkspace, setActiveWorkspace; `activeWorkspace(state)` selector exported
+- `DEFAULT_SUBGRAPHS`, `DEFAULT_QUERY`, `DEFAULT_QUERY_TABS` exported from store.ts for reuse in App.tsx and tests
+
+**UI (App.tsx):**
+- Workspace tab strip rendered in page-header with inline rename (double-click), × delete, + add, and Clone button
+- All flat state selectors replaced with `activeWorkspace(state).field` pattern
+- Monaco editor paths namespaced: `ws-${activeWorkspaceIndex}-sg-${n}` and `ws-${activeWorkspaceIndex}-query-${n}.graphql`
+- `#w=` URL handler: appends as new workspace if workspaces already exist, replaces on first visit
+- `handleOpenInWorkspace()` creates new workspace from tour.base + sets tourDraft, exits playback
+- Mobile layout: workspace `<select>` dropdown in mobile header for switching/adding/deleting workspaces
+
+**TourPlayback.tsx:**
+- Added `onOpenInWorkspace?: () => void` prop; renders 'Open in workspace' button in both mobile and desktop layouts when provided
+
+**TourAuthoringPanel.tsx:**
+- Updated to read `tourDraft` from `workspaces[activeWorkspaceIndex]` and uses functional setState for all workspace mutations
+
+**Tests:**
+- `web/src/store.test.ts`: rewritten with `setWs(patch)` / `aw()` helpers; covers all workspace CRUD actions and v3→v4 migration
+- `web/src/App.test.tsx`: updated to use multi-workspace state structure; Monaco path checks updated to new namespaced format; workspace tab strip tests added
+- `web/src/setupTests.tsx`: path check updated to match both legacy `sg-` prefix and new `ws-N-sg-N` format
+- All 334 tests pass with zero TypeScript errors
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented full multi-workspace support for the GraphQL fiddle. The Zustand store was refactored from flat per-workspace fields to a `workspaces: WorkspaceEntry[]` array with `activeWorkspaceIndex`, including v3→v4 localStorage migration. App.tsx gained a workspace tab strip in the page header (rename, clone, add, delete), Monaco editor path namespacing to prevent model bleeding between workspaces, and updated `#w=`/`#t=` URL handling. TourPlayback received an `onOpenInWorkspace` prop for creating workspaces from tours. Mobile layout got a workspace `<select>` dropdown. All 7 subtasks completed; 334 tests pass."
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 - [ ] #1 Multiple named workspaces can be created, renamed (double-click), cloned (Clone button), and deleted (× on tab)
 - [ ] #2 Deleting the last workspace recreates a single blank default workspace
