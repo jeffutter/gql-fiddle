@@ -18,6 +18,9 @@ web/node_modules/
 .DS_Store
 *.swp
 
+# Cloudflare / wrangler local state
+.wrangler/
+
 # local Claude settings
 .claude/settings.local.json
 
