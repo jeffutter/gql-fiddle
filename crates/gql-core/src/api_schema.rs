@@ -8,7 +8,7 @@ use apollo_federation::{ApiSchemaOptions, Supergraph};
 /// Returns an SDL string -- matches the existing WASM boundary (all consumer
 /// modules accept `&str` SDL) and avoids round-tripping through compiler types.
 pub(crate) fn derive_api_schema(supergraph_sdl: &str) -> Result<String, FederationError> {
-    let supergraph = Supergraph::new(supergraph_sdl)?;
+    let supergraph = Supergraph::new_with_router_specs(supergraph_sdl)?;
     let api_schema = supergraph.to_api_schema(ApiSchemaOptions::default())?;
     Ok(api_schema.schema().to_string())
 }
