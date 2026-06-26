@@ -116,6 +116,13 @@ jobs:
 
       - name: Web install
         run: nix develop .#web -c bash -c "cd web && pnpm install --frozen-lockfile"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        run: nix develop .#web -c bash -c "cd web && pnpm exec playwright install chromium"
       - name: Web e2e tests
         run: nix develop .#web -c bash -c "cd web && pnpm e2e"
 
