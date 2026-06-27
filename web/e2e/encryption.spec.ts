@@ -5,11 +5,13 @@
 // backend API routes are mocked with page.route(). This lets us:
 //   1. Simulate a signed-in session without GitHub OAuth.
 //   2. Supply a known KWK so the browser can derive a DEK via real Web Crypto.
-//   3. Capture workspace PUT bodies and assert they carry E1:-prefixed ciphertext.
+//   3. Capture workspace PUT bodies and assert they carry CE1:-prefixed ciphertext.
 import { randomBytes } from "node:crypto";
 import { test, expect } from "@playwright/test";
 
-test("workspace sync sends E1:-encrypted name and payload to the server", async ({ page }) => {
+test("workspace sync sends CE1:-compressed-encrypted name and payload to the server", async ({
+  page,
+}) => {
   // A valid 32-byte AES-256 key as base64 — used as the server-side KWK.
   const kwk = randomBytes(32).toString("base64");
 
@@ -109,7 +111,9 @@ test("workspace sync sends E1:-encrypted name and payload to the server", async 
   await expect.poll(() => pushedBodies.length, { timeout: 15_000 }).toBeGreaterThan(0);
 
   for (const body of pushedBodies) {
-    expect(body.name, "workspace name must be AES-GCM ciphertext").toMatch(/^E1:/);
-    expect(body.payload, "workspace payload must be AES-GCM ciphertext").toMatch(/^E1:/);
+    expect(body.name, "workspace name must be compressed+encrypted ciphertext").toMatch(/^CE1:/);
+    expect(body.payload, "workspace payload must be compressed+encrypted ciphertext").toMatch(
+      /^CE1:/,
+    );
   }
 });
