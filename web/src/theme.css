@@ -1656,3 +1656,36 @@ body {
 .sync-status--error {
   background: var(--danger);
 }
+
+/* ========================================================================== *
+ * Mobile responsive overrides (≤768 px)
+ * ========================================================================== */
+
+@media (max-width: 768px) {
+  /* Header: logo row stays, actions wrap to a second row */
+  .page-header {
+    flex-wrap: wrap;
+  }
+
+  /* Let the workspace tab strip fill the space next to the logo */
+  .workspace-tab-strip {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Actions drop to their own row, lose the left divider, wrap their buttons */
+  .page-header__actions {
+    flex-wrap: wrap;
+    width: 100%;
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+  }
+
+  /* Sub-tabs: wrap instead of scrolling off-screen */
+  .tab-strip {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
