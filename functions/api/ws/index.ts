@@ -13,7 +13,7 @@ export { UserSyncDO } from "../../_lib/UserSyncDO";
 interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
-  USER_SYNC: DurableObjectNamespace;
+  USER_SYNC?: DurableObjectNamespace;
 }
 
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
@@ -21,6 +21,9 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   if (result instanceof Response) return result;
   const user = result;
 
+  if (!ctx.env.USER_SYNC) {
+    return new Response("WebSocket sync unavailable", { status: 503 });
+  }
   const doId = ctx.env.USER_SYNC.idFromName(user.id);
   const stub = ctx.env.USER_SYNC.get(doId);
 

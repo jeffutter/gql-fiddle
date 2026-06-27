@@ -155,9 +155,10 @@ export async function deltaRefresh(force = false): Promise<void> {
   if (useAuth.getState().status !== "authed") return;
   const now = Date.now();
   if (!force && now - lastPullTs < THROTTLE_MS) return;
+  const since = lastPullTs;
   lastPullTs = now;
   try {
-    const rows = await pullWorkspaces(lastPullTs);
+    const rows = await pullWorkspaces(since);
     if (rows.length === 0) return;
     const local = useWorkspace.getState().workspaces;
     const merged = mergeWorkspaces(local, rows);
@@ -184,6 +185,7 @@ export async function deltaRefresh(force = false): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const WS_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
+const WS_MAX_ATTEMPTS = 3; // give up after 3 failures and fall back to polling
 
 interface InvalidationMsg {
   changedId: string;
@@ -218,6 +220,7 @@ export function connectWs(): { close: () => void } {
     ws.addEventListener("close", (ev) => {
       ws = null;
       if (stopped || ev.code === 1000) return; // clean close — don't reconnect
+      if (attempt >= WS_MAX_ATTEMPTS) return; // endpoint unavailable — fall back to polling
       const delay = WS_RECONNECT_DELAYS_MS[Math.min(attempt, WS_RECONNECT_DELAYS_MS.length - 1)];
       attempt++;
       reconnectTimer = setTimeout(connect, delay);
@@ -390,7 +393,7 @@ export function initSync(): () => void {
   document.addEventListener("visibilitychange", onVisibility);
 
   // Conservative polling — only while tab is visible. Every 60 s.
-  const POLL_MS = 60_000;
+  const POLL_MS = 20_000;
   const pollId = setInterval(() => {
     if (document.visibilityState !== "visible") return;
     void deltaRefresh();

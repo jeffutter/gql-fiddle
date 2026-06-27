@@ -14,7 +14,7 @@ import { upsertWorkspace, softDeleteWorkspace } from "../../_lib/db";
 interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
-  USER_SYNC: DurableObjectNamespace;
+  USER_SYNC?: DurableObjectNamespace;
 }
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,7 @@ function broadcastInvalidation(
   changedId: string,
   version: number | null,
 ): void {
+  if (!env.USER_SYNC) return;
   const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(userId));
   ctx.waitUntil(
     stub

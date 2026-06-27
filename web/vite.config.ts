@@ -52,6 +52,14 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 8001,
+    proxy: {
+      "/api": {
+        target: "http://localhost:8788",
+        changeOrigin: true,
+        autoRewrite: true,
+        ws: true,
+      },
+    },
   },
   test: {
     // jsdom enables React component rendering in Vitest.
