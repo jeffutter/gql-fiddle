@@ -141,7 +141,7 @@ async function deleteWorkspace(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export let lastPullTs = 0;
-const THROTTLE_MS = 30_000; // at most one delta pull per 30 s
+const THROTTLE_MS = 15_000; // at most one delta pull per 15 s (dampen focus/visibility bursts)
 
 // isSyncing is module-level so both initSync and deltaRefresh can check it.
 let isSyncing = false;
@@ -307,7 +307,7 @@ export function initSync(): () => void {
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onVisibility);
 
-  // Conservative polling — only while tab is visible. Every 60 s.
+  // Conservative polling — only while tab is visible. Every 20 s.
   const POLL_MS = 20_000;
   const pollId = setInterval(() => {
     if (document.visibilityState !== "visible") return;
