@@ -143,3 +143,48 @@ pub struct TypeGraph {
     pub edges: Vec<GraphEdge>,
     pub subgraphs: Vec<String>,
 }
+
+/// A single node in the schema containment hierarchy tree.
+///
+/// Recursive: each field may have children which are also `SchemaTreeField`s.
+/// Mirrors the TypeScript `SchemaTreeField` interface in `schemaToSchemaTree.ts`.
+#[derive(Debug, serde::Serialize)]
+pub struct SchemaTreeField {
+    /// The field name, or `"… on MemberType"` for union inline-fragment stubs.
+    #[serde(rename = "fieldName")]
+    pub field_name: String,
+    /// The unwrapped named type (e.g. `"User"`, `"String"`).
+    #[serde(rename = "typeName")]
+    pub type_name: String,
+    /// True if the return type is wrapped in a List at any nesting level.
+    #[serde(rename = "isList")]
+    pub is_list: bool,
+    /// True if the outermost type wrapper is NonNull.
+    #[serde(rename = "isNonNull")]
+    pub is_non_null: bool,
+    /// True if the return type is a scalar or enum (leaf — no children to expand).
+    #[serde(rename = "isLeaf")]
+    pub is_leaf: bool,
+    /// True when this type is already an ancestor in the current traversal path.
+    #[serde(rename = "isCycleRef")]
+    pub is_cycle_ref: bool,
+    /// Recursive child fields. Empty for leaves and cycle refs.
+    pub children: Vec<SchemaTreeField>,
+}
+
+/// One root operation type node in the schema tree.
+#[derive(Debug, serde::Serialize)]
+pub struct SchemaTreeNode {
+    /// One of `"Query"`, `"Mutation"`, `"Subscription"`.
+    #[serde(rename = "rootTypeName")]
+    pub root_type_name: String,
+    /// Top-level fields on the root type.
+    pub fields: Vec<SchemaTreeField>,
+}
+
+/// The full schema containment hierarchy tree rooted at operation types.
+#[derive(Debug, serde::Serialize)]
+pub struct SchemaTree {
+    /// One entry per root type present in the schema.
+    pub roots: Vec<SchemaTreeNode>,
+}

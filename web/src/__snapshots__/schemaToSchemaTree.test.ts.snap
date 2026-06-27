@@ -1,0 +1,618 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 2: single object type with scalar fields 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [],
+          "fieldName": "hello",
+          "isCycleRef": false,
+          "isLeaf": true,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "String",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 3: nested object types (User → Address) 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "name",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "city",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "address",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "Address",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 4: list and non-null wrappers 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "users",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": true,
+          "isNonNull": true,
+          "typeName": "User",
+        },
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "maybeUser",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 5: union type with member expansion 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "id",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": true,
+                  "typeName": "ID",
+                },
+                {
+                  "children": [],
+                  "fieldName": "name",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "… on User",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "User",
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "id",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": true,
+                  "typeName": "ID",
+                },
+                {
+                  "children": [],
+                  "fieldName": "title",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "… on Post",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "Post",
+            },
+          ],
+          "fieldName": "search",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "SearchResult",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 6: interface type expansion 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "node",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "Node",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 7: cycle detection (self-referential type) 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "friends",
+              "isCycleRef": true,
+              "isLeaf": false,
+              "isList": true,
+              "isNonNull": false,
+              "typeName": "User",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 7b: sibling repeat is not a cycle 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "value",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "shared",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "Shared",
+            },
+          ],
+          "fieldName": "a",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "A",
+        },
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "value",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "shared",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "Shared",
+            },
+          ],
+          "fieldName": "b",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "B",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 8: federation supergraph SDL excludes join__ and link__ types from tree 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "body",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+          ],
+          "fieldName": "review",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "Review",
+        },
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "name",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+          ],
+          "fieldName": "me",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 9: multiple root types (Query and Mutation) 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "createUser",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Mutation",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 9b: Query, Mutation, and Subscription all present 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "name",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "name",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+          ],
+          "fieldName": "createUser",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Mutation",
+    },
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "name",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+          ],
+          "fieldName": "userCreated",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "rootTypeName": "Subscription",
+    },
+  ],
+}
+`;
+
+exports[`schemaToSchemaTree (via Rust compose schema_tree) > snapshot coverage > case 10: enum and custom scalar fields are leaves 1`] = `
+{
+  "roots": [
+    {
+      "fields": [
+        {
+          "children": [],
+          "fieldName": "status",
+          "isCycleRef": false,
+          "isLeaf": true,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "Status",
+        },
+        {
+          "children": [],
+          "fieldName": "config",
+          "isCycleRef": false,
+          "isLeaf": true,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "JSON",
+        },
+        {
+          "children": [],
+          "fieldName": "name",
+          "isCycleRef": false,
+          "isLeaf": true,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "String",
+        },
+      ],
+      "rootTypeName": "Query",
+    },
+  ],
+}
+`;

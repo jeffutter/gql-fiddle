@@ -51,6 +51,43 @@ export interface RustGraph {
   subgraphs: string[];
 }
 
+/**
+ * A single field node in the schema containment hierarchy tree.
+ *
+ * Mirrors `SchemaTreeField` in crates/gql-core/src/dto.rs.
+ * Recursive: each non-leaf field carries its children inline.
+ */
+export interface SchemaTreeField {
+  /** Field name, or "… on MemberType" for union inline-fragment stubs. */
+  fieldName: string;
+  /** The unwrapped named type (e.g. "User", "String"). */
+  typeName: string;
+  /** True if the return type is wrapped in a List at any nesting level. */
+  isList: boolean;
+  /** True if the outermost type wrapper is NonNull. */
+  isNonNull: boolean;
+  /** True if the return type is a scalar or enum (no children to expand). */
+  isLeaf: boolean;
+  /** True when this type is already an ancestor in the current traversal path (cycle guard). */
+  isCycleRef: boolean;
+  /** Child fields — populated for non-cycle, non-leaf object/interface/union nodes. */
+  children: SchemaTreeField[];
+}
+
+/** One root operation type node in the schema containment hierarchy tree. */
+export interface SchemaTreeNode {
+  /** One of "Query", "Mutation", "Subscription". */
+  rootTypeName: "Query" | "Mutation" | "Subscription";
+  /** Top-level fields on the root type. */
+  fields: SchemaTreeField[];
+}
+
+/** Full schema containment hierarchy tree, pre-computed by the Rust compose() call. */
+export interface SchemaTree {
+  /** One entry per root type that exists in the schema. */
+  roots: SchemaTreeNode[];
+}
+
 export type ComposeResult =
   | {
       ok: true;
@@ -59,6 +96,7 @@ export type ComposeResult =
       hints: CompositionHint[];
       entity_graph?: RustGraph;
       type_graph?: RustGraph;
+      schema_tree?: SchemaTree;
     }
   | { ok: false; errors: CompositionError[] };
 

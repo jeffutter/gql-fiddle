@@ -10,7 +10,10 @@ use apollo_federation::subgraph::typestate::Subgraph;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use crate::dto::{EntityGraph, GraphEdge, GraphNode, SubgraphInput, TypeGraph};
+use crate::dto::{
+    EntityGraph, GraphEdge, GraphNode, SchemaTree, SchemaTreeField, SchemaTreeNode, SubgraphInput,
+    TypeGraph,
+};
 
 /// Compose subgraphs into a supergraph SDL, or report composition errors.
 pub fn compose(subgraphs: &[SubgraphInput]) -> Value {
@@ -49,6 +52,7 @@ pub fn compose(subgraphs: &[SubgraphInput]) -> Value {
             let api_schema_sdl = crate::api_schema::derive_api_schema(&sdl).unwrap_or_default();
             let entity_graph = build_entity_graph(&sdl);
             let type_graph = build_type_graph(&sdl);
+            let schema_tree = build_schema_tree(&sdl);
             json!({
                 "ok": true,
                 "supergraph_sdl": sdl,
@@ -56,6 +60,7 @@ pub fn compose(subgraphs: &[SubgraphInput]) -> Value {
                 "hints": hints,
                 "entity_graph": entity_graph,
                 "type_graph": type_graph,
+                "schema_tree": schema_tree,
             })
         }
         Err(failure) => {
@@ -424,6 +429,205 @@ fn build_type_graph(sdl: &str) -> TypeGraph {
         edges,
         subgraphs,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Schema tree builder — walks the composed supergraph to produce the
+// containment hierarchy used by the Schema Tree tab.
+// Mirrors the TypeScript implementation in schemaToSchemaTree.ts.
+// ---------------------------------------------------------------------------
+
+/// Returns `true` if the type is a scalar or enum leaf (no children to expand).
+fn is_schema_tree_leaf(schema: &apollo_compiler::Schema, type_name: &str) -> bool {
+    use apollo_compiler::schema::ExtendedType;
+    if is_builtin_scalar(type_name) {
+        return true;
+    }
+    matches!(
+        schema.types.get(type_name),
+        None | Some(ExtendedType::Scalar(_)) | Some(ExtendedType::Enum(_))
+    )
+}
+
+/// Build the children of a field whose unwrapped type is `type_name`.
+///
+/// For union types: emits `"… on MemberType"` stub children (U+2026 ellipsis).
+/// For object/interface types: emits each non-federation-internal field.
+/// `ancestor_path` tracks the chain of type names currently being expanded;
+/// a type that already appears in the path becomes a cycle-ref leaf.
+fn build_schema_tree_children(
+    schema: &apollo_compiler::Schema,
+    type_name: &str,
+    ancestor_path: &mut HashSet<String>,
+) -> Vec<SchemaTreeField> {
+    use apollo_compiler::schema::ExtendedType;
+
+    let Some(type_def) = schema.types.get(type_name) else {
+        return vec![];
+    };
+
+    match type_def {
+        ExtendedType::Union(u) => {
+            let mut fields = Vec::new();
+            for member in &u.members {
+                let member_name = member.as_str().to_string();
+                if is_federation_internal(&member_name) {
+                    continue;
+                }
+                let is_leaf = is_schema_tree_leaf(schema, &member_name);
+                let is_cycle_ref = ancestor_path.contains(&member_name);
+                let children = if !is_leaf && !is_cycle_ref {
+                    ancestor_path.insert(member_name.clone());
+                    let ch = build_schema_tree_children(schema, &member_name, ancestor_path);
+                    ancestor_path.remove(&member_name);
+                    ch
+                } else {
+                    vec![]
+                };
+                // Use the Unicode ellipsis character U+2026 ("…"), not three ASCII dots.
+                fields.push(SchemaTreeField {
+                    field_name: format!("\u{2026} on {}", member_name),
+                    type_name: member_name,
+                    is_list: false,
+                    is_non_null: false,
+                    is_leaf,
+                    is_cycle_ref,
+                    children,
+                });
+            }
+            fields
+        }
+
+        ExtendedType::Object(obj) => {
+            build_schema_tree_from_field_iter(schema, obj.fields.iter(), ancestor_path)
+        }
+
+        ExtendedType::Interface(iface) => {
+            build_schema_tree_from_field_iter(schema, iface.fields.iter(), ancestor_path)
+        }
+
+        _ => vec![],
+    }
+}
+
+/// Build `SchemaTreeField` list from an iterator of `(Name, FieldDefinition)` pairs.
+/// Shared implementation for both object and interface types.
+fn build_schema_tree_from_field_iter<'a>(
+    schema: &apollo_compiler::Schema,
+    fields: impl Iterator<
+        Item = (
+            &'a apollo_compiler::Name,
+            &'a apollo_compiler::schema::Component<apollo_compiler::schema::FieldDefinition>,
+        ),
+    >,
+    ancestor_path: &mut HashSet<String>,
+) -> Vec<SchemaTreeField> {
+    let mut result = Vec::new();
+    for (field_name, field_def) in fields {
+        let fn_str = field_name.as_str();
+        if is_federation_internal(fn_str) {
+            continue;
+        }
+        let type_name = field_def.ty.inner_named_type().as_str().to_string();
+        let is_list = field_def.ty.is_list();
+        let is_non_null = field_def.ty.is_non_null();
+        let is_leaf = is_schema_tree_leaf(schema, &type_name);
+        let is_cycle_ref = !is_leaf && ancestor_path.contains(&type_name);
+
+        let children = if !is_leaf && !is_cycle_ref {
+            ancestor_path.insert(type_name.clone());
+            let ch = build_schema_tree_children(schema, &type_name, ancestor_path);
+            ancestor_path.remove(&type_name);
+            ch
+        } else {
+            vec![]
+        };
+
+        result.push(SchemaTreeField {
+            field_name: fn_str.to_string(),
+            type_name,
+            is_list,
+            is_non_null,
+            is_leaf,
+            is_cycle_ref,
+            children,
+        });
+    }
+    result
+}
+
+/// Build the schema containment hierarchy tree from the composed supergraph SDL.
+///
+/// Mirrors `schemaToSchemaTree` in `web/src/schemaToSchemaTree.ts`. Returns an
+/// empty tree on parse failure.
+pub(crate) fn build_schema_tree(sdl: &str) -> SchemaTree {
+    use apollo_compiler::Schema;
+
+    let schema = match Schema::builder()
+        .adopt_orphan_extensions()
+        .ignore_builtin_redefinitions()
+        .parse(sdl, "supergraph.graphql")
+        .build()
+    {
+        Ok(s) => s,
+        Err(_) => return SchemaTree { roots: vec![] },
+    };
+
+    let mut roots = Vec::new();
+
+    for root_type_name in &["Query", "Mutation", "Subscription"] {
+        use apollo_compiler::schema::ExtendedType;
+
+        let Some(ExtendedType::Object(obj)) = schema.types.get(*root_type_name) else {
+            continue;
+        };
+
+        let mut fields = Vec::new();
+        for (field_name, field_def) in obj.fields.iter() {
+            let fn_str = field_name.as_str();
+            if is_federation_internal(fn_str) {
+                continue;
+            }
+
+            let type_name = field_def.ty.inner_named_type().as_str().to_string();
+            let is_list = field_def.ty.is_list();
+            let is_non_null = field_def.ty.is_non_null();
+            let is_leaf = is_schema_tree_leaf(&schema, &type_name);
+
+            // Root fields are never cycle refs; initialise a fresh ancestor path
+            // seeded with the root type name and this field's type — mirroring
+            // the JS `new Set([rootTypeName, fieldTypeName])` approach so that
+            // self-referential types at depth-1 are correctly flagged.
+            let mut ancestor_path: HashSet<String> = HashSet::new();
+            ancestor_path.insert(root_type_name.to_string());
+            ancestor_path.insert(type_name.clone());
+
+            let children = if is_leaf {
+                vec![]
+            } else {
+                build_schema_tree_children(&schema, &type_name, &mut ancestor_path)
+            };
+
+            fields.push(SchemaTreeField {
+                field_name: fn_str.to_string(),
+                type_name,
+                is_list,
+                is_non_null,
+                is_leaf,
+                is_cycle_ref: false,
+                children,
+            });
+        }
+
+        if !fields.is_empty() {
+            roots.push(SchemaTreeNode {
+                root_type_name: root_type_name.to_string(),
+                fields,
+            });
+        }
+    }
+
+    SchemaTree { roots }
 }
 
 fn composition_error_to_json(err: &CompositionError) -> Value {
@@ -861,9 +1065,10 @@ mod tests {
                 "api_schema_sdl",
                 "hints",
                 "entity_graph",
-                "type_graph"
+                "type_graph",
+                "schema_tree"
             ],
-            "success path must return exactly {{ok, supergraph_sdl, api_schema_sdl, hints, entity_graph, type_graph}}"
+            "success path must return exactly {{ok, supergraph_sdl, api_schema_sdl, hints, entity_graph, type_graph, schema_tree}}"
         );
     }
 
@@ -1086,6 +1291,218 @@ mod tests {
         assert!(
             first_node.get("kind").is_some(),
             "type graph nodes must have a 'kind' field"
+        );
+    }
+
+    // ---- schema_tree tests ----
+
+    #[test]
+    fn schema_tree_basic_query_fields() {
+        // Minimal two-type schema: Query with a scalar field and an object field.
+        let products = SubgraphInput {
+            name: "products".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                {
+                    query: Query
+                }
+                type Query {
+                    me: User
+                    version: String
+                }
+                type User @key(fields: "id") {
+                    id: ID!
+                    name: String
+                }
+            "#
+            .to_string(),
+        };
+
+        let result = compose(&[products]);
+        assert!(
+            result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+            "expected ok:true"
+        );
+
+        let schema_tree = result.get("schema_tree").expect("schema_tree must exist");
+        let roots = schema_tree
+            .get("roots")
+            .and_then(|v| v.as_array())
+            .expect("roots must be an array");
+
+        // Should have exactly one root (Query).
+        assert_eq!(roots.len(), 1, "expected exactly one root (Query)");
+        let query_root = &roots[0];
+        assert_eq!(
+            query_root.get("rootTypeName").and_then(|v| v.as_str()),
+            Some("Query")
+        );
+
+        let fields = query_root
+            .get("fields")
+            .and_then(|v| v.as_array())
+            .expect("fields must be an array");
+
+        // version: String — scalar leaf
+        let version_field = fields
+            .iter()
+            .find(|f| f.get("fieldName").and_then(|v| v.as_str()) == Some("version"))
+            .expect("version field must exist");
+        assert_eq!(
+            version_field.get("isLeaf").and_then(|v| v.as_bool()),
+            Some(true),
+            "version field must be a leaf (String scalar)"
+        );
+        assert_eq!(
+            version_field.get("typeName").and_then(|v| v.as_str()),
+            Some("String")
+        );
+
+        // me: User — object type with children
+        let me_field = fields
+            .iter()
+            .find(|f| f.get("fieldName").and_then(|v| v.as_str()) == Some("me"))
+            .expect("me field must exist");
+        assert_eq!(
+            me_field.get("isLeaf").and_then(|v| v.as_bool()),
+            Some(false),
+            "me field must not be a leaf (User is an object type)"
+        );
+        let me_children = me_field
+            .get("children")
+            .and_then(|v| v.as_array())
+            .expect("me.children must be an array");
+        assert!(
+            !me_children.is_empty(),
+            "User type must have at least one child field"
+        );
+    }
+
+    #[test]
+    fn schema_tree_excludes_federation_internal_types() {
+        let products = SubgraphInput {
+            name: "products".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                {
+                    query: Query
+                }
+                type Query {
+                    me: User
+                }
+                type User @key(fields: "id") {
+                    id: ID!
+                }
+            "#
+            .to_string(),
+        };
+
+        let reviews = SubgraphInput {
+            name: "reviews".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+                {
+                    query: Query
+                }
+                type Query {
+                    review: Review
+                }
+                type Review {
+                    id: ID!
+                }
+                extend type User @key(fields: "id") {
+                    id: ID! @external
+                }
+            "#
+            .to_string(),
+        };
+
+        let result = compose(&[products, reviews]);
+        assert!(
+            result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+            "expected ok:true"
+        );
+
+        let schema_tree_json =
+            serde_json::to_string(result.get("schema_tree").expect("schema_tree must exist"))
+                .unwrap();
+
+        // federation-internal type name prefixes must not appear anywhere in the tree.
+        assert!(
+            !schema_tree_json.contains("join__"),
+            "schema_tree must not contain join__ names"
+        );
+        assert!(
+            !schema_tree_json.contains("link__"),
+            "schema_tree must not contain link__ names"
+        );
+    }
+
+    #[test]
+    fn schema_tree_cycle_detection() {
+        // Self-referential type: Category.children: [Category].
+        // The supergraph SDL is crafted directly since a single-subgraph
+        // schema can be composed without issues.
+        let sdl = r#"
+            schema @link(url: "https://specs.apollo.dev/link/v1.0")
+                   @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+            {
+                query: Query
+            }
+            directive @link(url: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+            directive @join__type(graph: join__Graph!) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+            directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+            directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+            enum link__Purpose { EXECUTION SECURITY }
+            scalar link__Import
+            enum join__Graph { CATALOG @join__graph(name: "catalog", url: "") }
+            type Query @join__type(graph: CATALOG) {
+                root: Category @join__field(graph: CATALOG)
+            }
+            type Category @join__type(graph: CATALOG) {
+                name: String @join__field(graph: CATALOG)
+                children: [Category] @join__field(graph: CATALOG)
+            }
+        "#;
+
+        let tree = build_schema_tree(sdl);
+        assert_eq!(tree.roots.len(), 1, "expected one root (Query)");
+        let query_root = &tree.roots[0];
+        assert_eq!(query_root.root_type_name, "Query");
+
+        let root_field = query_root
+            .fields
+            .iter()
+            .find(|f| f.field_name == "root")
+            .expect("root field must exist");
+
+        assert!(
+            !root_field.is_cycle_ref,
+            "root field must not be a cycle ref"
+        );
+        assert!(!root_field.is_leaf, "Category must not be a leaf");
+
+        // Category.children: [Category] should be marked as isCycleRef.
+        let children_field = root_field
+            .children
+            .iter()
+            .find(|f| f.field_name == "children")
+            .expect("children field must exist on Category");
+
+        assert!(
+            children_field.is_cycle_ref,
+            "Category.children must be a cycle ref (Category is an ancestor)"
+        );
+        assert!(
+            children_field.children.is_empty(),
+            "cycle ref nodes must have no children"
+        );
+        assert!(
+            children_field.is_list,
+            "children: [Category] must be a list"
         );
     }
 }

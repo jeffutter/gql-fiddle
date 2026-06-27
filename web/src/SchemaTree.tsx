@@ -5,20 +5,21 @@
  * Subscription. Unlike the Type Graph tab (which shows type connectivity), this
  * view emphasizes depth and traversal paths — how fields nest inside each other.
  *
- * The tree data is built eagerly by schemaToSchemaTree(); expand/collapse state
- * is managed per-node with useState inside the recursive FieldNode component.
+ * The tree data is pre-computed by the Rust compose() call and passed as the
+ * `tree` prop. Expand/collapse state is managed per-node with useState inside
+ * the recursive FieldNode component.
  */
 
-import { useMemo, useState } from "react";
-import { schemaToSchemaTree } from "./schemaToSchemaTree";
-import type { SchemaTreeField, SchemaTreeNode } from "./schemaToSchemaTree";
+import { useState } from "react";
+import type { SchemaTreeField, SchemaTreeNode, SchemaTree } from "./core/types";
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
 export interface SchemaTreeProps {
-  supergraphSdl: string;
+  /** Pre-computed schema tree from the Rust compose() result. */
+  tree: SchemaTree;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,9 +134,7 @@ function RootNode({ node }: RootNodeProps) {
 // SchemaTree — public component
 // ---------------------------------------------------------------------------
 
-export function SchemaTree({ supergraphSdl }: SchemaTreeProps) {
-  const tree = useMemo(() => schemaToSchemaTree(supergraphSdl), [supergraphSdl]);
-
+export function SchemaTree({ tree }: SchemaTreeProps) {
   if (tree.roots.length === 0) {
     return <p className="empty-state">Compose a valid supergraph to see the schema tree.</p>;
   }
