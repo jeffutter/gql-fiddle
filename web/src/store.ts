@@ -101,10 +101,21 @@ const DEFAULT_SEED = 42;
 
 export const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT_QUERY }];
 
+function generateUUID() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for insecure HTTP contexts
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (ch) => {
+    const c = parseInt(ch, 10);
+    return (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16);
+  });
+}
+
 function makeDefaultWorkspace(name: string): WorkspaceEntry {
   return {
     name,
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     version: 1,
     subgraphs: DEFAULT_SUBGRAPHS,
     activeSubgraph: 0,
@@ -591,11 +602,11 @@ export const useWorkspace = create<WorkspaceState>()(
         if (version <= 4) {
           // v4 → v5: assign stable client-generated id + initial version to
           // each workspace so the cloud sync engine can track them. Existing
-          // workspaces without an id are backfilled with crypto.randomUUID()
+          // workspaces without an id are backfilled with generateUUID()
           // and version=1 — their content is never overwritten here.
           const workspaces = (state.workspaces as WorkspaceEntry[]).map((ws) => ({
             ...ws,
-            id: ws.id ?? crypto.randomUUID(),
+            id: ws.id ?? generateUUID(),
             version: ws.version ?? 1,
           }));
           state = { ...state, workspaces };
