@@ -1,5 +1,5 @@
 // Integration test: verifies that the sync engine sends AES-GCM ciphertext
-// (E1: prefix) to the server, not plaintext. This file intentionally omits
+// (CE1: prefix) to the server, not plaintext. This file intentionally omits
 // vi.mock("./encryption") so real Web Crypto operations run. The sync.test.ts
 // suite mocks encryption to avoid crypto/fake-timer timing issues; this file
 // uses real timers and vi.waitFor instead.
@@ -60,7 +60,7 @@ describe("sync + encryption integration", () => {
     localStorage.removeItem("gql-fiddle-dek");
   });
 
-  it("workspace name and payload pushed to server are E1:-prefixed ciphertext", async () => {
+  it("workspace name and payload pushed to server are CE1:-prefixed ciphertext", async () => {
     const kwk = freshKwk();
     const capturedPuts: Array<{ name: string; payload: string; version: number }> = [];
 
@@ -144,12 +144,12 @@ describe("sync + encryption integration", () => {
 
     // Both name and payload must be AES-GCM ciphertext, not plaintext.
     for (const body of capturedPuts) {
-      expect(body.name).toMatch(/^E1:/);
-      expect(body.payload).toMatch(/^E1:/);
+      expect(body.name).toMatch(/^CE1:/);
+      expect(body.payload).toMatch(/^CE1:/);
     }
   });
 
-  it("debounced auto-save also sends E1:-prefixed ciphertext", async () => {
+  it("debounced auto-save also sends CE1:-prefixed ciphertext", async () => {
     const kwk = freshKwk();
     const capturedPuts: Array<{ name: string; payload: string }> = [];
 
@@ -210,7 +210,7 @@ describe("sync + encryption integration", () => {
       timeout: 5000,
     });
 
-    expect(capturedPuts[0].name).toMatch(/^E1:/);
-    expect(capturedPuts[0].payload).toMatch(/^E1:/);
+    expect(capturedPuts[0].name).toMatch(/^CE1:/);
+    expect(capturedPuts[0].payload).toMatch(/^CE1:/);
   });
 });
