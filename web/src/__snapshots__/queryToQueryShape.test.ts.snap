@@ -1,0 +1,397 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`queryToQueryShape > alias handling > uses field name (not alias) in the output 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "header": "query",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > basic field selection > handles __typename as a leaf node 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [],
+          "fieldName": "__typename",
+          "isCycleRef": false,
+          "isLeaf": true,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "__typename",
+        },
+      ],
+      "header": "query",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > inline fragments > includes children inside inline fragments 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "id",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": true,
+                  "typeName": "ID",
+                },
+                {
+                  "children": [],
+                  "fieldName": "name",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "… on User",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "User",
+            },
+          ],
+          "fieldName": "search",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "SearchResult",
+        },
+      ],
+      "header": "query Search",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > inline fragments > renders inline fragments as '… on TypeName' nodes 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "id",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": true,
+                  "typeName": "ID",
+                },
+                {
+                  "children": [],
+                  "fieldName": "name",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "… on User",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "User",
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "id",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": true,
+                  "typeName": "ID",
+                },
+                {
+                  "children": [],
+                  "fieldName": "title",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "… on Post",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "Post",
+            },
+          ],
+          "fieldName": "search",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "SearchResult",
+        },
+      ],
+      "header": "query Search",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > lists and non-null types > sets isList: true for [Product!]! return type 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "products",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": true,
+          "isNonNull": true,
+          "typeName": "Product",
+        },
+      ],
+      "header": "query",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > multiple operations > returns one QueryShapeOperation per operation definition 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "header": "query GetUser",
+    },
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+          ],
+          "fieldName": "createUser",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "header": "mutation CreateUser",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > named fragment inlining > inlines named fragment fields at the use site (no wrapper node) 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "name",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+            {
+              "children": [],
+              "fieldName": "email",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "header": "query GetUser",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > nested selection sets > includes children for nested object types 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [],
+              "fieldName": "id",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": true,
+              "typeName": "ID",
+            },
+            {
+              "children": [],
+              "fieldName": "name",
+              "isCycleRef": false,
+              "isLeaf": true,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "String",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "header": "query",
+    },
+  ],
+}
+`;
+
+exports[`queryToQueryShape > nested selection sets > nests two levels deep 1`] = `
+{
+  "operations": [
+    {
+      "fields": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "fieldName": "city",
+                  "isCycleRef": false,
+                  "isLeaf": true,
+                  "isList": false,
+                  "isNonNull": false,
+                  "typeName": "String",
+                },
+              ],
+              "fieldName": "address",
+              "isCycleRef": false,
+              "isLeaf": false,
+              "isList": false,
+              "isNonNull": false,
+              "typeName": "Address",
+            },
+          ],
+          "fieldName": "user",
+          "isCycleRef": false,
+          "isLeaf": false,
+          "isList": false,
+          "isNonNull": false,
+          "typeName": "User",
+        },
+      ],
+      "header": "query",
+    },
+  ],
+}
+`;

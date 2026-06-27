@@ -6,11 +6,13 @@
  * (which shows the full schema regardless of any query), this view is driven by
  * the current query document.
  *
- * The shape data is built by queryToQueryShape(); expand/collapse state is
- * managed per-node by the reused FieldNode component from SchemaTree.tsx.
+ * The shape data is computed by the Rust `query_shape()` WASM export via
+ * `queryToQueryShape(core, ...)`. Expand/collapse state is managed per-node
+ * by the reused FieldNode component from SchemaTree.tsx.
  */
 
 import { useMemo } from "react";
+import type { GqlCore } from "./core/types";
 import { queryToQueryShape } from "./queryToQueryShape";
 import { FieldNode } from "./SchemaTree";
 
@@ -19,6 +21,7 @@ import { FieldNode } from "./SchemaTree";
 // ---------------------------------------------------------------------------
 
 export interface QueryShapeProps {
+  core: GqlCore;
   apiSchemaSdl: string;
   query: string;
 }
@@ -27,8 +30,11 @@ export interface QueryShapeProps {
 // QueryShape — public component
 // ---------------------------------------------------------------------------
 
-export function QueryShape({ apiSchemaSdl, query }: QueryShapeProps) {
-  const tree = useMemo(() => queryToQueryShape(apiSchemaSdl, query), [apiSchemaSdl, query]);
+export function QueryShape({ core, apiSchemaSdl, query }: QueryShapeProps) {
+  const tree = useMemo(
+    () => queryToQueryShape(core, apiSchemaSdl, query),
+    [core, apiSchemaSdl, query],
+  );
 
   if (tree.operations.length === 0) {
     return <p className="empty-state">Write a query to see its shape.</p>;

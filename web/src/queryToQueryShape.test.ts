@@ -1,5 +1,29 @@
-import { describe, it, expect } from "vitest";
+// @ts-expect-error -- Node.js built-ins; @types/node is not installed in this web project
+import { readFileSync } from "node:fs";
+// @ts-expect-error -- Node.js built-ins; @types/node is not installed in this web project
+import { resolve, dirname } from "node:path";
+// @ts-expect-error -- Node.js built-ins; @types/node is not installed in this web project
+import { fileURLToPath } from "node:url";
+import { beforeAll, describe, it, expect } from "vitest";
 import { queryToQueryShape } from "./queryToQueryShape";
+import type { GqlCore } from "./core/types";
+import { loadCore } from "./core";
+
+let core: GqlCore;
+
+beforeAll(async () => {
+  // In jsdom, `init()` tries to fetch the .wasm binary from a URL which fails
+  // (no server running). Use initSync with the binary read directly from disk so
+  // the module initialises synchronously, then the wasm-is-already-loaded
+  // short-circuit in init() lets loadCore() proceed.
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const wasmPath = resolve(__dirname, "./wasm/gql_core_bg.wasm");
+  const wasmBuffer = readFileSync(wasmPath);
+  const { initSync } = await import("./wasm/gql_core.js");
+  initSync({ module: wasmBuffer });
+
+  core = await loadCore();
+});
 
 // ---------------------------------------------------------------------------
 // SDL builder helpers
@@ -96,27 +120,27 @@ describe("queryToQueryShape", () => {
 
   describe("invalid / empty inputs", () => {
     it("returns empty operations for empty query string", () => {
-      const result = queryToQueryShape(makeSimpleSdl(), "");
+      const result = queryToQueryShape(core, makeSimpleSdl(), "");
       expect(result).toEqual({ operations: [] });
     });
 
     it("returns empty operations for whitespace-only query string", () => {
-      const result = queryToQueryShape(makeSimpleSdl(), "   \n  ");
+      const result = queryToQueryShape(core, makeSimpleSdl(), "   \n  ");
       expect(result).toEqual({ operations: [] });
     });
 
     it("returns empty operations for invalid query document", () => {
-      const result = queryToQueryShape(makeSimpleSdl(), "{ not valid {{{");
+      const result = queryToQueryShape(core, makeSimpleSdl(), "{ not valid {{{");
       expect(result).toEqual({ operations: [] });
     });
 
     it("returns empty operations for invalid SDL", () => {
-      const result = queryToQueryShape("not valid SDL {{{", "{ hello }");
+      const result = queryToQueryShape(core, "not valid SDL {{{", "{ hello }");
       expect(result).toEqual({ operations: [] });
     });
 
     it("returns empty operations for empty SDL", () => {
-      const result = queryToQueryShape("", "{ hello }");
+      const result = queryToQueryShape(core, "", "{ hello }");
       expect(result).toEqual({ operations: [] });
     });
   });
@@ -125,7 +149,7 @@ describe("queryToQueryShape", () => {
 
   describe("basic field selection", () => {
     it("returns one operation with the selected scalar field", () => {
-      const result = queryToQueryShape(makeSimpleSdl(), "{ hello }");
+      const result = queryToQueryShape(core, makeSimpleSdl(), "{ hello }");
       expect(result.operations).toHaveLength(1);
       const op = result.operations[0];
       expect(op.fields).toHaveLength(1);
@@ -137,15 +161,16 @@ describe("queryToQueryShape", () => {
     it("only includes fields that the query selects, not all schema fields", () => {
       // Schema has hello but we don't query it
       const sdl = `type Query { hello: String world: String }`;
-      const result = queryToQueryShape(sdl, "{ hello }");
+      const result = queryToQueryShape(core, sdl, "{ hello }");
       expect(result.operations[0].fields).toHaveLength(1);
       expect(result.operations[0].fields[0].fieldName).toBe("hello");
     });
 
     it("handles __typename as a leaf node", () => {
-      const result = queryToQueryShape(makeSimpleSdl(), "{ __typename }");
+      const result = queryToQueryShape(core, makeSimpleSdl(), "{ __typename }");
       expect(result.operations[0].fields[0].fieldName).toBe("__typename");
       expect(result.operations[0].fields[0].isLeaf).toBe(true);
+      expect(result).toMatchSnapshot();
     });
   });
 
@@ -153,7 +178,7 @@ describe("queryToQueryShape", () => {
 
   describe("nested selection sets", () => {
     it("includes children for nested object types", () => {
-      const result = queryToQueryShape(makeNestedSdl(), "{ user { id name } }");
+      const result = queryToQueryShape(core, makeNestedSdl(), "{ user { id name } }");
       const op = result.operations[0];
       const userField = op.fields.find((f) => f.fieldName === "user");
       expect(userField).toBeDefined();
@@ -161,10 +186,11 @@ describe("queryToQueryShape", () => {
       expect(userField!.children).toHaveLength(2);
       expect(userField!.children.map((c) => c.fieldName)).toContain("id");
       expect(userField!.children.map((c) => c.fieldName)).toContain("name");
+      expect(result).toMatchSnapshot();
     });
 
     it("nests two levels deep", () => {
-      const result = queryToQueryShape(makeNestedSdl(), "{ user { address { city } } }");
+      const result = queryToQueryShape(core, makeNestedSdl(), "{ user { address { city } } }");
       const op = result.operations[0];
       const userField = op.fields.find((f) => f.fieldName === "user")!;
       const addressField = userField.children.find((f) => f.fieldName === "address")!;
@@ -172,6 +198,7 @@ describe("queryToQueryShape", () => {
       expect(addressField.isLeaf).toBe(false);
       expect(addressField.children).toHaveLength(1);
       expect(addressField.children[0].fieldName).toBe("city");
+      expect(result).toMatchSnapshot();
     });
   });
 
@@ -187,7 +214,7 @@ describe("queryToQueryShape", () => {
         fragment UserFields on User { id name }
         query GetUser { user { ...UserFields email } }
       `;
-      const result = queryToQueryShape(sdl, query);
+      const result = queryToQueryShape(core, sdl, query);
       const op = result.operations[0];
       const userField = op.fields.find((f) => f.fieldName === "user")!;
       // Fragment fields are inlined alongside email — no "UserFields" wrapper node
@@ -197,6 +224,7 @@ describe("queryToQueryShape", () => {
       expect(fieldNames).toContain("email");
       // Must NOT have a wrapper node named "UserFields"
       expect(fieldNames).not.toContain("UserFields");
+      expect(result).toMatchSnapshot();
     });
   });
 
@@ -212,13 +240,14 @@ describe("queryToQueryShape", () => {
           }
         }
       `;
-      const result = queryToQueryShape(makeUnionSdl(), query);
+      const result = queryToQueryShape(core, makeUnionSdl(), query);
       const op = result.operations[0];
       const searchField = op.fields.find((f) => f.fieldName === "search")!;
       const userFrag = searchField.children.find((f) => f.fieldName === "… on User");
       const postFrag = searchField.children.find((f) => f.fieldName === "… on Post");
       expect(userFrag).toBeDefined();
       expect(postFrag).toBeDefined();
+      expect(result).toMatchSnapshot();
     });
 
     it("includes children inside inline fragments", () => {
@@ -229,12 +258,13 @@ describe("queryToQueryShape", () => {
           }
         }
       `;
-      const result = queryToQueryShape(makeUnionSdl(), query);
+      const result = queryToQueryShape(core, makeUnionSdl(), query);
       const op = result.operations[0];
       const searchField = op.fields.find((f) => f.fieldName === "search")!;
       const userFrag = searchField.children.find((f) => f.fieldName === "… on User")!;
       expect(userFrag.children.map((c) => c.fieldName)).toContain("id");
       expect(userFrag.children.map((c) => c.fieldName)).toContain("name");
+      expect(result).toMatchSnapshot();
     });
   });
 
@@ -242,26 +272,27 @@ describe("queryToQueryShape", () => {
 
   describe("lists and non-null types", () => {
     it("sets isList: true for [Product!]! return type", () => {
-      const result = queryToQueryShape(makeListNonNullSdl(), "{ products { id } }");
+      const result = queryToQueryShape(core, makeListNonNullSdl(), "{ products { id } }");
       const productsField = result.operations[0].fields.find((f) => f.fieldName === "products")!;
       expect(productsField.isList).toBe(true);
+      expect(result).toMatchSnapshot();
     });
 
     it("sets isNonNull: true for [Product!]! return type", () => {
-      const result = queryToQueryShape(makeListNonNullSdl(), "{ products { id } }");
+      const result = queryToQueryShape(core, makeListNonNullSdl(), "{ products { id } }");
       const productsField = result.operations[0].fields.find((f) => f.fieldName === "products")!;
       expect(productsField.isNonNull).toBe(true);
     });
 
     it("sets isList: false and isNonNull: false for nullable singular type", () => {
-      const result = queryToQueryShape(makeListNonNullSdl(), "{ maybeProduct { id } }");
+      const result = queryToQueryShape(core, makeListNonNullSdl(), "{ maybeProduct { id } }");
       const maybeField = result.operations[0].fields.find((f) => f.fieldName === "maybeProduct")!;
       expect(maybeField.isList).toBe(false);
       expect(maybeField.isNonNull).toBe(false);
     });
 
     it("sets isNonNull: true for ID! field inside nested object", () => {
-      const result = queryToQueryShape(makeListNonNullSdl(), "{ products { id } }");
+      const result = queryToQueryShape(core, makeListNonNullSdl(), "{ products { id } }");
       const productsField = result.operations[0].fields.find((f) => f.fieldName === "products")!;
       const idField = productsField.children.find((f) => f.fieldName === "id")!;
       expect(idField.isNonNull).toBe(true);
@@ -272,18 +303,18 @@ describe("queryToQueryShape", () => {
 
   describe("operation header", () => {
     it("uses 'query OperationName' for a named query", () => {
-      const result = queryToQueryShape(makeSimpleSdl(), "query GetHello { hello }");
+      const result = queryToQueryShape(core, makeSimpleSdl(), "query GetHello { hello }");
       expect(result.operations[0].header).toBe("query GetHello");
     });
 
     it("uses just 'query' for an unnamed query", () => {
-      const result = queryToQueryShape(makeSimpleSdl(), "{ hello }");
+      const result = queryToQueryShape(core, makeSimpleSdl(), "{ hello }");
       expect(result.operations[0].header).toBe("query");
     });
 
     it("uses 'mutation OperationName' for a named mutation", () => {
       const query = "mutation CreateUser { createUser { id } }";
-      const result = queryToQueryShape(makeQueryAndMutationSdl(), query);
+      const result = queryToQueryShape(core, makeQueryAndMutationSdl(), query);
       const mutOp = result.operations.find((op) => op.header === "mutation CreateUser");
       expect(mutOp).toBeDefined();
     });
@@ -297,11 +328,12 @@ describe("queryToQueryShape", () => {
         query GetUser { user { id } }
         mutation CreateUser { createUser { id } }
       `;
-      const result = queryToQueryShape(makeQueryAndMutationSdl(), query);
+      const result = queryToQueryShape(core, makeQueryAndMutationSdl(), query);
       expect(result.operations).toHaveLength(2);
       const headers = result.operations.map((op) => op.header);
       expect(headers).toContain("query GetUser");
       expect(headers).toContain("mutation CreateUser");
+      expect(result).toMatchSnapshot();
     });
   });
 
@@ -309,9 +341,21 @@ describe("queryToQueryShape", () => {
 
   describe("typeName on fields", () => {
     it("records the unwrapped named type on list fields", () => {
-      const result = queryToQueryShape(makeListNonNullSdl(), "{ products { id } }");
+      const result = queryToQueryShape(core, makeListNonNullSdl(), "{ products { id } }");
       const productsField = result.operations[0].fields.find((f) => f.fieldName === "products")!;
       expect(productsField.typeName).toBe("Product");
+    });
+  });
+
+  // ---- Alias handling (case 12) ----
+
+  describe("alias handling", () => {
+    it("uses field name (not alias) in the output", () => {
+      const sdl = `type Query { user: User }\ntype User { id: ID! name: String }`;
+      // "me" is the alias; "user" is the field name. The output should use the field name.
+      const result = queryToQueryShape(core, sdl, "{ me: user { id } }");
+      expect(result.operations[0].fields[0].fieldName).toBe("user");
+      expect(result).toMatchSnapshot();
     });
   });
 });

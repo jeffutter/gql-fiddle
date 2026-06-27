@@ -88,6 +88,28 @@ export interface SchemaTree {
   roots: SchemaTreeNode[];
 }
 
+/**
+ * One operation entry in the query shape tree.
+ *
+ * Mirrors `QueryShapeOperation` in crates/gql-core/src/dto.rs.
+ */
+export interface QueryShapeOperation {
+  /** e.g. "query GetUser" or "query" */
+  header: string;
+  /** Top-level selected fields — same shape as SchemaTreeField. */
+  fields: SchemaTreeField[];
+}
+
+/**
+ * The query shape tree: only the fields selected by the active query.
+ *
+ * Mirrors `QueryShapeTree` in crates/gql-core/src/dto.rs.
+ */
+export interface QueryShapeTree {
+  /** One entry per OperationDefinition in the document. */
+  operations: QueryShapeOperation[];
+}
+
 export type ComposeResult =
   | {
       ok: true;
@@ -167,4 +189,9 @@ export interface GqlCore {
     line: number,
     col: number,
   ): { typeName: string; fieldName?: string } | null;
+  /**
+   * Compute the query shape tree from an API schema SDL and a query string.
+   * Returns `{ operations: [] }` for empty, invalid SDL, or invalid query inputs.
+   */
+  queryShape(apiSchemaSdl: string, query: string): QueryShapeTree;
 }
