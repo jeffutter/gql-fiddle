@@ -3,8 +3,6 @@ import { useMobile } from "./hooks";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { loader } from "@monaco-editor/react";
 import * as _monaco from "monaco-editor";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import GraphQLWorker from "monaco-graphql/esm/graphql.worker?worker";
 import { initializeMode } from "monaco-graphql/initializeMode";
 import type { MonacoGraphQLAPI } from "monaco-graphql";
@@ -160,12 +158,20 @@ function SubgraphLegend({ services }: { services: string[] }) {
   );
 }
 
-// Configure Monaco to load workers from node_modules (required for Vite).
+// vite-plugin-monaco-editor injects self.MonacoEnvironment (getWorkerUrl) for
+// editor.worker and json.worker via the HTML head script. We capture that handler
+// and add a partial override for the graphql label only, because the plugin's
+// esbuild bundler cannot resolve monaco-graphql's internal import of
+// "monaco-editor/esm/vs/editor/editor.worker" (missing .js extension with pnpm).
+const _pluginEnv = self.MonacoEnvironment;
 self.MonacoEnvironment = {
-  getWorker(_, label) {
+  getWorker(moduleId, label) {
     if (label === "graphql") return new GraphQLWorker();
-    if (label === "json") return new jsonWorker();
-    return new editorWorker();
+    // Delegate editor / json workers to the plugin-generated URL handler.
+    if (_pluginEnv?.getWorkerUrl) {
+      return new Worker(_pluginEnv.getWorkerUrl(moduleId, label), { type: "classic" });
+    }
+    return new Worker("");
   },
 };
 loader.config({ monaco: _monaco });
