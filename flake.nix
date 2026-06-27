@@ -5,10 +5,6 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
-    wrangler-flake = {
-      url = "github:emrldnix/wrangler";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -16,7 +12,6 @@
       nixpkgs,
       rust-overlay,
       flake-utils,
-      wrangler-flake,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -26,8 +21,6 @@
           inherit system;
           overlays = [ rust-overlay.overlays.default ];
         };
-
-        wrangler = wrangler-flake.packages.${system}.wrangler;
 
         # Rust toolchain pinned in-flake, with the wasm target.
         rust = pkgs.rust-bin.stable.latest.default.override {
@@ -45,7 +38,7 @@
         webInputs = [
           pkgs.nodejs_22
           pkgs.pnpm
-          wrangler
+          pkgs.wrangler
         ];
 
         # Core Rust + WASM build inputs, without a browser (used in CI jobs
