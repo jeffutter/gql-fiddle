@@ -6,6 +6,10 @@
   "pages_build_output_dir": "web/dist",
   "compatibility_date": "2026-06-01",
 
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+
   // D1 SQLite database for workspace persistence (TASK-88.2 adds the schema).
   //
   // To provision:
