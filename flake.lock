@@ -1,5 +1,26 @@
 {
   "nodes": {
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "wrangler-flake",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1778716662,
+        "narHash": "sha256-m1Yf0wZ8j1OHjTc2UwHwyQRSnNeSgLJOd7q5Y45hzi4=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "f7c1a2d347e4c52d5fb8d10cb4d94b5884e546fb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -54,7 +75,8 @@
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
-        "rust-overlay": "rust-overlay"
+        "rust-overlay": "rust-overlay",
+        "wrangler-flake": "wrangler-flake"
       }
     },
     "rust-overlay": {
@@ -87,6 +109,27 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "wrangler-flake": {
+      "inputs": {
+        "flake-parts": "flake-parts",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782431988,
+        "narHash": "sha256-z67lK45VtUVYuB8azLlorQ0M69kipGAryhpWcQUWPrM=",
+        "owner": "emrldnix",
+        "repo": "wrangler",
+        "rev": "1526f699efa61b7401ca3e5f2584c64cb5427728",
+        "type": "github"
+      },
+      "original": {
+        "owner": "emrldnix",
+        "repo": "wrangler",
         "type": "github"
       }
     }

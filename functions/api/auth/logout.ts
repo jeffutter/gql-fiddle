@@ -5,6 +5,7 @@ interface Env {
   SESSIONS: KVNamespace;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
+  ENVIRONMENT?: string;
 }
 
 // POST /api/auth/logout — delete the session from KV and clear the session
@@ -15,6 +16,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   if (token) await deleteSession(context.env.SESSIONS, token);
   return new Response(null, {
     status: 204,
-    headers: { "Set-Cookie": clearCookieHeader() },
+    headers: { "Set-Cookie": clearCookieHeader(context.env.ENVIRONMENT === "production") },
   });
 };
