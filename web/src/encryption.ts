@@ -5,14 +5,17 @@
 //   DEK (Data Encryption Key) — random 256-bit key generated in the browser,
 //     wrapped (encrypted) with the KWK and stored in the D1 database.
 //
-// Workspace payloads are encrypted with the DEK. Neither the server's KV store
-// nor its database alone can decrypt user data — both are required to reconstruct
-// the DEK.
+// Workspace payloads are compressed with deflate then encrypted with the DEK.
+// Neither the server's KV store nor its database alone can decrypt user data —
+// both are required to reconstruct the DEK.
 //
 // The DEK is also cached in localStorage for offline resilience. On a new device,
 // it is reconstructed from the KWK + wrapped DEK fetched from the server.
+import * as pako from "pako";
+
 const DEK_CACHE_KEY = "gql-fiddle-dek";
 const PREFIX = "E1:";
+const COMPRESSED_PREFIX = "CE1:";
 
 function toBase64(bytes: Uint8Array): string {
   return btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
@@ -29,11 +32,10 @@ async function importAesGcm(bytes: Uint8Array): Promise<CryptoKey> {
   ]);
 }
 
-async function aesGcmEncrypt(key: CryptoKey, plaintext: string): Promise<string> {
+async function aesGcmEncrypt(key: CryptoKey, data: Uint8Array): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(plaintext);
   const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded),
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new Uint8Array(data)),
   );
   const combined = new Uint8Array(12 + ciphertext.byteLength);
   combined.set(iv);
@@ -41,13 +43,13 @@ async function aesGcmEncrypt(key: CryptoKey, plaintext: string): Promise<string>
   return toBase64(combined);
 }
 
-async function aesGcmDecrypt(key: CryptoKey, b64: string): Promise<string | null> {
+async function aesGcmDecrypt(key: CryptoKey, b64: string): Promise<Uint8Array | null> {
   try {
     const combined = fromBase64(b64);
     const iv = combined.slice(0, 12);
     const data = combined.slice(12);
     const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
-    return new TextDecoder().decode(plaintext);
+    return new Uint8Array(plaintext);
   } catch {
     return null;
   }
@@ -83,9 +85,9 @@ export async function initEncryption(): Promise<void> {
     let dekBytes: Uint8Array;
 
     if (wrappedB64) {
-      const dekB64 = await aesGcmDecrypt(kwk, wrappedB64);
-      if (dekB64) {
-        dekBytes = fromBase64(dekB64);
+      const dekRaw = await aesGcmDecrypt(kwk, wrappedB64);
+      if (dekRaw) {
+        dekBytes = fromBase64(new TextDecoder().decode(dekRaw));
       } else {
         // KWK/wrapped_dek mismatch (e.g. race on first login) — keep local key.
         dekPromise = loadLocalKey();
@@ -94,7 +96,7 @@ export async function initEncryption(): Promise<void> {
     } else {
       // First device for this user: generate DEK, wrap it, store on server.
       dekBytes = crypto.getRandomValues(new Uint8Array(32));
-      const wrapped = await aesGcmEncrypt(kwk, toBase64(dekBytes));
+      const wrapped = await aesGcmEncrypt(kwk, new TextEncoder().encode(toBase64(dekBytes)));
       await fetch("/api/auth/enc-meta", {
         method: "PUT",
         credentials: "include",
@@ -120,12 +122,24 @@ export function getOrCreateKey(): Promise<CryptoKey> {
 }
 
 export async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
-  return PREFIX + (await aesGcmEncrypt(key, plaintext));
+  const compressed = pako.deflate(plaintext);
+  return COMPRESSED_PREFIX + (await aesGcmEncrypt(key, compressed));
 }
 
-// Returns plaintext, or the original value unchanged if it lacks the "E1:"
-// prefix (legacy plaintext) or decryption fails (wrong key / corruption).
+// Returns plaintext, or the original value unchanged if decryption fails.
+// CE1: — compressed+encrypted (current format)
+// E1:  — encrypted without compression (legacy)
+// no prefix — plaintext (legacy, pre-encryption)
 export async function decrypt(key: CryptoKey, value: string): Promise<string> {
-  if (!value.startsWith(PREFIX)) return value;
-  return (await aesGcmDecrypt(key, value.slice(PREFIX.length))) ?? value;
+  if (value.startsWith(COMPRESSED_PREFIX)) {
+    const bytes = await aesGcmDecrypt(key, value.slice(COMPRESSED_PREFIX.length));
+    if (bytes === null) return value;
+    return pako.inflate(bytes, { to: "string" });
+  }
+  if (value.startsWith(PREFIX)) {
+    const bytes = await aesGcmDecrypt(key, value.slice(PREFIX.length));
+    if (bytes === null) return value;
+    return new TextDecoder().decode(bytes);
+  }
+  return value;
 }

@@ -10,7 +10,7 @@ describe("encrypt / decrypt", () => {
     const key = await getOrCreateKey();
     const plaintext = '{"subgraphs":[],"queryTabs":[{"name":"Q1","query":"{ me { id } }"}]}';
     const ciphertext = await encrypt(key, plaintext);
-    expect(ciphertext.startsWith("E1:")).toBe(true);
+    expect(ciphertext.startsWith("CE1:")).toBe(true);
     expect(await decrypt(key, ciphertext)).toBe(plaintext);
   });
 
