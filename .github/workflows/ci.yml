@@ -165,6 +165,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
           command: pages project create gql-fiddle --production-branch=main
 
       # wrangler reads wrangler.toml from the repo root and picks up the
@@ -175,6 +176,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
           command: pages deploy web/dist --project-name=gql-fiddle --branch=main --commit-dirty=true
 
       - name: Apply D1 migrations
@@ -182,4 +184,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
           command: d1 migrations apply gql-fiddle-db --remote
