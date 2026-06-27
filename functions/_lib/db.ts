@@ -32,7 +32,10 @@ export interface WorkspaceUpsert {
   version: number;
 }
 
-export async function getOrCreateUser(db: D1Database, github: GithubProfile): Promise<UserRow> {
+export async function getOrCreateUser(
+  db: D1Database,
+  github: GithubProfile,
+): Promise<UserRow> {
   const id = crypto.randomUUID();
   await db
     .prepare(
@@ -41,16 +44,26 @@ export async function getOrCreateUser(db: D1Database, github: GithubProfile): Pr
        ON CONFLICT(github_id) DO UPDATE SET
          login      = excluded.login,
          name       = excluded.name,
-         avatar_url = excluded.avatar_url`
+         avatar_url = excluded.avatar_url`,
     )
-    .bind(id, github.github_id, github.login, github.name, github.avatar_url, Date.now())
+    .bind(
+      id,
+      github.github_id,
+      github.login,
+      github.name,
+      github.avatar_url,
+      Date.now(),
+    )
     .run();
 
   const row = await db
     .prepare(`SELECT * FROM users WHERE github_id = ?`)
     .bind(github.github_id)
     .first<UserRow>();
-  if (!row) throw new Error(`User not found after upsert (github_id=${github.github_id})`);
+  if (!row)
+    throw new Error(
+      `User not found after upsert (github_id=${github.github_id})`,
+    );
   return row;
 }
 
@@ -124,12 +137,36 @@ export async function upsertWorkspace(
     .prepare(`SELECT * FROM workspaces WHERE id = ?`)
     .bind(row.id)
     .first<WorkspaceRow>();
-  if (!current) throw new Error(`Workspace not found after upsert (id=${row.id})`);
+  if (!current)
+    throw new Error(`Workspace not found after upsert (id=${row.id})`);
 
   // If the stored version is higher than what we sent, the WHERE clause
   // rejected the update — the write was not accepted.
-  const accepted = current.version <= row.version && current.user_id === row.user_id;
+  const accepted =
+    current.version <= row.version && current.user_id === row.user_id;
   return { accepted, row: current };
+}
+
+export async function getWrappedDek(
+  db: D1Database,
+  userId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT wrapped_dek FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ wrapped_dek: string | null }>();
+  return row?.wrapped_dek ?? null;
+}
+
+export async function setWrappedDek(
+  db: D1Database,
+  userId: string,
+  wrappedDek: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE users SET wrapped_dek = ? WHERE id = ?")
+    .bind(wrappedDek, userId)
+    .run();
 }
 
 /**

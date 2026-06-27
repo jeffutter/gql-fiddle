@@ -1,4 +1,17 @@
 import { vi } from "vitest";
+// @ts-expect-error -- Node.js built-in; @types/node not installed in this web project
+import { webcrypto } from "crypto";
+
+// jsdom replaces globalThis.crypto with a limited implementation that omits
+// crypto.subtle. Patch it with Node's Web Crypto so SubtleCrypto is available
+// in tests (required by encryption.ts and any code that imports it).
+if (typeof globalThis.crypto === "undefined" || !globalThis.crypto.subtle) {
+  Object.defineProperty(globalThis, "crypto", {
+    value: webcrypto,
+    writable: true,
+    configurable: true,
+  });
+}
 
 // Suppress unhandled rejections from the WASM loader (fetches from localhost
 // in jsdom where no server is running).  This keeps test output clean.

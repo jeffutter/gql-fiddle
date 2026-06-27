@@ -1689,3 +1689,56 @@ body {
     overflow-x: visible;
   }
 }
+
+/* ==========================================================================
+ * About modal
+ * ========================================================================== */
+
+.about-modal {
+  width: min(96vw, 680px);
+  height: auto;
+  max-height: min(92vh, 760px);
+}
+
+.about-modal__body {
+  padding: 28px 32px;
+  overflow-y: auto;
+}
+
+.about-section__heading {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.about-section__subheading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 20px 0 8px;
+}
+
+.about-section p {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-2);
+  margin: 0 0 10px;
+}
+
+.about-list {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-2);
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.about-list li {
+  margin-bottom: 6px;
+}
+
+.about-list strong {
+  color: var(--text);
+  font-weight: 600;
+}

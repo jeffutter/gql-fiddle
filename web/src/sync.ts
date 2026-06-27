@@ -14,6 +14,7 @@
 import type { WorkspaceEntry, WorkspacePayload } from "./share";
 import { useWorkspace } from "./store";
 import { useAuth } from "./auth";
+import { getOrCreateKey, encrypt, decrypt, initEncryption } from "./encryption";
 
 // ---------------------------------------------------------------------------
 // Server-side row shape (mirrors WorkspaceRow from functions/_lib/db.ts)
@@ -93,12 +94,21 @@ export function mergeWorkspaces(local: WorkspaceEntry[], remote: WorkspaceRow[])
 // API helpers
 // ---------------------------------------------------------------------------
 
+async function decryptRow(key: CryptoKey, row: WorkspaceRow): Promise<WorkspaceRow> {
+  return {
+    ...row,
+    name: await decrypt(key, row.name),
+    payload: await decrypt(key, row.payload),
+  };
+}
+
 async function pullWorkspaces(since?: number): Promise<WorkspaceRow[]> {
   const url = since !== undefined ? `/api/workspaces?since=${since}` : "/api/workspaces";
   const res = await fetch(url, { credentials: "include" });
   if (!res.ok) throw new Error(`Pull failed: ${res.status}`);
   const data = (await res.json()) as { workspaces: WorkspaceRow[] };
-  return data.workspaces;
+  const key = await getOrCreateKey();
+  return Promise.all(data.workspaces.map((row) => decryptRow(key, row)));
 }
 
 /**
@@ -109,24 +119,27 @@ async function pullWorkspaces(since?: number): Promise<WorkspaceRow[]> {
  */
 async function pushWorkspace(ws: WorkspaceEntry): Promise<WorkspaceRow | null> {
   if (!ws.id) return null;
+  const key = await getOrCreateKey();
+  const encName = await encrypt(key, ws.name);
+  const encPayload = await encrypt(key, entryToPayload(ws));
   const res = await fetch(`/api/workspaces/${ws.id}`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      name: ws.name,
-      payload: entryToPayload(ws),
+      name: encName,
+      payload: encPayload,
       version: ws.version ?? 1,
     }),
   });
   if (res.status === 401 || res.status === 403) return null;
   if (res.status === 409) {
     const data = (await res.json()) as { current: WorkspaceRow };
-    return data.current;
+    return decryptRow(key, data.current);
   }
   if (!res.ok) throw new Error(`Push failed: ${res.status}`);
   const data = (await res.json()) as { workspace: WorkspaceRow };
-  return data.workspace;
+  return decryptRow(key, data.workspace);
 }
 
 async function deleteWorkspace(id: string): Promise<void> {
@@ -180,6 +193,7 @@ export function initSync(): () => void {
     isSyncing = true;
     try {
       useAuth.getState().setSyncStatus("saving");
+      await initEncryption();
       const rows = await pullWorkspaces();
       lastPullTs = Date.now();
       const local = useWorkspace.getState().workspaces;

@@ -1,6 +1,15 @@
 // Tests for web/src/sync.ts (TASK-88.6 + TASK-88.7 + TASK-88.8)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeWorkspaces, deltaRefresh, initSync } from "./sync";
+
+// Encryption is tested separately in encryption.test.ts.  Here we stub it out
+// so sync tests are not sensitive to crypto.subtle timing (native thread-pool
+// operations can't be awaited by vi.advanceTimersByTimeAsync).
+vi.mock("./encryption", () => ({
+  getOrCreateKey: () => Promise.resolve({}),
+  encrypt: (_key: unknown, text: string) => Promise.resolve(text),
+  decrypt: (_key: unknown, text: string) => Promise.resolve(text),
+}));
 import { useAuth } from "./auth";
 import { useWorkspace } from "./store";
 import type { WorkspaceEntry } from "./share";
