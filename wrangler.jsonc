@@ -18,7 +18,7 @@
     {
       "binding": "DB",
       "database_name": "gql-fiddle-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "b52a7c08-99dd-41b0-9c5f-0baf5e796362",
       "migrations_dir": "migrations"
     }
   ],
@@ -33,7 +33,7 @@
   "kv_namespaces": [
     {
       "binding": "SESSIONS",
-      "id": "00000000-0000-0000-0000-000000000001"
+      "id": "6ed8414d3a5a4827b7432492fe4db840"
     }
   ],
 
