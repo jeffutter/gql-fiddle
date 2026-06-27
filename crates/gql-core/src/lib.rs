@@ -16,6 +16,7 @@ mod dto;
 mod mock;
 mod node_at_pos;
 mod plan;
+mod query_shape;
 mod validate;
 
 use wasm_bindgen::prelude::*;
@@ -76,6 +77,14 @@ pub fn plan(supergraph_sdl: &str, operation: &str, op_name: Option<String>) -> S
 #[wasm_bindgen]
 pub fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64, mock_config: &str) -> String {
     mock::execute_mock(supergraph_sdl, operation, seed, mock_config).to_string()
+}
+
+/// Compute the query shape tree from an API schema SDL and a query string.
+///
+/// Returns `{ "operations": [] }` for empty, invalid SDL, or invalid query inputs.
+#[wasm_bindgen]
+pub fn query_shape(api_schema_sdl: &str, query: &str) -> String {
+    query_shape::query_shape(api_schema_sdl, query).to_string()
 }
 
 /// Find the type or field definition at a 1-based (line, col) position in a subgraph SDL.

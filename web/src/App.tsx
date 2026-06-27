@@ -13,7 +13,7 @@ import { initSync } from "./sync";
 import { loadCore } from "./core";
 import { decode, encode, encodeTour, decodeTour, resolveTourStep } from "./share";
 import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
-import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
+import type { ComposeResult, Diagnostic, GqlCore, MockResult, PlanResult } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
 import { AboutModal } from "./AboutModal";
 import { TourPlayback } from "./TourPlayback";
@@ -244,6 +244,8 @@ export default function App() {
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
   const [compose, setCompose] = useState<ComposeResult | null>(null);
+  // WASM core instance — loaded once and cached; available on first render cycle after load.
+  const [coreInstance, setCoreInstance] = useState<GqlCore | null>(null);
   const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renamingQueryTab, setRenamingQueryTab] = useState<number | null>(null);
@@ -304,6 +306,11 @@ export default function App() {
 
   // Auth state — resolved on mount by fetchCurrentUser()
   const { user, status: authStatus, syncStatus } = useAuth();
+
+  // Load WASM core once on mount; store it so components (e.g. QueryShape) can use it as a prop.
+  useEffect(() => {
+    void loadCore().then(setCoreInstance);
+  }, []);
 
   // Bootstrap auth state on mount — picks up the session cookie if the user
   // already logged in (or just returned from the OAuth redirect).
@@ -1455,7 +1462,15 @@ export default function App() {
 
   const queryShapeContent = (
     <div className="scroll">
-      <QueryShape apiSchemaSdl={apiSchemaSdlForShape ?? ""} query={currentQuery} />
+      {coreInstance ? (
+        <QueryShape
+          core={coreInstance}
+          apiSchemaSdl={apiSchemaSdlForShape ?? ""}
+          query={currentQuery}
+        />
+      ) : (
+        <p className="empty-state">Write a query to see its shape.</p>
+      )}
     </div>
   );
 

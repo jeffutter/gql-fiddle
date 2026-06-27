@@ -188,3 +188,23 @@ pub struct SchemaTree {
     /// One entry per root type present in the schema.
     pub roots: Vec<SchemaTreeNode>,
 }
+
+/// One operation entry in the query shape tree.
+///
+/// Mirrors the TypeScript `QueryShapeOperation` interface in `queryToQueryShape.ts`.
+#[derive(Debug, serde::Serialize)]
+pub struct QueryShapeOperation {
+    /// e.g. "query GetUser" or "query"
+    pub header: String,
+    /// Top-level selected fields (reuses SchemaTreeField for identical shape).
+    pub fields: Vec<SchemaTreeField>,
+}
+
+/// The query shape tree: only the fields selected by the active query.
+///
+/// Mirrors the TypeScript `QueryShapeTree` interface in `queryToQueryShape.ts`.
+#[derive(Debug, serde::Serialize)]
+pub struct QueryShapeTree {
+    /// One entry per OperationDefinition in the query document.
+    pub operations: Vec<QueryShapeOperation>,
+}
