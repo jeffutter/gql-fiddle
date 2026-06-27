@@ -26,11 +26,10 @@ pages_build_output_dir = "web/dist"
 binding = "DB"
 database_name = "gql-fiddle-db"
 # Run `wrangler d1 create gql-fiddle-db` and replace this placeholder:
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "b52a7c08-99dd-41b0-9c5f-0baf5e796362"
 
 [[kv_namespaces]]
 binding = "SESSIONS"
 # Run `wrangler kv namespace create SESSIONS` and replace this placeholder:
-id = "00000000000000000000000000000000"
-# Run `wrangler kv namespace create SESSIONS --preview` and replace this placeholder:
-preview_id = "00000000000000000000000000000000"
+id = "6ed8414d3a5a4827b7432492fe4db840"
+preview_id = "6ed8414d3a5a4827b7432492fe4db840"
