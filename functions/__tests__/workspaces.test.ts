@@ -1,9 +1,9 @@
-// Integration tests for the workspace sync REST API (TASK-88.4 + TASK-88.8).
-// Uses the D1 mock + inline KV mock + DO namespace mock; the endpoint handlers
+// Integration tests for the workspace sync REST API (TASK-88.4).
+// Uses the D1 mock + inline KV mock; the endpoint handlers
 // are imported directly and invoked without a real HTTP server.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { onRequestGet } from "../api/workspaces/index";
 import { onRequestPut, onRequestDelete } from "../api/workspaces/[id]";
 import { SESSION_COOKIE_NAME, mintSession } from "../_lib/auth";
@@ -35,55 +35,12 @@ function createKVMock(): KVNamespace {
 }
 
 // ---------------------------------------------------------------------------
-// Durable Object namespace mock (USER_SYNC)
-//
-// Captures every stub.fetch() call so tests can assert that a broadcast was
-// fired after an accepted PUT or DELETE.
-// ---------------------------------------------------------------------------
-
-interface DOStubCall {
-  url: string;
-  method: string;
-  body: string;
-}
-
-interface DONamespaceMock {
-  namespace: DurableObjectNamespace;
-  stubCalls: DOStubCall[];
-}
-
-function createDONamespaceMock(): DONamespaceMock {
-  const stubCalls: DOStubCall[] = [];
-
-  const stub = {
-    fetch: vi.fn(async (req: Request) => {
-      const body = await req.text();
-      stubCalls.push({ url: req.url, method: req.method, body });
-      return new Response("ok");
-    }),
-  };
-
-  const namespace = {
-    idFromName: (_name: string) =>
-      ({ toString: () => _name }) as DurableObjectId,
-    get: (_id: DurableObjectId) => stub as unknown as DurableObjectStub,
-    newUniqueId: () => ({ toString: () => "unique" }) as DurableObjectId,
-    idFromString: (s: string) => ({ toString: () => s }) as DurableObjectId,
-    jurisdiction: (_jsd: DurableObjectJurisdiction) =>
-      namespace as DurableObjectNamespace,
-  } as unknown as DurableObjectNamespace;
-
-  return { namespace, stubCalls };
-}
-
-// ---------------------------------------------------------------------------
 // Context builder helpers
 // ---------------------------------------------------------------------------
 
 interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
-  USER_SYNC: DurableObjectNamespace;
 }
 
 function makeGetCtx(
@@ -112,7 +69,6 @@ function makeIdCtx(
   method: string,
   body?: unknown,
   cookie?: string,
-  waitUntil?: (p: Promise<unknown>) => void,
 ): Parameters<PagesFunction<Env>>[0] {
   return {
     request: new Request(`http://localhost/api/workspaces/${id}`, {
@@ -125,7 +81,7 @@ function makeIdCtx(
     }),
     env,
     params: { id },
-    waitUntil: waitUntil ?? (() => {}),
+    waitUntil: () => {},
     passThroughOnException: () => {},
     next: async () => new Response(null, { status: 404 }),
     data: {},
@@ -140,7 +96,6 @@ function makeIdCtx(
 
 let db: D1Database;
 let kv: KVNamespace;
-let doMock: DONamespaceMock;
 let env: Env;
 let userCookie: string;
 let userId: string;
@@ -148,8 +103,7 @@ let userId: string;
 beforeEach(async () => {
   db = createD1Mock(migrationSql);
   kv = createKVMock();
-  doMock = createDONamespaceMock();
-  env = { DB: db, SESSIONS: kv, USER_SYNC: doMock.namespace };
+  env = { DB: db, SESSIONS: kv };
 
   const user = await getOrCreateUser(db, {
     github_id: 1,
@@ -499,124 +453,3 @@ describe("DELETE /api/workspaces/:id", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Broadcast invalidation tests (TASK-88.8)
-//
-// Verifies that ctx.waitUntil is called with a broadcast fetch after accepted
-// PUT/DELETE, but NOT after a rejected (409) PUT.
-// ---------------------------------------------------------------------------
-
-describe("broadcast invalidation after workspace write", () => {
-  it("calls waitUntil with a broadcast fetch after an accepted PUT", async () => {
-    const id = crypto.randomUUID();
-    const waitUntilPromises: Promise<unknown>[] = [];
-    const waitUntil = (p: Promise<unknown>) => {
-      waitUntilPromises.push(p);
-    };
-
-    const ctx = makeIdCtx(
-      env,
-      id,
-      "PUT",
-      { name: "WS", payload: "{}", version: 1 },
-      userCookie,
-      waitUntil,
-    );
-    const res = await onRequestPut(ctx);
-    expect(res.status).toBe(200);
-
-    // Flush all waitUntil promises so the stub receives the call.
-    await Promise.all(waitUntilPromises);
-
-    expect(doMock.stubCalls.length).toBe(1);
-    expect(doMock.stubCalls[0].url).toContain("/broadcast");
-    const body = JSON.parse(doMock.stubCalls[0].body) as {
-      changedId: string;
-      version: number;
-    };
-    expect(body.changedId).toBe(id);
-    expect(typeof body.version).toBe("number");
-  });
-
-  it("calls waitUntil with a broadcast fetch after a successful DELETE", async () => {
-    const id = crypto.randomUUID();
-    // Seed the workspace.  Collect and flush the seed PUT's broadcast so that
-    // its async stub call doesn't land after we reset stubCalls below.
-    const seedPromises: Promise<unknown>[] = [];
-    await onRequestPut(
-      makeIdCtx(
-        env,
-        id,
-        "PUT",
-        { name: "WS", payload: "{}", version: 1 },
-        userCookie,
-        (p) => {
-          seedPromises.push(p);
-        },
-      ),
-    );
-    await Promise.all(seedPromises); // flush seed broadcast
-    doMock.stubCalls.length = 0; // clear the broadcast from the seed PUT
-
-    const waitUntilPromises: Promise<unknown>[] = [];
-    const waitUntil = (p: Promise<unknown>) => {
-      waitUntilPromises.push(p);
-    };
-
-    const ctx = makeIdCtx(env, id, "DELETE", undefined, userCookie, waitUntil);
-    const res = await onRequestDelete(ctx);
-    expect(res.status).toBe(204);
-
-    await Promise.all(waitUntilPromises);
-
-    expect(doMock.stubCalls.length).toBe(1);
-    expect(doMock.stubCalls[0].url).toContain("/broadcast");
-    const body = JSON.parse(doMock.stubCalls[0].body) as {
-      changedId: string;
-      version: null;
-    };
-    expect(body.changedId).toBe(id);
-    expect(body.version).toBeNull();
-  });
-
-  it("does NOT broadcast when a PUT is rejected with 409 (stale version)", async () => {
-    const id = crypto.randomUUID();
-    // Insert at version 5.  Flush the seed broadcast before resetting.
-    const seedPromises: Promise<unknown>[] = [];
-    await onRequestPut(
-      makeIdCtx(
-        env,
-        id,
-        "PUT",
-        { name: "v5", payload: "{}", version: 5 },
-        userCookie,
-        (p) => {
-          seedPromises.push(p);
-        },
-      ),
-    );
-    await Promise.all(seedPromises); // flush seed broadcast
-    doMock.stubCalls.length = 0; // clear the initial broadcast
-
-    const waitUntilPromises: Promise<unknown>[] = [];
-    const waitUntil = (p: Promise<unknown>) => {
-      waitUntilPromises.push(p);
-    };
-
-    // Stale PUT — should be rejected with 409, no broadcast.
-    const ctx = makeIdCtx(
-      env,
-      id,
-      "PUT",
-      { name: "stale", payload: "{}", version: 3 },
-      userCookie,
-      waitUntil,
-    );
-    const res = await onRequestPut(ctx);
-    expect(res.status).toBe(409);
-
-    await Promise.all(waitUntilPromises);
-
-    expect(doMock.stubCalls.length).toBe(0);
-  });
-});
