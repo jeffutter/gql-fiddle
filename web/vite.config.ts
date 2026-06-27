@@ -1,6 +1,11 @@
 import { defineConfig, createLogger } from "vite";
 import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
+// vite-plugin-monaco-editor is CJS; the real function lives on .default in an ESM context.
+import monacoEditorPluginModule from "vite-plugin-monaco-editor";
+const monacoEditorPlugin =
+  (monacoEditorPluginModule as unknown as { default: typeof monacoEditorPluginModule }).default ??
+  monacoEditorPluginModule;
 
 const logger = createLogger();
 const originalWarn = logger.warn.bind(logger);
@@ -11,12 +16,49 @@ logger.warn = (msg, options) => {
   originalWarn(msg, options);
 };
 
+// Monaco's TypeScript, CSS, HTML, and JSON workerManager files each contain:
+//   createWorker: () => new Worker(new URL('<lang>.worker.js', import.meta.url), { type: "module" })
+// Rolldown sees these new Worker(new URL(...)) patterns and emits separate worker
+// bundles — even though at runtime our MonacoEnvironment.getWorker override is
+// called first and these createWorker callbacks are never reached.
+// This plugin nulls the callback so Rolldown never sees the pattern.
+const monacoDisableBuiltinWorkers = {
+  name: "monaco-disable-builtin-workers",
+  transform(code: string, id: string) {
+    if (
+      /monaco-editor[/\\]esm[/\\]vs[/\\]language[/\\](typescript|css|html|json)[/\\]workerManager\.js/.test(
+        id,
+      )
+    ) {
+      // Replace `createWorker: () => new Worker(new URL('…', import.meta.url), { type: "module" })`
+      // with `createWorker: undefined` so Rolldown emits no worker bundle.
+      return code.replace(
+        /createWorker:\s*\(\)\s*=>\s*new Worker\(new URL\('[^']+',\s*import\.meta\.url\),\s*\{\s*type:\s*"module"\s*\}\)/g,
+        "createWorker: undefined",
+      );
+    }
+  },
+};
+
 // wasm lets us `import` the wasm-bindgen ES module that
 // `wasm-pack build --target web` emits into web/src/wasm/.
 // Top-level await is handled natively by Vite 8 (Rolldown).
 export default defineConfig({
   customLogger: logger,
-  plugins: [react(), wasm()],
+  plugins: [
+    react(),
+    wasm(),
+    monacoEditorPlugin({
+      // Include only the base editor worker and JSON worker; exclude ts, css, html workers.
+      // The graphql worker (monaco-graphql) is handled separately via a ?worker import in
+      // App.tsx because esbuild (used internally by the plugin) cannot resolve the
+      // "monaco-editor/esm/vs/editor/editor.worker" import inside monaco-graphql without
+      // the .js extension — a known pnpm strict-exports incompatibility.
+      languageWorkers: ["editorWorkerService", "json"],
+    }),
+    // Must come AFTER monacoEditorPlugin so it transforms the actual source files.
+    monacoDisableBuiltinWorkers,
+  ],
   optimizeDeps: {
     // These CJS packages need pre-bundling (CJS→ESM) so that the
     // graphql.worker.js ES-module worker can import them. pnpm doesn't hoist
