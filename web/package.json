@@ -6,6 +6,7 @@
   "scripts": {
     "build:wasm": "wasm-pack build ../crates/gql-core --target web --out-dir ../../web/src/wasm",
     "dev": "pnpm build:wasm && concurrently --kill-others-on-fail \"cargo watch --watch $(pwd)/../crates/gql-core/src -s 'pnpm --dir $(pwd) build:wasm'\" \"vite\"",
+    "dev:full": "pnpm build:wasm && concurrently --kill-others-on-fail --names wasm,vite,wrangler \"cargo watch --watch $(pwd)/../crates/gql-core/src -s 'pnpm --dir $(pwd) build:wasm'\" \"vite\" \"cd $(pwd)/.. && wrangler pages dev web/dist\"",
     "dev:no-wasm": "vite",
     "pages:dev": "cd .. && wrangler pages dev web/dist",
     "build": "tsc -b && vite build",
@@ -55,7 +56,6 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "better-sqlite3": "^11.10.0",
-    "@cloudflare/workers-types": "^4.0.0",
-    "wrangler": "^4.0.0"
+    "@cloudflare/workers-types": "^4.0.0"
   }
 }

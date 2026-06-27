@@ -13,12 +13,14 @@ const STATE_TTL_SECONDS = 10 * 60; // 10 minutes
 // Cookie helpers
 // ---------------------------------------------------------------------------
 
-export function sessionCookieHeader(token: string, maxAge: number): string {
-  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}; Path=/`;
+export function sessionCookieHeader(token: string, maxAge: number, secure = true): string {
+  const secureFlag = secure ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly${secureFlag}; SameSite=Lax; Max-Age=${maxAge}; Path=/`;
 }
 
-export function clearCookieHeader(): string {
-  return `${SESSION_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/`;
+export function clearCookieHeader(secure = true): string {
+  const secureFlag = secure ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=; HttpOnly${secureFlag}; SameSite=Lax; Max-Age=0; Path=/`;
 }
 
 export function parseCookies(header: string): Record<string, string> {

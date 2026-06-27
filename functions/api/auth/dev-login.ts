@@ -43,7 +43,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     status: 302,
     headers: {
       Location: "/",
-      "Set-Cookie": sessionCookieHeader(token, 30 * 24 * 60 * 60),
+      "Set-Cookie": sessionCookieHeader(token, 30 * 24 * 60 * 60, false),
     },
   });
 };
