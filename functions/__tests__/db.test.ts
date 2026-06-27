@@ -4,15 +4,20 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createD1Mock } from "./d1-mock";
 import {
   getOrCreateUser,
+  getWrappedDek,
   listWorkspaces,
+  setWrappedDek,
   softDeleteWorkspace,
   upsertWorkspace,
 } from "../_lib/db";
 
-const migrationSql = readFileSync(
-  join(__dirname, "../../migrations/0001_initial.sql"),
-  "utf-8",
-);
+const migrationSql = [
+  readFileSync(join(__dirname, "../../migrations/0001_initial.sql"), "utf-8"),
+  readFileSync(
+    join(__dirname, "../../migrations/0002_users_wrapped_dek.sql"),
+    "utf-8",
+  ),
+].join("\n");
 
 let db: D1Database;
 
@@ -188,5 +193,40 @@ describe("softDeleteWorkspace", () => {
       "wrong-user-id",
     );
     expect(deleted).toBe(false);
+  });
+});
+
+describe("getWrappedDek / setWrappedDek", () => {
+  it("returns null when no wrapped_dek has been set", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 4001,
+      login: "grace",
+      name: null,
+      avatar_url: null,
+    });
+    expect(await getWrappedDek(db, user.id)).toBeNull();
+  });
+
+  it("stores and retrieves wrapped_dek", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 4002,
+      login: "henry",
+      name: null,
+      avatar_url: null,
+    });
+    await setWrappedDek(db, user.id, "E1:abc123==");
+    expect(await getWrappedDek(db, user.id)).toBe("E1:abc123==");
+  });
+
+  it("overwrites a previously stored wrapped_dek", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 4003,
+      login: "isla",
+      name: null,
+      avatar_url: null,
+    });
+    await setWrappedDek(db, user.id, "E1:first==");
+    await setWrappedDek(db, user.id, "E1:second==");
+    expect(await getWrappedDek(db, user.id)).toBe("E1:second==");
   });
 });

@@ -15,6 +15,7 @@ import { decode, encode, encodeTour, decodeTour, resolveTourStep } from "./share
 import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
 import type { ComposeResult, Diagnostic, MockResult, PlanResult } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
+import { AboutModal } from "./AboutModal";
 import { TourPlayback } from "./TourPlayback";
 import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
@@ -262,6 +263,7 @@ export default function App() {
   const [fullscreenTab, setFullscreenTab] = useState<
     "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | null
   >(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -1713,6 +1715,9 @@ export default function App() {
               </button>
             </div>
           ))}
+        <button onClick={() => setAboutOpen(true)} className="btn" aria-label="About">
+          ?
+        </button>
       </div>
     </header>
   );
@@ -2394,6 +2399,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
     </>
   );
 }
