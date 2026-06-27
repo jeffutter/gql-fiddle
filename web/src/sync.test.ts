@@ -221,8 +221,8 @@ describe("initSync auto-save debounce", () => {
     useWorkspace.setState({ workspaces: [{ ...ws, name: "Change 2" }] });
     useWorkspace.setState({ workspaces: [{ ...ws, name: "Change 3" }] });
 
-    // Advance time past the 300 ms debounce (but not the 60 s poll interval)
-    await vi.advanceTimersByTimeAsync(500);
+    // Advance time past the 2 s debounce (but not the 20 s poll interval)
+    await vi.advanceTimersByTimeAsync(3_000);
 
     const putCalls = (fetchSpy.mock.calls as unknown as [string, { method?: string }][]).filter(
       ([, opts]) => opts?.method === "PUT",
@@ -259,8 +259,8 @@ describe("initSync anonymous mode", () => {
     useWorkspace.setState({ workspaces: [ws] });
     useWorkspace.setState({ workspaces: [{ ...ws, name: "Changed" }] });
 
-    // Advance past the 300 ms debounce (not the 60 s poll interval)
-    await vi.advanceTimersByTimeAsync(500);
+    // Advance past the 2 s debounce (not the 20 s poll interval)
+    await vi.advanceTimersByTimeAsync(3_000);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
@@ -310,8 +310,8 @@ describe("initSync no sync loop", () => {
     useWorkspace.setState({ workspaces: [ws] });
     useWorkspace.setState({ workspaces: [{ ...ws, name: "Changed" }] });
 
-    // Advance past the 300 ms debounce (not the 60 s poll interval)
-    await vi.advanceTimersByTimeAsync(500);
+    // Advance past the 2 s debounce (not the 20 s poll interval)
+    await vi.advanceTimersByTimeAsync(3_000);
 
     // The server-side update triggers a store.setState inside isSyncing=true,
     // so no new debounced save should be queued. Expect exactly 1 PUT.

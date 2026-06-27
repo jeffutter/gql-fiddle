@@ -185,6 +185,8 @@ export async function deltaRefresh(force = false): Promise<void> {
 // Sync engine initialization
 // ---------------------------------------------------------------------------
 
+const AUTOSAVE_DEBOUNCE_MS = 2_000; // 2 s — balance responsiveness vs. push frequency
+
 export function initSync(): () => void {
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const offlineQueue = new Map<string, WorkspaceEntry>(); // keyed by id
@@ -300,8 +302,11 @@ export function initSync(): () => void {
           id,
           setTimeout(() => {
             debounceTimers.delete(id);
-            void autoSave(ws);
-          }, 300),
+            // Read current state so we always push the latest version, not the
+            // snapshot captured when the timer was last (re)set.
+            const current = useWorkspace.getState().workspaces.find((w) => w.id === id);
+            if (current) void autoSave(current);
+          }, AUTOSAVE_DEBOUNCE_MS),
         );
       }
     }
