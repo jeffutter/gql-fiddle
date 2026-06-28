@@ -50,7 +50,8 @@ test("workspace sync sends CE1:-compressed-encrypted name and payload to the ser
   });
 
   // Workspace list: empty on first login so all local workspaces are local-only.
-  await page.route("**/api/workspaces", (route) => {
+  // Match both /api/workspaces and /api/workspaces?since=N (delta endpoint used by onLogin).
+  await page.route(/\/api\/workspaces(\?.*)?$/, (route) => {
     if (route.request().method() === "GET") {
       void route.fulfill({
         status: 200,
