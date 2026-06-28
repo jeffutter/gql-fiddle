@@ -1,4 +1,4 @@
-// Tests for web/src/sync.ts (TASK-88.6 + TASK-88.7 + TASK-88.8)
+// Tests for web/src/sync.ts (TASK-88.6 + TASK-88.7 + TASK-88.8 + TASK-92)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeWorkspaces, deltaRefresh, initSync } from "./sync";
 
@@ -6,6 +6,7 @@ import { mergeWorkspaces, deltaRefresh, initSync } from "./sync";
 // so sync tests are not sensitive to crypto.subtle timing (native thread-pool
 // operations can't be awaited by vi.advanceTimersByTimeAsync).
 vi.mock("./encryption", () => ({
+  initEncryption: () => Promise.resolve(),
   getOrCreateKey: () => Promise.resolve({}),
   encrypt: (_key: unknown, text: string) => Promise.resolve(text),
   decrypt: (_key: unknown, text: string) => Promise.resolve(text),
@@ -262,6 +263,119 @@ describe("initSync anonymous mode", () => {
     // Advance past the 2 s debounce (not the 20 s poll interval)
     await vi.advanceTimersByTimeAsync(3_000);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// initSync — onLogin propagates workspace deletions (TASK-92)
+// ---------------------------------------------------------------------------
+
+describe("initSync onLogin", () => {
+  let cleanup: (() => void) | undefined;
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("deleted workspace is removed from store on login", async () => {
+    // Simulate a workspace that was previously synced at version 2.
+    const wsId = "ws-deleted";
+    const ws = makeEntry({ id: wsId, name: "Workspace A", version: 2 });
+    useWorkspace.setState({ workspaces: [ws], activeWorkspaceIndex: 0 });
+
+    // Server returns the row with deleted_at set (soft-deleted by another client).
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ workspaces: [makeRow({ id: wsId, deleted_at: Date.now() })] }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    cleanup = initSync();
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    // Advance fake time by 100 ms (well under the 20 s poll interval) to flush
+    // all Promise microtasks from the onLogin chain without triggering the
+    // setInterval polling loop (vi.runAllTimersAsync would loop forever).
+    await vi.advanceTimersByTimeAsync(100);
+
+    const { workspaces } = useWorkspace.getState();
+    // The deleted workspace must be gone.
+    expect(workspaces.some((w) => w.id === wsId)).toBe(false);
+    // The store must never be empty (fallback workspace provided).
+    expect(workspaces.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("local-only workspace is pushed to server on login", async () => {
+    // Workspace exists locally but has never been on the server.
+    const wsId = "ws-local-only";
+    const ws = makeEntry({ id: wsId, name: "Local Only", version: 1 });
+    useWorkspace.setState({ workspaces: [ws], activeWorkspaceIndex: 0 });
+
+    let putCalled = false;
+    const serverRow = makeRow({ id: wsId, version: 1 });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if ((opts as RequestInit)?.method === "PUT") {
+          putCalled = true;
+          return Promise.resolve(
+            new Response(JSON.stringify({ workspace: serverRow }), { status: 200 }),
+          );
+        }
+        // pullWorkspaces(0) returns nothing — server has no workspaces yet.
+        return Promise.resolve(new Response(JSON.stringify({ workspaces: [] }), { status: 200 }));
+      },
+    );
+
+    cleanup = initSync();
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(putCalled).toBe(true);
+  });
+
+  it("activeWorkspaceIndex is clamped when a workspace is removed by deltaRefresh", async () => {
+    // Two workspaces, active is the second one (index 1).
+    const ws1 = makeEntry({ id: "ws-a", name: "WS A", version: 1 });
+    const ws2 = makeEntry({ id: "ws-b", name: "WS B", version: 1 });
+    useWorkspace.setState({ workspaces: [ws1, ws2], activeWorkspaceIndex: 1 });
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    // Delta response soft-deletes ws-b.
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ workspaces: [makeRow({ id: "ws-b", deleted_at: Date.now() })] }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    // force=true bypasses the 15 s throttle.
+    await deltaRefresh(true);
+
+    const state = useWorkspace.getState();
+    expect(state.workspaces.some((w) => w.id === "ws-b")).toBe(false);
+    // Index must have been clamped from 1 → 0 (only ws-a remains).
+    expect(state.activeWorkspaceIndex).toBe(0);
+    expect(state.activeWorkspaceIndex).toBeLessThan(state.workspaces.length);
   });
 });
 

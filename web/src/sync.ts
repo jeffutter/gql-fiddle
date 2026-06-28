@@ -12,7 +12,7 @@
 //   - Offline: edits queued in memory and flushed on "online" event / login.
 //   - Anonymous / logged-out: store subscription short-circuits, no API calls.
 import type { WorkspaceEntry, WorkspacePayload } from "./share";
-import { useWorkspace } from "./store";
+import { useWorkspace, makeDefaultWorkspace } from "./store";
 import { useAuth } from "./auth";
 import { getOrCreateKey, encrypt, decrypt, initEncryption } from "./encryption";
 
@@ -170,9 +170,13 @@ export async function deltaRefresh(force = false): Promise<void> {
     if (rows.length === 0) return;
     const local = useWorkspace.getState().workspaces;
     const merged = mergeWorkspaces(local, rows);
+    // Guard against an empty result (all remote workspaces deleted); clamp index.
+    const safeMerged = merged.length > 0 ? merged : [makeDefaultWorkspace("Workspace 1")];
+    const currIdx = useWorkspace.getState().activeWorkspaceIndex;
+    const safeIdx = Math.min(currIdx, safeMerged.length - 1);
     isSyncing = true;
     try {
-      useWorkspace.setState({ workspaces: merged });
+      useWorkspace.setState({ workspaces: safeMerged, activeWorkspaceIndex: safeIdx });
     } finally {
       isSyncing = false;
     }
@@ -196,21 +200,35 @@ export function initSync(): () => void {
     try {
       useAuth.getState().setSyncStatus("saving");
       await initEncryption();
-      const rows = await pullWorkspaces();
+      // Use since=0 so the delta endpoint returns all rows (including soft-deleted
+      // ones). pullWorkspaces() with no arg hits /api/workspaces which filters
+      // deleted_at IS NULL, causing deleted workspaces to be re-created locally.
+      const rows = await pullWorkspaces(0);
       lastPullTs = Date.now();
       const local = useWorkspace.getState().workspaces;
       const merged = mergeWorkspaces(local, rows);
 
-      // Push workspaces that exist locally but not on the server
+      // Push workspaces that exist locally but not on the server; adopt the
+      // server row on success so local versions are authoritative from login.
       const remoteIds = new Set(rows.map((r) => r.id));
-      for (const ws of merged) {
+      const finalMerged = [...merged];
+      for (let i = 0; i < finalMerged.length; i++) {
+        const ws = finalMerged[i];
         if (ws.id && !remoteIds.has(ws.id)) {
           const bumped = { ...ws, version: ws.version ?? 1 };
-          await pushWorkspace(bumped);
+          const serverRow = await pushWorkspace(bumped);
+          if (serverRow) {
+            finalMerged[i] = { ...rowToEntry(serverRow), tourDraft: ws.tourDraft };
+          }
         }
       }
 
-      useWorkspace.setState({ workspaces: merged });
+      // Guard against an empty result (all workspaces deleted remotely); clamp index.
+      const safeMerged =
+        finalMerged.length > 0 ? finalMerged : [makeDefaultWorkspace("Workspace 1")];
+      const currIdx = useWorkspace.getState().activeWorkspaceIndex;
+      const safeIdx = Math.min(currIdx, safeMerged.length - 1);
+      useWorkspace.setState({ workspaces: safeMerged, activeWorkspaceIndex: safeIdx });
       useAuth.getState().setSyncStatus("synced");
 
       // Flush anything queued before login resolved

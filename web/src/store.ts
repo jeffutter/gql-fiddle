@@ -112,7 +112,7 @@ function generateUUID() {
   });
 }
 
-function makeDefaultWorkspace(name: string): WorkspaceEntry {
+export function makeDefaultWorkspace(name: string): WorkspaceEntry {
   return {
     name,
     id: generateUUID(),
