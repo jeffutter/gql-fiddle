@@ -1634,16 +1634,37 @@ export default function App() {
           aria-hidden="true"
         >
           <polygon
-            points="15,3 25.4,21 4.6,21"
+            points="15,3 25.4,9 25.4,21 15,27 4.6,21 4.6,9"
             stroke="var(--accent)"
             strokeWidth="1.5"
             strokeLinejoin="round"
           />
-          <polygon
-            points="25.4,9 15,27 4.6,9"
+          <line
+            x1="15"
+            y1="3"
+            x2="15"
+            y2="27"
             stroke="var(--accent)"
             strokeWidth="1.5"
-            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+          <line
+            x1="25.4"
+            y1="9"
+            x2="4.6"
+            y2="21"
+            stroke="var(--accent)"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <line
+            x1="25.4"
+            y1="21"
+            x2="4.6"
+            y2="9"
+            stroke="var(--accent)"
+            strokeWidth="1.5"
+            strokeLinecap="round"
           />
           <circle cx="15" cy="3" r="1.8" fill="var(--accent)" />
           <circle cx="25.4" cy="9" r="1.8" fill="var(--accent)" />
