@@ -39,12 +39,13 @@ function makeRow(overrides: {
   version?: number;
   name?: string;
   deleted_at?: number | null;
+  subgraphs?: { name: string; sdl: string }[];
 }) {
   return {
     id: overrides.id,
     name: overrides.name ?? "WS",
     payload: JSON.stringify({
-      subgraphs: [{ name: "sg", sdl: "type Query { b: String }" }],
+      subgraphs: overrides.subgraphs ?? [{ name: "sg", sdl: "type Query { b: String }" }],
       queryTabs: [{ name: "Q1", query: "" }],
       activeQueryTab: 0,
       seed: 42,
@@ -90,6 +91,47 @@ describe("mergeWorkspaces", () => {
     const result = mergeWorkspaces(local, remote);
     expect(result).toHaveLength(1);
     expect(result[0].version).toBe(10);
+  });
+
+  it("remote newer: preserves the local activeSubgraph (session-only state)", () => {
+    const id = "ws-sg";
+    const subgraphs = [
+      { name: "a", sdl: "type Query { a: String }" },
+      { name: "b", sdl: "type Query { b: String }" },
+    ];
+    const local = [makeEntry({ id, version: 2, activeSubgraph: 1, subgraphs })];
+    const remote = [makeRow({ id, version: 10, subgraphs })];
+    const result = mergeWorkspaces(local, remote);
+    expect(result).toHaveLength(1);
+    expect(result[0].version).toBe(10);
+    // The user was editing subgraph index 1; sync must not snap them back to 0.
+    expect(result[0].activeSubgraph).toBe(1);
+  });
+
+  it("remote newer: clamps activeSubgraph when remote removed subgraphs", () => {
+    const id = "ws-sg-clamp";
+    const local = [
+      makeEntry({
+        id,
+        version: 2,
+        activeSubgraph: 2,
+        subgraphs: [
+          { name: "a", sdl: "" },
+          { name: "b", sdl: "" },
+          { name: "c", sdl: "" },
+        ],
+      }),
+    ];
+    // Remote now has only one subgraph; the stale index 2 must clamp to 0.
+    const remote = [makeRow({ id, version: 10, subgraphs: [{ name: "a", sdl: "" }] })];
+    const result = mergeWorkspaces(local, remote);
+    expect(result[0].activeSubgraph).toBe(0);
+  });
+
+  it("remote-only workspace (no local entry) defaults activeSubgraph to 0", () => {
+    const remote = [makeRow({ id: "remote-only", version: 1 })];
+    const result = mergeWorkspaces([], remote);
+    expect(result[0].activeSubgraph).toBe(0);
   });
 
   it("remote soft-delete removes the entry from the merged result", () => {
