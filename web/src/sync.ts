@@ -44,19 +44,25 @@ function entryToPayload(ws: WorkspaceEntry): string {
   return JSON.stringify(p);
 }
 
-function rowToEntry(row: WorkspaceRow): WorkspaceEntry {
+// Session-only state (activeSubgraph selection, tourDraft) is not part of the
+// synced WorkspacePayload, so a server row carries no value for it. Preserve it
+// from the existing local entry when we have one; otherwise fall back to
+// defaults. Without this, rebuilding an entry from a server row (on autosave
+// echo, delta poll, or login) would snap the user's active subgraph back to 0.
+function rowToEntry(row: WorkspaceRow, local?: WorkspaceEntry): WorkspaceEntry {
   const p = JSON.parse(row.payload) as WorkspacePayload;
   return {
     name: row.name,
     id: row.id,
     version: row.version,
     subgraphs: p.subgraphs,
-    activeSubgraph: 0,
+    // Clamp in case a remote edit removed subgraphs the local index pointed at.
+    activeSubgraph: Math.min(local?.activeSubgraph ?? 0, Math.max(0, p.subgraphs.length - 1)),
     queryTabs: p.queryTabs,
     activeQueryTab: p.activeQueryTab ?? 0,
     seed: p.seed,
     mockConfig: p.mockConfig ?? "",
-    tourDraft: null, // tours are URL-shareable (#t=); not synced to cloud
+    tourDraft: local?.tourDraft ?? null, // tours are URL-shareable (#t=); not synced to cloud
   };
 }
 
@@ -83,7 +89,7 @@ export function mergeWorkspaces(local: WorkspaceEntry[], remote: WorkspaceRow[])
     }
     const loc = byId.get(row.id);
     if (!loc || row.version > (loc.version ?? 0)) {
-      byId.set(row.id, rowToEntry(row)); // remote is newer
+      byId.set(row.id, rowToEntry(row, loc)); // remote is newer
     }
     // else: local is same version or newer → local wins
   }
@@ -218,7 +224,7 @@ export function initSync(): () => void {
           const bumped = { ...ws, version: ws.version ?? 1 };
           const serverRow = await pushWorkspace(bumped);
           if (serverRow) {
-            finalMerged[i] = { ...rowToEntry(serverRow), tourDraft: ws.tourDraft };
+            finalMerged[i] = rowToEntry(serverRow, ws);
           }
         }
       }
@@ -258,9 +264,7 @@ export function initSync(): () => void {
         try {
           const workspaces = useWorkspace
             .getState()
-            .workspaces.map((w) =>
-              w.id === ws.id ? { ...rowToEntry(serverRow), tourDraft: w.tourDraft } : w,
-            );
+            .workspaces.map((w) => (w.id === ws.id ? rowToEntry(serverRow, w) : w));
           useWorkspace.setState({ workspaces });
         } finally {
           isSyncing = false;
