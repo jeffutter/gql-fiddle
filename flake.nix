@@ -35,10 +35,14 @@
       in
       let
         # JS-only inputs shared between the web shell and the full dev shell.
+        # wrangler is intentionally NOT pulled from nixpkgs: it's a pnpm
+        # devDependency (web/package.json, pinned in web/pnpm-lock.yaml) and is
+        # invoked via pnpm scripts, so node_modules/.bin/wrangler is used. The
+        # nixpkgs build compiles wrangler from source when uncached and fails
+        # flakily (EBADF in its tsup build), so we let pnpm own this tool.
         webInputs = [
           pkgs.nodejs_22
           pkgs.pnpm
-          pkgs.wrangler
         ];
 
         # Core Rust + WASM build inputs, without a browser (used in CI jobs
@@ -55,6 +59,19 @@
           pkgs.binaryen # provides wasm-opt
         ];
 
+        # Chromium + driver are only available/usable from nixpkgs on Linux.
+        # On macOS (darwin) the nixpkgs chromium build is unsupported, so we
+        # leave the browser out and expect devs to point at a system Chrome.
+        browserInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
+          pkgs.chromium
+          pkgs.chromedriver
+        ];
+
+        browserEnv = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          CHROME = "${pkgs.chromium}/bin/chromium";
+          CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
+        };
+
         rustShellHook = ''
           # Unset RUSTFLAGS so it does not leak from the parent shell into
           # the dev environment. The getrandom wasm_js cfg must only ever
@@ -70,29 +87,27 @@
       {
         devShells = {
           # Full local-dev shell — includes browser for wasm-pack headless tests.
-          default = pkgs.mkShell {
-            buildInputs =
-              webInputs
-              ++ rustInputs
-              ++ [
-                # Git hooks.
-                pkgs.lefthook
+          default = pkgs.mkShell (
+            {
+              buildInputs =
+                webInputs
+                ++ rustInputs
+                ++ [
+                  # Git hooks.
+                  pkgs.lefthook
 
-                # Dev workflow.
-                pkgs.cargo-watch
-                pkgs.concurrently
-
+                  # Dev workflow.
+                  pkgs.cargo-watch
+                  pkgs.concurrently
+                ]
                 # Browser + driver for headless wasm-pack tests (pre-built binaries
-                # from wasm-pack don't work on Nix — missing shared libs).
-                pkgs.chromium
-                pkgs.chromedriver
-              ];
+                # from wasm-pack don't work on Nix — missing shared libs). Linux only.
+                ++ browserInputs;
 
-            CHROME = "${pkgs.chromium}/bin/chromium";
-            CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
-
-            shellHook = rustShellHook;
-          };
+              shellHook = rustShellHook;
+            }
+            // browserEnv
+          );
 
           # CI shell for Rust/WASM builds — no browser, smaller Nix store footprint.
           rust = pkgs.mkShell {
@@ -100,30 +115,27 @@
             shellHook = rustShellHook;
           };
 
-          # CI shell for headless wasm-pack browser tests — adds Chromium.
-          wasm-test = pkgs.mkShell {
-            buildInputs =
-              webInputs
-              ++ rustInputs
-              ++ [
-                pkgs.chromium
-                pkgs.chromedriver
-              ];
-
-            CHROME = "${pkgs.chromium}/bin/chromium";
-            CHROMEDRIVER = "${pkgs.chromedriver}/bin/chromedriver";
-
-            shellHook = rustShellHook;
-          };
+          # CI shell for headless wasm-pack browser tests — adds Chromium (Linux only).
+          wasm-test = pkgs.mkShell (
+            {
+              buildInputs = webInputs ++ rustInputs ++ browserInputs;
+              shellHook = rustShellHook;
+            }
+            // browserEnv
+          );
 
           # CI shell for web-only jobs (lint, typecheck, e2e, deploy).
           # No Rust toolchain — pulls Node/pnpm/Chromium from nixpkgs binary cache.
           # Chromium is included so Playwright uses CHROME rather than downloading
           # its own browser bundle.
-          web = pkgs.mkShell {
-            buildInputs = webInputs ++ [ pkgs.chromium ];
-            CHROME = "${pkgs.chromium}/bin/chromium";
-          };
+          web = pkgs.mkShell (
+            {
+              buildInputs = webInputs ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.chromium ];
+            }
+            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+              CHROME = "${pkgs.chromium}/bin/chromium";
+            }
+          );
         };
       }
     );
