@@ -1,4 +1,5 @@
 import { requireUser } from "../../_lib/auth";
+import { withErrorHandling } from "../../_lib/http";
 
 interface Env {
   DB: D1Database;
@@ -9,8 +10,14 @@ interface Env {
 
 // GET /api/auth/me — return the authenticated user as JSON, or 401 if not
 // logged in. Used by the frontend to determine login state on load.
-export const onRequestGet: PagesFunction<Env> = async (context) => {
-  const result = await requireUser(context.request, context.env.SESSIONS, context.env.DB);
-  if (result instanceof Response) return result;
-  return Response.json({ user: result });
-};
+export const onRequestGet: PagesFunction<Env> = withErrorHandling(
+  async (context) => {
+    const result = await requireUser(
+      context.request,
+      context.env.SESSIONS,
+      context.env.DB,
+    );
+    if (result instanceof Response) return result;
+    return Response.json({ user: result });
+  },
+);

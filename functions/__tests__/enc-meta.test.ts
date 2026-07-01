@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { onRequestGet, onRequestPut } from "../api/auth/enc-meta";
 import { SESSION_COOKIE_NAME, mintSession } from "../_lib/auth";
 import { getOrCreateUser } from "../_lib/db";
@@ -243,5 +243,28 @@ describe("PUT /api/auth/enc-meta", () => {
       wrapped_dek: string | null;
     };
     expect(wrapped_dek).toBe("E1:first==");
+  });
+
+  it("emits a data.dek_write event with user_id, and never logs the wrapped_dek literal value", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const secretDek = "E1:very-secret-wrapped-dek-value==";
+      const res = await onRequestPut(
+        makePutCtx(env, { wrapped_dek: secretDek }, userCookie),
+      );
+      expect(res.status).toBe(200);
+
+      const lines = logSpy.mock.calls.map((call) => call[0] as string);
+      const writeLine = lines.find((line) => line.includes("data.dek_write"));
+      expect(writeLine).toBeDefined();
+      const record = JSON.parse(writeLine!);
+      expect(typeof record.user_id).toBe("string");
+
+      for (const line of lines) {
+        expect(line).not.toContain(secretDek);
+      }
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });

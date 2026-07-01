@@ -9,6 +9,8 @@
 // The plaintext DEK is constructed and used only in the browser — the server never sees it.
 import { requireUser } from "../../_lib/auth";
 import { getWrappedDek, setWrappedDekIfAbsent } from "../../_lib/db";
+import { jsonError, withErrorHandling } from "../../_lib/http";
+import { logEvent } from "../../_lib/log";
 
 interface Env {
   DB: D1Database;
@@ -30,37 +32,43 @@ async function getOrCreateKwk(
   return b64;
 }
 
-export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
-  if (result instanceof Response) return result;
-  const user = result;
+export const onRequestGet: PagesFunction<Env> = withErrorHandling(
+  async (ctx) => {
+    const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
+    if (result instanceof Response) return result;
+    const user = result;
 
-  const kwk = await getOrCreateKwk(ctx.env.SESSIONS, user.id);
-  const wrapped_dek = await getWrappedDek(ctx.env.DB, user.id);
+    const kwk = await getOrCreateKwk(ctx.env.SESSIONS, user.id);
+    const wrapped_dek = await getWrappedDek(ctx.env.DB, user.id);
 
-  return Response.json({ kwk, wrapped_dek });
-};
+    return Response.json({ kwk, wrapped_dek });
+  },
+);
 
-export const onRequestPut: PagesFunction<Env> = async (ctx) => {
-  const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
-  if (result instanceof Response) return result;
-  const user = result;
+export const onRequestPut: PagesFunction<Env> = withErrorHandling(
+  async (ctx) => {
+    const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
+    if (result instanceof Response) return result;
+    const user = result;
 
-  let body: { wrapped_dek: string };
-  try {
-    body = (await ctx.request.json()) as typeof body;
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+    let body: { wrapped_dek: string };
+    try {
+      body = (await ctx.request.json()) as typeof body;
+    } catch {
+      return jsonError("Invalid JSON body", 400);
+    }
 
-  const { wrapped_dek } = body;
-  if (typeof wrapped_dek !== "string" || !wrapped_dek) {
-    return Response.json(
-      { error: "Missing required field: wrapped_dek" },
-      { status: 400 },
+    const { wrapped_dek } = body;
+    if (typeof wrapped_dek !== "string" || !wrapped_dek) {
+      return jsonError("Missing required field: wrapped_dek", 400);
+    }
+
+    const stored = await setWrappedDekIfAbsent(
+      ctx.env.DB,
+      user.id,
+      wrapped_dek,
     );
-  }
-
-  const stored = await setWrappedDekIfAbsent(ctx.env.DB, user.id, wrapped_dek);
-  return Response.json({ wrapped_dek: stored });
-};
+    logEvent("data.dek_write", { user_id: user.id });
+    return Response.json({ wrapped_dek: stored });
+  },
+);

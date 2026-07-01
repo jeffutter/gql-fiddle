@@ -5,6 +5,8 @@
 // Cross-user access returns 404 (not 403) to avoid id enumeration.
 import { requireUser } from "../../_lib/auth";
 import { upsertWorkspace, softDeleteWorkspace } from "../../_lib/db";
+import { withErrorHandling } from "../../_lib/http";
+import { logEvent } from "../../_lib/log";
 
 interface Env {
   DB: D1Database;
@@ -14,108 +16,128 @@ interface Env {
 const PAYLOAD_SIZE_LIMIT = 1_048_576; // 1 MB
 const NAME_MAX_BYTES = 256; // generous for a display name; no prior documented contract
 
-export const onRequestPut: PagesFunction<Env> = async (ctx) => {
-  const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
-  if (result instanceof Response) return result;
-  const user = result;
+export const onRequestPut: PagesFunction<Env> = withErrorHandling(
+  async (ctx) => {
+    const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
+    if (result instanceof Response) return result;
+    const user = result;
 
-  const id = ctx.params.id as string;
+    const id = ctx.params.id as string;
 
-  // Reject on the declared Content-Length before touching the body at all.
-  // This is the primary DoS mitigation: an honestly-declared oversized
-  // request never gets buffered or parsed.
-  const contentLength = ctx.request.headers.get("content-length");
-  if (contentLength !== null && Number(contentLength) > PAYLOAD_SIZE_LIMIT) {
-    return Response.json(
-      { error: "Payload too large (max 1 MB)" },
-      { status: 413 },
-    );
-  }
+    // Reject on the declared Content-Length before touching the body at all.
+    // This is the primary DoS mitigation: an honestly-declared oversized
+    // request never gets buffered or parsed.
+    const contentLength = ctx.request.headers.get("content-length");
+    if (contentLength !== null && Number(contentLength) > PAYLOAD_SIZE_LIMIT) {
+      return Response.json(
+        { error: "Payload too large (max 1 MB)" },
+        { status: 413 },
+      );
+    }
 
-  let rawBody: string;
-  try {
-    rawBody = await ctx.request.text();
-  } catch {
-    return Response.json({ error: "Invalid request body" }, { status: 400 });
-  }
+    let rawBody: string;
+    try {
+      rawBody = await ctx.request.text();
+    } catch {
+      return Response.json({ error: "Invalid request body" }, { status: 400 });
+    }
 
-  // Defends against a missing/understated Content-Length header. Measured
-  // in real UTF-8 bytes (not UTF-16 code units) so multi-byte payloads
-  // can't slip past the documented 1 MB contract. Gates the expensive
-  // JSON.parse below.
-  if (new TextEncoder().encode(rawBody).length > PAYLOAD_SIZE_LIMIT) {
-    return Response.json(
-      { error: "Payload too large (max 1 MB)" },
-      { status: 413 },
-    );
-  }
+    // Defends against a missing/understated Content-Length header. Measured
+    // in real UTF-8 bytes (not UTF-16 code units) so multi-byte payloads
+    // can't slip past the documented 1 MB contract. Gates the expensive
+    // JSON.parse below.
+    if (new TextEncoder().encode(rawBody).length > PAYLOAD_SIZE_LIMIT) {
+      return Response.json(
+        { error: "Payload too large (max 1 MB)" },
+        { status: 413 },
+      );
+    }
 
-  let body: { name: string; payload: string; version: number };
-  try {
-    body = JSON.parse(rawBody) as typeof body;
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+    let body: { name: string; payload: string; version: number };
+    try {
+      body = JSON.parse(rawBody) as typeof body;
+    } catch {
+      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
 
-  const { name, payload, version } = body;
-  if (
-    typeof name !== "string" ||
-    typeof payload !== "string" ||
-    typeof version !== "number"
-  ) {
-    return Response.json(
-      { error: "Missing required fields: name, payload, version" },
-      { status: 400 },
-    );
-  }
+    const { name, payload, version } = body;
+    if (
+      typeof name !== "string" ||
+      typeof payload !== "string" ||
+      typeof version !== "number"
+    ) {
+      return Response.json(
+        { error: "Missing required fields: name, payload, version" },
+        { status: 400 },
+      );
+    }
 
-  if (new TextEncoder().encode(name).length > NAME_MAX_BYTES) {
-    return Response.json(
-      { error: `Name too long (max ${NAME_MAX_BYTES} bytes)` },
-      { status: 400 },
-    );
-  }
+    if (new TextEncoder().encode(name).length > NAME_MAX_BYTES) {
+      return Response.json(
+        { error: `Name too long (max ${NAME_MAX_BYTES} bytes)` },
+        { status: 400 },
+      );
+    }
 
-  // Ownership check: if this id already exists and belongs to another user,
-  // return 404 to avoid leaking that the id is taken.
-  const existing = await ctx.env.DB.prepare(
-    "SELECT user_id FROM workspaces WHERE id = ?",
-  )
-    .bind(id)
-    .first<{ user_id: string }>();
-  if (existing && existing.user_id !== user.id) {
-    return Response.json({ error: "Not found" }, { status: 404 });
-  }
-
-  const { accepted, row } = await upsertWorkspace(ctx.env.DB, {
-    id,
-    user_id: user.id,
-    name,
-    payload,
-    version,
-  });
-
-  if (!accepted) {
-    if (!row) {
+    // Ownership check: if this id already exists and belongs to another user,
+    // return 404 to avoid leaking that the id is taken.
+    const existing = await ctx.env.DB.prepare(
+      "SELECT user_id FROM workspaces WHERE id = ?",
+    )
+      .bind(id)
+      .first<{ user_id: string }>();
+    if (existing && existing.user_id !== user.id) {
+      logEvent("data.cross_user_denied", {
+        user_id: user.id,
+        workspace_id: id,
+      });
       return Response.json({ error: "Not found" }, { status: 404 });
     }
-    return Response.json({ conflict: true, current: row }, { status: 409 });
-  }
 
-  return Response.json({ workspace: row });
-};
+    const { accepted, row } = await upsertWorkspace(ctx.env.DB, {
+      id,
+      user_id: user.id,
+      name,
+      payload,
+      version,
+    });
 
-export const onRequestDelete: PagesFunction<Env> = async (ctx) => {
-  const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
-  if (result instanceof Response) return result;
-  const user = result;
+    if (!accepted) {
+      if (!row) {
+        // The cross-user-collision guard in upsertWorkspace's ON CONFLICT
+        // clause rejected the write (see db.ts's upsertWorkspace comment).
+        logEvent("data.cross_user_denied", {
+          user_id: user.id,
+          workspace_id: id,
+        });
+        return Response.json({ error: "Not found" }, { status: 404 });
+      }
+      return Response.json({ conflict: true, current: row }, { status: 409 });
+    }
 
-  const id = ctx.params.id as string;
+    return Response.json({ workspace: row });
+  },
+);
 
-  const deleted = await softDeleteWorkspace(ctx.env.DB, id, user.id);
-  if (!deleted) {
-    return Response.json({ error: "Not found" }, { status: 404 });
-  }
+export const onRequestDelete: PagesFunction<Env> = withErrorHandling(
+  async (ctx) => {
+    const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
+    if (result instanceof Response) return result;
+    const user = result;
 
-  return new Response(null, { status: 204 });
-};
+    const id = ctx.params.id as string;
+
+    const deleted = await softDeleteWorkspace(ctx.env.DB, id, user.id);
+    if (!deleted) {
+      // Ambiguous: softDeleteWorkspace can't distinguish a genuinely missing id
+      // from another user's id, so this isn't necessarily a cross-user attempt.
+      logEvent("data.workspace_not_found", {
+        user_id: user.id,
+        workspace_id: id,
+      });
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
+
+    return new Response(null, { status: 204 });
+  },
+);

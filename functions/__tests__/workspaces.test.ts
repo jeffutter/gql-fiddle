@@ -3,7 +3,7 @@
 // are imported directly and invoked without a real HTTP server.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { onRequestGet } from "../api/workspaces/index";
 import { onRequestPut, onRequestDelete } from "../api/workspaces/[id]";
 import { SESSION_COOKIE_NAME, mintSession } from "../_lib/auth";
@@ -451,6 +451,51 @@ describe("PUT /api/workspaces/:id", () => {
     });
     const res = await onRequestPut(ctx);
     expect(res.status).toBe(401);
+  });
+
+  it("logs a data.cross_user_denied event when the id belongs to another user", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const bob = await getOrCreateUser(db, {
+        github_id: 5,
+        login: "bob4",
+        name: "Bob",
+        avatar_url: null,
+      });
+      const bobToken = await mintSession(kv, bob.id);
+      const bobCookie = `${SESSION_COOKIE_NAME}=${bobToken}`;
+      const id = crypto.randomUUID();
+      await onRequestPut(
+        makeIdCtx(
+          env,
+          id,
+          "PUT",
+          { name: "BobWS", payload: "{}", version: 1 },
+          bobCookie,
+        ),
+      );
+
+      const ctx = makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "Alice hijack", payload: "{}", version: 2 },
+        userCookie,
+      );
+      const res = await onRequestPut(ctx);
+      expect(res.status).toBe(404);
+
+      const lines = logSpy.mock.calls.map((call) => call[0] as string);
+      const denyLine = lines.find((line) =>
+        line.includes("data.cross_user_denied"),
+      );
+      expect(denyLine).toBeDefined();
+      const record = JSON.parse(denyLine!);
+      expect(record.user_id).toBe(userId);
+      expect(record.workspace_id).toBe(id);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });
 

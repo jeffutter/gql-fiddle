@@ -1,4 +1,12 @@
-import { clearCookieHeader, deleteSession, parseCookies, SESSION_COOKIE_NAME } from "../../_lib/auth";
+import {
+  clearCookieHeader,
+  deleteSession,
+  getSession,
+  parseCookies,
+  SESSION_COOKIE_NAME,
+} from "../../_lib/auth";
+import { withErrorHandling } from "../../_lib/http";
+import { logEvent } from "../../_lib/log";
 
 interface Env {
   DB: D1Database;
@@ -10,12 +18,24 @@ interface Env {
 
 // POST /api/auth/logout — delete the session from KV and clear the session
 // cookie. Returns 204 regardless of whether a session existed.
-export const onRequestPost: PagesFunction<Env> = async (context) => {
-  const cookies = parseCookies(context.request.headers.get("Cookie") ?? "");
-  const token = cookies[SESSION_COOKIE_NAME];
-  if (token) await deleteSession(context.env.SESSIONS, token);
-  return new Response(null, {
-    status: 204,
-    headers: { "Set-Cookie": clearCookieHeader(context.env.ENVIRONMENT === "production") },
-  });
-};
+export const onRequestPost: PagesFunction<Env> = withErrorHandling(
+  async (context) => {
+    const cookies = parseCookies(context.request.headers.get("Cookie") ?? "");
+    const token = cookies[SESSION_COOKIE_NAME];
+    if (token) {
+      // Look up the session before deleting it so we know whose it was —
+      // deleteSession alone can't tell us the user_id after the fact.
+      const session = await getSession(context.env.SESSIONS, token);
+      await deleteSession(context.env.SESSIONS, token);
+      if (session) logEvent("auth.logout", { user_id: session.user_id });
+    }
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Set-Cookie": clearCookieHeader(
+          context.env.ENVIRONMENT === "production",
+        ),
+      },
+    });
+  },
+);

@@ -14,6 +14,8 @@
 // and therefore see the same workspaces.
 import { getOrCreateUser } from "../../_lib/db";
 import { mintSession, sessionCookieHeader } from "../../_lib/auth";
+import { jsonError, withErrorHandling } from "../../_lib/http";
+import { logEvent } from "../../_lib/log";
 
 interface Env {
   DB: D1Database;
@@ -22,30 +24,34 @@ interface Env {
   DEV_USER_ID?: string;
 }
 
-export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  if (ctx.env.ENVIRONMENT !== "development") {
-    return new Response("Not found", { status: 404 });
-  }
+export const onRequestGet: PagesFunction<Env> = withErrorHandling(
+  async (ctx) => {
+    if (ctx.env.ENVIRONMENT !== "development") {
+      return jsonError("Not found", 404);
+    }
 
-  const devUserId = ctx.env.DEV_USER_ID ?? "dev-user-1";
+    const devUserId = ctx.env.DEV_USER_ID ?? "dev-user-1";
 
-  // Synthetic GitHub profile — github_id 0 will not collide with real GitHub
-  // users (IDs start at 1). Using login=devUserId makes it easy to tell
-  // accounts apart in D1 when simulating multiple users.
-  const user = await getOrCreateUser(ctx.env.DB, {
-    github_id: 0,
-    login: devUserId,
-    name: "Dev User",
-    avatar_url: null,
-  });
+    // Synthetic GitHub profile — github_id 0 will not collide with real GitHub
+    // users (IDs start at 1). Using login=devUserId makes it easy to tell
+    // accounts apart in D1 when simulating multiple users.
+    const user = await getOrCreateUser(ctx.env.DB, {
+      github_id: 0,
+      login: devUserId,
+      name: "Dev User",
+      avatar_url: null,
+    });
 
-  const token = await mintSession(ctx.env.SESSIONS, user.id);
+    const token = await mintSession(ctx.env.SESSIONS, user.id);
 
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: "/",
-      "Set-Cookie": sessionCookieHeader(token, 30 * 24 * 60 * 60, false),
-    },
-  });
-};
+    logEvent("auth.login_success", { user_id: user.id, provider: "dev" });
+
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: "/",
+        "Set-Cookie": sessionCookieHeader(token, 30 * 24 * 60 * 60, false),
+      },
+    });
+  },
+);

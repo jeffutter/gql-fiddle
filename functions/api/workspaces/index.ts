@@ -15,22 +15,25 @@
 // (since the cursor predates it) rather than silently skipped.
 import { requireUser } from "../../_lib/auth";
 import { listWorkspaces } from "../../_lib/db";
+import { withErrorHandling } from "../../_lib/http";
 
 interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
 }
 
-export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
-  if (result instanceof Response) return result;
-  const user = result;
+export const onRequestGet: PagesFunction<Env> = withErrorHandling(
+  async (ctx) => {
+    const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
+    if (result instanceof Response) return result;
+    const user = result;
 
-  const sinceParam = new URL(ctx.request.url).searchParams.get("since");
-  const since = sinceParam !== null ? Number(sinceParam) : undefined;
+    const sinceParam = new URL(ctx.request.url).searchParams.get("since");
+    const since = sinceParam !== null ? Number(sinceParam) : undefined;
 
-  // Capture the cursor before querying — see module comment above.
-  const cursor = Date.now();
-  const rows = await listWorkspaces(ctx.env.DB, user.id, since);
-  return Response.json({ workspaces: rows, cursor });
-};
+    // Capture the cursor before querying — see module comment above.
+    const cursor = Date.now();
+    const rows = await listWorkspaces(ctx.env.DB, user.id, since);
+    return Response.json({ workspaces: rows, cursor });
+  },
+);

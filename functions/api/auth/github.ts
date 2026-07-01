@@ -1,4 +1,5 @@
 import { generateState } from "../../_lib/auth";
+import { jsonError, withErrorHandling } from "../../_lib/http";
 
 interface Env {
   DB: D1Database;
@@ -16,25 +17,25 @@ interface Env {
 // / reachable via alternate hostnames) and GitHub echoes this value back
 // verbatim during the callback, so it must not derive from request-controlled
 // input. Fail-closed if APP_ORIGIN is unset.
-export const onRequestGet: PagesFunction<Env> = async (context) => {
-  const { env } = context;
-  if (!env.APP_ORIGIN) {
-    return new Response("Server misconfigured: APP_ORIGIN is not set", {
-      status: 500,
+export const onRequestGet: PagesFunction<Env> = withErrorHandling(
+  async (context) => {
+    const { env } = context;
+    if (!env.APP_ORIGIN) {
+      return jsonError("Server misconfigured", 500);
+    }
+    const state = await generateState(env.SESSIONS);
+    const params = new URLSearchParams({
+      client_id: env.GITHUB_CLIENT_ID,
+      redirect_uri: new URL(
+        "/api/auth/github/callback",
+        env.APP_ORIGIN,
+      ).toString(),
+      scope: "read:user",
+      state,
     });
-  }
-  const state = await generateState(env.SESSIONS);
-  const params = new URLSearchParams({
-    client_id: env.GITHUB_CLIENT_ID,
-    redirect_uri: new URL(
-      "/api/auth/github/callback",
-      env.APP_ORIGIN,
-    ).toString(),
-    scope: "read:user",
-    state,
-  });
-  return Response.redirect(
-    `https://github.com/login/oauth/authorize?${params}`,
-    302,
-  );
-};
+    return Response.redirect(
+      `https://github.com/login/oauth/authorize?${params}`,
+      302,
+    );
+  },
+);

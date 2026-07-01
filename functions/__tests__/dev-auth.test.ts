@@ -2,9 +2,10 @@
 // Uses the D1 mock and inline KV mock from existing test helpers.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { onRequestGet as loginHandler } from "../api/auth/login";
 import { onRequestGet as devLoginHandler } from "../api/auth/dev-login";
+import { onRequestGet as callbackHandler } from "../api/auth/github/callback";
 import { SESSION_COOKIE_NAME } from "../_lib/auth";
 import { createD1Mock } from "./d1-mock";
 
@@ -36,7 +37,10 @@ function createKVMock(): KVNamespace {
 // Helper: build a minimal PagesFunction context
 // ---------------------------------------------------------------------------
 
-function makeCtx<E>(env: E, url = "http://localhost:8788"): Parameters<PagesFunction<E>>[0] {
+function makeCtx<E>(
+  env: E,
+  url = "http://localhost:8788",
+): Parameters<PagesFunction<E>>[0] {
   return {
     request: new Request(url),
     env,
@@ -103,7 +107,11 @@ describe("GET /api/auth/dev-login", () => {
   });
 
   it("returns 404 when ENVIRONMENT is unset (fail-closed, e.g. previews)", async () => {
-    const ctx = makeCtx<{ DB: D1Database; SESSIONS: KVNamespace; ENVIRONMENT?: string }>({
+    const ctx = makeCtx<{
+      DB: D1Database;
+      SESSIONS: KVNamespace;
+      ENVIRONMENT?: string;
+    }>({
       DB: db,
       SESSIONS: kv,
     });
@@ -112,7 +120,12 @@ describe("GET /api/auth/dev-login", () => {
   });
 
   it("returns 302 to / and sets session cookie when ENVIRONMENT=development", async () => {
-    const ctx = makeCtx({ DB: db, SESSIONS: kv, ENVIRONMENT: "development", DEV_USER_ID: "dev-user-1" });
+    const ctx = makeCtx({
+      DB: db,
+      SESSIONS: kv,
+      ENVIRONMENT: "development",
+      DEV_USER_ID: "dev-user-1",
+    });
     const res = await devLoginHandler(ctx);
 
     expect(res.status).toBe(302);
@@ -129,12 +142,19 @@ describe("GET /api/auth/dev-login", () => {
     const res = await devLoginHandler(ctx);
     expect(res.status).toBe(302);
     // Second call should return the same user (idempotent via github_id=0 + login)
-    const res2 = await devLoginHandler(makeCtx({ DB: db, SESSIONS: kv, ENVIRONMENT: "development" }));
+    const res2 = await devLoginHandler(
+      makeCtx({ DB: db, SESSIONS: kv, ENVIRONMENT: "development" }),
+    );
     expect(res2.status).toBe(302);
   });
 
   it("is idempotent — second call returns the same user.id", async () => {
-    const env = { DB: db, SESSIONS: kv, ENVIRONMENT: "development", DEV_USER_ID: "dev-user-1" };
+    const env = {
+      DB: db,
+      SESSIONS: kv,
+      ENVIRONMENT: "development",
+      DEV_USER_ID: "dev-user-1",
+    };
     await devLoginHandler(makeCtx(env));
 
     // Read the user row created by the first call
@@ -154,5 +174,169 @@ describe("GET /api/auth/dev-login", () => {
 
     // getOrCreateUser is idempotent — same id on second call
     expect(row1!.id).toBe(row2!.id);
+  });
+
+  it("emits an auth.login_success log event with the user_id and provider, with no session token leaked", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const ctx = makeCtx({
+        DB: db,
+        SESSIONS: kv,
+        ENVIRONMENT: "development",
+        DEV_USER_ID: "dev-user-1",
+      });
+      const res = await devLoginHandler(ctx);
+      const cookie = res.headers.get("Set-Cookie") ?? "";
+      const token = cookie.match(/__session=([^;]+)/)?.[1];
+      expect(token).toBeTruthy();
+
+      const lines = logSpy.mock.calls.map(
+        (call: unknown[]) => call[0] as string,
+      );
+      const loginLine = lines.find((line) =>
+        line.includes("auth.login_success"),
+      );
+      expect(loginLine).toBeDefined();
+      const record = JSON.parse(loginLine!);
+      expect(record.provider).toBe("dev");
+      expect(typeof record.user_id).toBe("string");
+
+      // No log line anywhere should contain the session token.
+      for (const line of lines) {
+        expect(line).not.toContain(token);
+      }
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/auth/github/callback
+// ---------------------------------------------------------------------------
+
+describe("GET /api/auth/github/callback", () => {
+  let db: D1Database;
+  let kv: KVNamespace;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    db = createD1Mock(migrationSql);
+    kv = createKVMock();
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  function stubGithubFetch(accessToken = "gh-access-token-secret") {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("login/oauth/access_token")) {
+          return new Response(JSON.stringify({ access_token: accessToken }), {
+            status: 200,
+          });
+        }
+        if (url.includes("api.github.com/user")) {
+          return new Response(
+            JSON.stringify({
+              id: 4242,
+              login: "octocat",
+              name: "Octo Cat",
+              avatar_url: null,
+            }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch to ${url}`);
+      }),
+    );
+    return accessToken;
+  }
+
+  async function withValidState() {
+    const state = await import("../_lib/auth").then((m) => m.generateState(kv));
+    return state;
+  }
+
+  it("mints a session, redirects to /, and emits auth.login_success without leaking the GitHub access token", async () => {
+    const accessToken = stubGithubFetch();
+    const state = await withValidState();
+
+    const ctx = {
+      request: new Request(
+        `http://localhost/api/auth/github/callback?code=abc123&state=${state}`,
+      ),
+      env: {
+        DB: db,
+        SESSIONS: kv,
+        GITHUB_CLIENT_ID: "id",
+        GITHUB_CLIENT_SECRET: "secret",
+      },
+      params: {},
+      waitUntil: () => {},
+      passThroughOnException: () => {},
+      next: async () => new Response(null, { status: 404 }),
+      data: {},
+      pluginArgs: {},
+      functionPath: "",
+    } as unknown as Parameters<typeof callbackHandler>[0];
+
+    const res = await callbackHandler(ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/");
+
+    const lines: string[] = logSpy.mock.calls.map(
+      (call: unknown[]) => call[0] as string,
+    );
+    const loginLine = lines.find((line: string) =>
+      line.includes("auth.login_success"),
+    );
+    expect(loginLine).toBeDefined();
+    const record = JSON.parse(loginLine!);
+    expect(record.provider).toBe("github");
+    expect(typeof record.user_id).toBe("string");
+
+    for (const line of lines) {
+      expect(line).not.toContain(accessToken);
+    }
+  });
+
+  it("returns a generic JSON error (not plain text) when state is invalid", async () => {
+    const ctx = {
+      request: new Request(
+        `http://localhost/api/auth/github/callback?code=abc123&state=bogus`,
+      ),
+      env: {
+        DB: db,
+        SESSIONS: kv,
+        GITHUB_CLIENT_ID: "id",
+        GITHUB_CLIENT_SECRET: "secret",
+      },
+      params: {},
+      waitUntil: () => {},
+      passThroughOnException: () => {},
+      next: async () => new Response(null, { status: 404 }),
+      data: {},
+      pluginArgs: {},
+      functionPath: "",
+    } as unknown as Parameters<typeof callbackHandler>[0];
+
+    const res = await callbackHandler(ctx);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+
+    const lines: string[] = logSpy.mock.calls.map(
+      (call: unknown[]) => call[0] as string,
+    );
+    const stateLine = lines.find((line: string) =>
+      line.includes("auth.state_invalid"),
+    );
+    expect(stateLine).toBeDefined();
   });
 });

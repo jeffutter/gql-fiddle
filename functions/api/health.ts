@@ -1,10 +1,12 @@
+import { withErrorHandling } from "../_lib/http";
+
 interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
 }
 
 // GET /api/health — liveness probe that also verifies D1 + KV bindings resolve.
-export const onRequestGet: PagesFunction<Env> = (context) => {
+export const onRequestGet: PagesFunction<Env> = withErrorHandling((context) => {
   const { env } = context;
   return Response.json({
     ok: true,
@@ -13,4 +15,4 @@ export const onRequestGet: PagesFunction<Env> = (context) => {
       sessions: env.SESSIONS !== undefined,
     },
   });
-};
+});
