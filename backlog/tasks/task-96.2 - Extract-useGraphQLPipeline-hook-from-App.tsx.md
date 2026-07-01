@@ -4,7 +4,7 @@ title: Extract useGraphQLPipeline() hook from App.tsx
 status: Dev Ready
 assignee: []
 created_date: '2026-07-01 00:29'
-updated_date: '2026-07-01 20:56'
+updated_date: '2026-07-01 20:57'
 labels:
   - review
   - planned
@@ -107,4 +107,6 @@ Execution attempt on 2026-07-01 (fourth pass): re-verified TASK-112, TASK-96.1, 
 Execution attempt on 2026-07-01 (fifth pass): re-verified TASK-112, TASK-96.1, and TASK-113 via 'backlog task ... --plain' -- all three remain status 'To Do'. This ticket's implementation plan explicitly requires all three Done before starting (auto-run effect fix from TASK-112 must land first; the registerSchema() entry point from TASK-96.1, which itself depends on TASK-113, must exist before this hook can consume it cleanly). No code changes made. Status left unchanged (Dev Ready, never claimed/in-progress) pending upstream work.
 
 Execution attempt on 2026-07-01 (sixth pass): re-verified TASK-112, TASK-96.1, and TASK-113 via 'backlog task ... --plain' -- all three remain status 'To Do'. This ticket's implementation plan explicitly requires all three Done before starting (auto-run effect fix from TASK-112 must land first so it isn't lost during the move; the registerSchema() entry point from TASK-96.1, which itself depends on TASK-113, must exist before this hook can consume it cleanly). No code changes made. Status left unchanged (Dev Ready, never claimed/in-progress) pending upstream work. Note: found an unrelated uncommitted working-tree change to TASK-96.1's task file (an implementation plan/note added by a prior/parallel process) -- left untouched as it is out of scope for this ticket.
+
+Execution attempt on 2026-07-01 (seventh pass): re-verified TASK-112, TASK-96.1, and TASK-113 via 'backlog task ... --plain' -- all three remain status 'To Do'. This ticket's implementation plan explicitly requires all three Done before starting (auto-run effect fix from TASK-112 must land first so it isn't lost during the move; the registerSchema() entry point from TASK-96.1, which itself depends on TASK-113, must exist before this hook can consume it cleanly). No code changes made. Status left unchanged (Dev Ready, never claimed/in-progress) pending upstream work.
 <!-- SECTION:NOTES:END -->
