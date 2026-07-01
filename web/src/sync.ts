@@ -246,7 +246,7 @@ export function initSync(): () => void {
     isSyncing = true;
     try {
       useAuth.getState().setSyncStatus("saving");
-      await initEncryption();
+      await initEncryption(useAuth.getState().user!.id);
       // Use since=0 so the delta endpoint returns all rows (including
       // soft-deleted ones) — since=0 always matches the inclusive `>=`
       // filter, whereas the full-snapshot branch (no `since`) filters

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getOrCreateKey, encrypt, decrypt, initEncryption, DecryptionError } from "./encryption";
+import {
+  getOrCreateKey,
+  encrypt,
+  decrypt,
+  initEncryption,
+  clearCachedKey,
+  DecryptionError,
+} from "./encryption";
 
 async function randomKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
@@ -107,7 +114,7 @@ describe("initEncryption", () => {
       );
     });
 
-    await initEncryption();
+    await initEncryption("u1");
 
     expect(capturedBody.wrapped_dek).toBeDefined();
     expect(typeof capturedBody.wrapped_dek).toBe("string");
@@ -134,7 +141,7 @@ describe("initEncryption", () => {
       return Promise.resolve(new Response(null, { status: 204 }));
     });
 
-    await initEncryption();
+    await initEncryption("u1");
 
     // The unwrapped DEK should decrypt data encrypted with the known DEK bytes.
     const knownDek = await crypto.subtle.importKey(
@@ -170,7 +177,7 @@ describe("initEncryption", () => {
       return Promise.resolve(Response.json({ wrapped_dek: winningWrappedDek }, { status: 200 }));
     });
 
-    await initEncryption();
+    await initEncryption("u1");
 
     // The resulting key must be the winner's DEK, not the one we generated.
     const winningDek = await crypto.subtle.importKey(
@@ -189,10 +196,70 @@ describe("initEncryption", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
 
     // Should not throw; falls back to loadLocalKey().
-    await expect(initEncryption()).resolves.toBeUndefined();
+    await expect(initEncryption("u1")).resolves.toBeUndefined();
 
     const key = await getOrCreateKey();
     const ct = await encrypt(key, "offline");
     expect(await decrypt(key, ct)).toBe("offline");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-user cache namespacing (TASK-95.3)
+// ---------------------------------------------------------------------------
+
+describe("per-user DEK cache namespacing", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  // Mocks the "first device for this user" path: server has no wrapped_dek,
+  // so initEncryption generates a fresh DEK and PUTs it, and the server
+  // echoes it back unchanged (this device wins the race).
+  function mockFirstDeviceFetch() {
+    const kwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const kwkB64 = toB64(kwkBytes);
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+      if (String(url).endsWith("/api/auth/enc-meta") && (!opts || opts.method !== "PUT")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ kwk: kwkB64, wrapped_dek: null }), { status: 200 }),
+        );
+      }
+      const body = JSON.parse((opts?.body as string) ?? "{}") as { wrapped_dek?: string };
+      return Promise.resolve(Response.json({ wrapped_dek: body.wrapped_dek }, { status: 200 }));
+    });
+  }
+
+  it("two users on one browser keep distinct cached DEKs", async () => {
+    mockFirstDeviceFetch();
+    await initEncryption("u1");
+
+    mockFirstDeviceFetch();
+    await initEncryption("u2");
+
+    const u1Cached = localStorage.getItem("gql-fiddle-dek:u1");
+    const u2Cached = localStorage.getItem("gql-fiddle-dek:u2");
+    expect(u1Cached).toBeTruthy();
+    expect(u2Cached).toBeTruthy();
+    expect(u1Cached).not.toBe(u2Cached);
+  });
+
+  it("logout (clearCachedKey) clears only the current user's cached DEK, and the anon key never collides", async () => {
+    mockFirstDeviceFetch();
+    await initEncryption("u1");
+    expect(localStorage.getItem("gql-fiddle-dek:u1")).toBeTruthy();
+
+    clearCachedKey();
+    expect(localStorage.getItem("gql-fiddle-dek:u1")).toBeNull();
+
+    // Anon path (no initEncryption call) must generate/read its own
+    // namespace rather than colliding with u1's now-cleared entry.
+    const anonKey = await getOrCreateKey();
+    expect(localStorage.getItem("gql-fiddle-dek:anon")).toBeTruthy();
+    expect(localStorage.getItem("gql-fiddle-dek:u1")).toBeNull();
+
+    const ct = await encrypt(anonKey, "anon data");
+    expect(await decrypt(anonKey, ct)).toBe("anon data");
   });
 });

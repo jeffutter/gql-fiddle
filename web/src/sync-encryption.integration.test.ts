@@ -38,6 +38,15 @@ function toB64(bytes: Uint8Array): string {
   return btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
 }
 
+// Clears every cached-DEK entry (namespaced by user id, e.g.
+// "gql-fiddle-dek:u1" / "gql-fiddle-dek:anon") regardless of which users a
+// test logged in as, so each test starts with no local key.
+function clearAllCachedDeks(): void {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("gql-fiddle-dek:")) localStorage.removeItem(key);
+  }
+}
+
 // Wraps a known DEK with a known KWK, mirroring the format initEncryption()
 // expects from the server's wrapped_dek field.
 async function wrapDek(kwkBytes: Uint8Array, dekBytes: Uint8Array): Promise<string> {
@@ -71,7 +80,7 @@ describe("sync + encryption integration", () => {
 
   beforeEach(() => {
     // Clear the DEK cache so each test starts with no local key.
-    localStorage.removeItem("gql-fiddle-dek");
+    clearAllCachedDeks();
 
     useAuth.setState({ user: null, status: "loading", syncStatus: "synced" });
     useWorkspace.setState({
@@ -86,7 +95,7 @@ describe("sync + encryption integration", () => {
   afterEach(() => {
     cleanup?.();
     vi.restoreAllMocks();
-    localStorage.removeItem("gql-fiddle-dek");
+    clearAllCachedDeks();
   });
 
   it("workspace name and payload pushed to server are CE1:-prefixed ciphertext", async () => {

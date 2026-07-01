@@ -6,6 +6,7 @@
 //   login()            — navigates to /api/auth/login (server picks provider)
 //   logout()           — POST /api/auth/logout + clears auth state
 import { create } from "zustand";
+import { clearCachedKey } from "./encryption";
 
 // ---------------------------------------------------------------------------
 // User type (mirrors UserRow from the backend)
@@ -86,5 +87,6 @@ export async function logout(): Promise<void> {
     // Session may already be invalid or network unavailable — clear local state anyway.
   } finally {
     useAuth.getState().setAuth(null);
+    clearCachedKey();
   }
 }

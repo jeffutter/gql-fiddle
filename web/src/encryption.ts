@@ -11,11 +11,29 @@
 //
 // The DEK is also cached in localStorage for offline resilience. On a new device,
 // it is reconstructed from the KWK + wrapped DEK fetched from the server.
+//
+// localStorage tradeoff: caching the DEK client-side weakens confidentiality
+// only against a local/XSS attacker — someone with script execution in this
+// origin, or physical access to the browser profile — never against the
+// server, which never sees the DEK. The cache key is namespaced by user id
+// (dekCacheKey below) so one user's cached DEK never collides with another's
+// on a shared browser profile; the entry is cleared on explicit logout
+// (clearCachedKey), not on any timer.
 import * as pako from "pako";
 
-const DEK_CACHE_KEY = "gql-fiddle-dek";
+const DEK_CACHE_PREFIX = "gql-fiddle-dek:";
 const PREFIX = "E1:";
 const COMPRESSED_PREFIX = "CE1:";
+
+// Namespace for the localStorage cache key — starts null (anon) before any
+// login, set to the logged-in user's id by initEncryption(), and reset by
+// clearCachedKey() on logout so the next getOrCreateKey() falls back into
+// the anon namespace instead of reusing the logged-out user's state.
+let currentUserId: string | null = null;
+
+function dekCacheKey(userId: string | null): string {
+  return DEK_CACHE_PREFIX + (userId ?? "anon");
+}
 
 function toBase64(bytes: Uint8Array): string {
   return btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
@@ -60,17 +78,18 @@ async function aesGcmDecrypt(key: CryptoKey, b64: string): Promise<Uint8Array | 
 let dekPromise: Promise<CryptoKey> | null = null;
 
 async function loadLocalKey(): Promise<CryptoKey> {
-  const cached = localStorage.getItem(DEK_CACHE_KEY);
+  const cached = localStorage.getItem(dekCacheKey(currentUserId));
   if (cached) return importAesGcm(fromBase64(cached));
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  localStorage.setItem(DEK_CACHE_KEY, toBase64(bytes));
+  localStorage.setItem(dekCacheKey(currentUserId), toBase64(bytes));
   return importAesGcm(bytes);
 }
 
 // Called during login (before any workspace sync). Fetches the KWK from the
 // server, unwraps (or generates) the DEK, and caches it for offline use.
 // Falls back to the locally cached DEK if the server is unreachable.
-export async function initEncryption(): Promise<void> {
+export async function initEncryption(userId: string): Promise<void> {
+  currentUserId = userId;
   dekPromise = null;
   try {
     const res = await fetch("/api/auth/enc-meta", { credentials: "include" });
@@ -122,7 +141,7 @@ export async function initEncryption(): Promise<void> {
       // versus the previous fire-and-forget behavior for that case.
     }
 
-    localStorage.setItem(DEK_CACHE_KEY, toBase64(dekBytes));
+    localStorage.setItem(dekCacheKey(currentUserId), toBase64(dekBytes));
     // Store as already-resolved so getOrCreateKey() never hits the thread pool.
     const dek = await importAesGcm(dekBytes);
     dekPromise = Promise.resolve(dek);
@@ -136,6 +155,16 @@ export async function initEncryption(): Promise<void> {
 export function getOrCreateKey(): Promise<CryptoKey> {
   if (!dekPromise) dekPromise = loadLocalKey();
   return dekPromise;
+}
+
+// Called on logout. Removes the just-logged-out user's cached DEK from
+// localStorage and resets in-memory state so the next getOrCreateKey() call
+// (before any subsequent login) falls back into the anon namespace instead
+// of reusing the logged-out user's state.
+export function clearCachedKey(): void {
+  localStorage.removeItem(dekCacheKey(currentUserId));
+  currentUserId = null;
+  dekPromise = null;
 }
 
 export async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
