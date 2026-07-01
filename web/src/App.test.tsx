@@ -1354,6 +1354,51 @@ describe("App", () => {
     expect(shareBtnAfter).toBeDefined();
   });
 
+  // ---- TASK-96.4 AC#2: independent copy buttons show their "Copied!" state independently ----
+
+  it("TASK-96.4 AC#2: clicking Copy for LLM does not flip the Share button to 'Copied!'", async () => {
+    vi.useFakeTimers();
+
+    const mockWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: mockWriteText },
+      configurable: true,
+    });
+
+    Object.defineProperty(globalThis, "location", {
+      value: {
+        hash: "",
+        origin: "http://localhost",
+        hostname: "localhost",
+        port: "",
+        pathname: "/",
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<App />);
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    const copyForLlmBtn = screen.getByRole("button", { name: /copy for llm/i });
+    const shareBtn = screen.getByRole("button", { name: /^share$/i });
+    expect(shareBtn.textContent).toBe("Share");
+
+    await act(async () => {
+      fireEvent.click(copyForLlmBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockWriteText).toHaveBeenCalledTimes(1);
+
+    // Copy for LLM should show its own "Copied!" feedback...
+    expect(screen.getByRole("button", { name: /copied!/i }).textContent).toBe("Copied!");
+    // ...but the adjacent Share button must be unaffected.
+    expect(screen.getByRole("button", { name: /^share$/i }).textContent).toBe("Share");
+  });
+
   it("TASK-23 AC#4: corrupt hash falls back to default workspace without throwing", () => {
     Object.defineProperty(globalThis, "location", {
       value: { hash: "#w=notvalidbase64!!" },

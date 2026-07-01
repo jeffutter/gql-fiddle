@@ -27,6 +27,10 @@ import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges";
 import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subgraphColors";
 import { useTourAuthoringDecorations } from "./useTourAuthoringDecorations";
+import { useCopyToClipboard } from "./useCopyToClipboard";
+import { EditableTab } from "./EditableTab";
+import { TabStrip } from "./TabStrip";
+import type { TabStripTab } from "./TabStrip";
 import { schemaToEntityGraph } from "./schemaToEntityGraph";
 import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
 import { TypeGraph } from "./TypeGraph";
@@ -92,26 +96,7 @@ const MOCK_CONFIG_EDITOR_OPTIONS: _monaco.editor.IStandaloneEditorConstructionOp
 const isBoxDrawingLine = (line: string) => /[─-╿]/.test(line);
 
 function ErrorMessage({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  function copyError() {
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(text).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      });
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
-  }
+  const [copied, copyError] = useCopyToClipboard();
 
   return (
     <div className="error-message">
@@ -130,7 +115,7 @@ function ErrorMessage({ text }: { text: string }) {
         ))}
       </pre>
       <button
-        onClick={copyError}
+        onClick={() => copyError(text)}
         className={
           copied
             ? "btn btn--icon is-success error-message__copy"
@@ -287,12 +272,6 @@ export default function App() {
   const [compose, setCompose] = useState<ComposeResult | null>(null);
   // WASM core instance — loaded once and cached; available on first render cycle after load.
   const [coreInstance, setCoreInstance] = useState<GqlCore | null>(null);
-  const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [renamingQueryTab, setRenamingQueryTab] = useState<number | null>(null);
-  const [renameQueryValue, setRenameQueryValue] = useState("");
-  const [renamingWorkspaceIndex, setRenamingWorkspaceIndex] = useState<number | null>(null);
-  const [renameWorkspaceValue, setRenameWorkspaceValue] = useState("");
   const [mockResult, setMockResult] = useState<MockResult | null>(null);
   const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [showMockConfig, setShowMockConfig] = useState(false);
@@ -312,7 +291,12 @@ export default function App() {
   // Lets the tab-strip export button reach the live sequence-diagram <svg>.
   const sequenceSvgContainerRef = useRef<HTMLDivElement>(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // Each copy button tracks its own "Copied!" state independently (TASK-96.4:
+  // these previously shared one `copied` flag, so clicking one button also
+  // flipped the others' text).
+  const [copiedLLM, copyLLM] = useCopyToClipboard();
+  const [copiedShare, copyShare] = useCopyToClipboard();
+  const [copiedTourShare, copyTourShare] = useCopyToClipboard();
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
@@ -907,23 +891,7 @@ export default function App() {
       }
     }
 
-    const text = parts.join("\n");
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(text).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      });
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
+    copyLLM(parts.join("\n"));
   }
 
   function copyShareUrl() {
@@ -944,22 +912,7 @@ export default function App() {
     const origin = loc.origin || `http://${hostname}${port ? `:${port}` : ""}`;
     const shareUrl = origin + window.location.pathname + encodedHash;
 
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(shareUrl).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      });
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = shareUrl;
-      ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
+    copyShare(shareUrl);
   }
 
   function createTour() {
@@ -985,22 +938,7 @@ export default function App() {
     const origin = loc.origin || `http://${hostname}${port ? `:${port}` : ""}`;
     const shareUrl = origin + window.location.pathname + hash;
 
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(shareUrl).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      });
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = shareUrl;
-      ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
+    copyTourShare(shareUrl);
   }
 
   /**
@@ -1044,58 +982,14 @@ export default function App() {
   const subgraphTabStrip = (
     <nav className="tab-strip">
       {subgraphs.map((sg, i) => (
-        <button
+        <EditableTab
           key={i}
-          onClick={() => setActiveSubgraph(i)}
-          aria-pressed={i === activeSubgraph}
-          className={i === activeSubgraph ? "tab is-active" : "tab"}
-        >
-          {renamingIndex === i ? (
-            <input
-              value={renameValue}
-              autoFocus
-              size={Math.max(renameValue.length, 3)}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onBlur={() => {
-                const trimmed = renameValue.trim();
-                if (trimmed) renameSubgraph(i, trimmed);
-                setRenamingIndex(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const trimmed = renameValue.trim();
-                  if (trimmed) renameSubgraph(i, trimmed);
-                  setRenamingIndex(null);
-                } else if (e.key === "Escape") {
-                  setRenamingIndex(null);
-                }
-                e.stopPropagation();
-              }}
-              className="tab__rename"
-            />
-          ) : (
-            <span
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setRenamingIndex(i);
-                setRenameValue(sg.name);
-              }}
-              title="Double-click to rename"
-            >
-              {sg.name}
-            </span>
-          )}
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              removeSubgraph(i);
-            }}
-            className="tab__close"
-          >
-            ×
-          </span>
-        </button>
+          name={sg.name}
+          active={i === activeSubgraph}
+          onSelect={() => setActiveSubgraph(i)}
+          onRename={(newName) => renameSubgraph(i, newName)}
+          onRemove={() => removeSubgraph(i)}
+        />
       ))}
       <button
         data-testid="subgraph-add-btn"
@@ -1133,61 +1027,17 @@ export default function App() {
   const queryTabStrip = (
     <nav className="tab-strip">
       {queryTabs.map((tab, i) => (
-        <button
+        <EditableTab
           key={i}
-          onClick={() => {
+          name={tab.name}
+          active={!showMockConfig && i === activeQueryTab}
+          onSelect={() => {
             setActiveQueryTab(i);
             setShowMockConfig(false);
           }}
-          aria-pressed={!showMockConfig && i === activeQueryTab}
-          className={!showMockConfig && i === activeQueryTab ? "tab is-active" : "tab"}
-        >
-          {renamingQueryTab === i ? (
-            <input
-              value={renameQueryValue}
-              autoFocus
-              size={Math.max(renameQueryValue.length, 3)}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setRenameQueryValue(e.target.value)}
-              onBlur={() => {
-                const trimmed = renameQueryValue.trim();
-                if (trimmed) renameQueryTab(i, trimmed);
-                setRenamingQueryTab(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const trimmed = renameQueryValue.trim();
-                  if (trimmed) renameQueryTab(i, trimmed);
-                  setRenamingQueryTab(null);
-                } else if (e.key === "Escape") {
-                  setRenamingQueryTab(null);
-                }
-                e.stopPropagation();
-              }}
-              className="tab__rename"
-            />
-          ) : (
-            <span
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setRenamingQueryTab(i);
-                setRenameQueryValue(tab.name);
-              }}
-              title="Double-click to rename"
-            >
-              {tab.name}
-            </span>
-          )}
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              removeQueryTab(i);
-            }}
-            className="tab__close"
-          >
-            ×
-          </span>
-        </button>
+          onRename={(newName) => renameQueryTab(i, newName)}
+          onRemove={() => removeQueryTab(i)}
+        />
       ))}
       <button className="btn btn--icon" onClick={() => addQueryTab()}>
         +
@@ -1205,6 +1055,69 @@ export default function App() {
       </button>
     </nav>
   );
+
+  // Content-switch tab bars for the output and results panes — built once per
+  // render and shared by the mobile/desktop layouts, each with its own
+  // `trailing` (expand/export buttons).
+  const outputTabs: TabStripTab[] = [
+    {
+      key: "type-graph",
+      label: "Type Graph",
+      active: outputTab === "type-graph",
+      onClick: () => setOutputTab("type-graph"),
+    },
+    {
+      key: "entities",
+      label: "Entities",
+      active: outputTab === "entities",
+      onClick: () => setOutputTab("entities"),
+    },
+    {
+      key: "sdl",
+      label: "Supergraph SDL",
+      active: outputTab === "sdl",
+      onClick: () => setOutputTab("sdl"),
+    },
+    {
+      key: "api-sdl",
+      label: "API SDL",
+      active: outputTab === "api-sdl",
+      onClick: () => setOutputTab("api-sdl"),
+    },
+  ];
+
+  const resultsTabs: TabStripTab[] = [
+    {
+      key: "plan",
+      label: "Query Plan",
+      active: resultsTab === "plan",
+      onClick: () => setResultsTab("plan"),
+    },
+    {
+      key: "sequence",
+      label: "Sequence Diagram",
+      active: resultsTab === "sequence",
+      onClick: () => setResultsTab("sequence"),
+    },
+    {
+      key: "timeline",
+      label: "Timeline",
+      active: resultsTab === "timeline",
+      onClick: () => setResultsTab("timeline"),
+    },
+    {
+      key: "schema-tree",
+      label: "Query Shape",
+      active: resultsTab === "schema-tree",
+      onClick: () => setResultsTab("schema-tree"),
+    },
+    {
+      key: "output",
+      label: "Output",
+      active: resultsTab === "output",
+      onClick: () => setResultsTab("output"),
+    },
+  ];
 
   const sdlContent = (
     <div className="scroll">
@@ -1433,62 +1346,18 @@ export default function App() {
   const workspaceTabStrip = (
     <nav className="workspace-tab-strip" aria-label="Workspaces" data-testid="workspace-tab-strip">
       {workspaces.map((ws, i) => (
-        <button
+        <EditableTab
           key={i}
-          onClick={() => setActiveWorkspace(i)}
-          aria-pressed={i === activeWorkspaceIndex}
-          className={i === activeWorkspaceIndex ? "tab is-active" : "tab"}
-          data-testid={`workspace-tab-${i}`}
-        >
-          {renamingWorkspaceIndex === i ? (
-            <input
-              value={renameWorkspaceValue}
-              autoFocus
-              size={Math.max(renameWorkspaceValue.length, 3)}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setRenameWorkspaceValue(e.target.value)}
-              onBlur={() => {
-                const trimmed = renameWorkspaceValue.trim();
-                if (trimmed) renameWorkspace(i, trimmed);
-                setRenamingWorkspaceIndex(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const trimmed = renameWorkspaceValue.trim();
-                  if (trimmed) renameWorkspace(i, trimmed);
-                  setRenamingWorkspaceIndex(null);
-                } else if (e.key === "Escape") {
-                  setRenamingWorkspaceIndex(null);
-                }
-                e.stopPropagation();
-              }}
-              className="tab__rename"
-            />
-          ) : (
-            <span
-              onDoubleClick={(e) => {
-                if (i !== activeWorkspaceIndex) return;
-                e.stopPropagation();
-                setRenamingWorkspaceIndex(i);
-                setRenameWorkspaceValue(ws.name);
-              }}
-              title={i === activeWorkspaceIndex ? "Double-click to rename" : undefined}
-            >
-              {ws.name}
-            </span>
-          )}
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              removeWorkspace(i);
-            }}
-            className="tab__close"
-            aria-label={`Remove ${ws.name}`}
-            data-testid={`workspace-remove-${i}`}
-          >
-            ×
-          </span>
-        </button>
+          name={ws.name}
+          active={i === activeWorkspaceIndex}
+          onSelect={() => setActiveWorkspace(i)}
+          onRename={(newName) => renameWorkspace(i, newName)}
+          onRemove={() => removeWorkspace(i)}
+          canRename={i === activeWorkspaceIndex}
+          testId={`workspace-tab-${i}`}
+          removeAriaLabel={`Remove ${ws.name}`}
+          removeTestId={`workspace-remove-${i}`}
+        />
       ))}
       <button
         className="btn btn--icon"
@@ -1580,13 +1449,16 @@ export default function App() {
       </div>
       {workspaceTabStrip}
       <div className="page-header__actions">
-        <button onClick={copyForLLM} className={copied ? "btn is-success" : "btn"}>
-          {copied ? "Copied!" : "Copy for LLM"}
+        <button onClick={copyForLLM} className={copiedLLM ? "btn is-success" : "btn"}>
+          {copiedLLM ? "Copied!" : "Copy for LLM"}
         </button>
         {tourDraft !== null ? (
           <>
-            <button onClick={copyTourShareUrl} className={copied ? "btn is-success" : "btn"}>
-              {copied ? "Copied!" : "Share Tour"}
+            <button
+              onClick={copyTourShareUrl}
+              className={copiedTourShare ? "btn is-success" : "btn"}
+            >
+              {copiedTourShare ? "Copied!" : "Share Tour"}
             </button>
             {!tourAuthoringOpen && (
               <button onClick={() => setTourAuthoringOpen(true)} className="btn">
@@ -1596,8 +1468,8 @@ export default function App() {
           </>
         ) : (
           <>
-            <button onClick={copyShareUrl} className={copied ? "btn is-success" : "btn"}>
-              {copied ? "Copied!" : "Share"}
+            <button onClick={copyShareUrl} className={copiedShare ? "btn is-success" : "btn"}>
+              {copiedShare ? "Copied!" : "Share"}
             </button>
             <button onClick={createTour} className="btn">
               Create Tour
@@ -1847,36 +1719,7 @@ export default function App() {
                   overflow: "hidden",
                 }}
               >
-                <nav className="tab-strip">
-                  <button
-                    onClick={() => setOutputTab("type-graph")}
-                    aria-pressed={outputTab === "type-graph"}
-                    className={outputTab === "type-graph" ? "tab is-active" : "tab"}
-                  >
-                    Type Graph
-                  </button>
-                  <button
-                    onClick={() => setOutputTab("entities")}
-                    aria-pressed={outputTab === "entities"}
-                    className={outputTab === "entities" ? "tab is-active" : "tab"}
-                  >
-                    Entities
-                  </button>
-                  <button
-                    onClick={() => setOutputTab("sdl")}
-                    aria-pressed={outputTab === "sdl"}
-                    className={outputTab === "sdl" ? "tab is-active" : "tab"}
-                  >
-                    Supergraph SDL
-                  </button>
-                  <button
-                    onClick={() => setOutputTab("api-sdl")}
-                    aria-pressed={outputTab === "api-sdl"}
-                    className={outputTab === "api-sdl" ? "tab is-active" : "tab"}
-                  >
-                    API SDL
-                  </button>
-                </nav>
+                <TabStrip tabs={outputTabs} />
                 {compositionErrorContent ?? (
                   <>
                     {outputTab === "type-graph" && typeGraphContent}
@@ -1898,51 +1741,19 @@ export default function App() {
                   overflow: "hidden",
                 }}
               >
-                <nav className="tab-strip">
-                  <button
-                    onClick={() => setResultsTab("plan")}
-                    aria-pressed={resultsTab === "plan"}
-                    className={resultsTab === "plan" ? "tab is-active" : "tab"}
-                  >
-                    Query Plan
-                  </button>
-                  <button
-                    onClick={() => setResultsTab("sequence")}
-                    aria-pressed={resultsTab === "sequence"}
-                    className={resultsTab === "sequence" ? "tab is-active" : "tab"}
-                  >
-                    Sequence Diagram
-                  </button>
-                  <button
-                    onClick={() => setResultsTab("timeline")}
-                    aria-pressed={resultsTab === "timeline"}
-                    className={resultsTab === "timeline" ? "tab is-active" : "tab"}
-                  >
-                    Timeline
-                  </button>
-                  <button
-                    onClick={() => setResultsTab("schema-tree")}
-                    aria-pressed={resultsTab === "schema-tree"}
-                    className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
-                  >
-                    Query Shape
-                  </button>
-                  <button
-                    onClick={() => setResultsTab("output")}
-                    aria-pressed={resultsTab === "output"}
-                    className={resultsTab === "output" ? "tab is-active" : "tab"}
-                  >
-                    Output
-                  </button>
-                  {resultsTab === "sequence" && (
-                    <ExportImageButton
-                      disabled={!canExportSequence}
-                      error={exportError}
-                      onClick={() => setExportDialogOpen(true)}
-                      style={{ marginLeft: "auto" }}
-                    />
-                  )}
-                </nav>
+                <TabStrip
+                  tabs={resultsTabs}
+                  trailing={
+                    resultsTab === "sequence" && (
+                      <ExportImageButton
+                        disabled={!canExportSequence}
+                        error={exportError}
+                        onClick={() => setExportDialogOpen(true)}
+                        style={{ marginLeft: "auto" }}
+                      />
+                    )
+                  }
+                />
                 {resultsTab === "plan" && planContent}
                 {resultsTab === "sequence" && sequenceContent}
                 {resultsTab === "timeline" && timelineContent}
@@ -2057,61 +1868,36 @@ export default function App() {
                 <Panel defaultSize={50} minSize={200}>
                   <div className="panel" style={{ overflow: "hidden" }}>
                     <h2 className="section-title">Output</h2>
-                    <nav className="tab-strip">
-                      <button
-                        onClick={() => setOutputTab("type-graph")}
-                        aria-pressed={outputTab === "type-graph"}
-                        className={outputTab === "type-graph" ? "tab is-active" : "tab"}
-                      >
-                        Type Graph
-                      </button>
-                      <button
-                        onClick={() => setOutputTab("entities")}
-                        aria-pressed={outputTab === "entities"}
-                        className={outputTab === "entities" ? "tab is-active" : "tab"}
-                      >
-                        Entities
-                      </button>
-                      <button
-                        onClick={() => setOutputTab("sdl")}
-                        aria-pressed={outputTab === "sdl"}
-                        className={outputTab === "sdl" ? "tab is-active" : "tab"}
-                      >
-                        Supergraph SDL
-                      </button>
-                      <button
-                        onClick={() => setOutputTab("api-sdl")}
-                        aria-pressed={outputTab === "api-sdl"}
-                        className={outputTab === "api-sdl" ? "tab is-active" : "tab"}
-                      >
-                        API SDL
-                      </button>
-                      {(outputTab === "type-graph" || outputTab === "entities") && (
-                        <button
-                          className="btn btn--icon"
-                          style={{ marginLeft: "auto" }}
-                          title="Expand to full screen"
-                          aria-label="Expand to full screen"
-                          onClick={() => setFullscreenTab(outputTab)}
-                        >
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 14 14"
-                            fill="none"
-                            aria-hidden="true"
+                    <TabStrip
+                      tabs={outputTabs}
+                      trailing={
+                        (outputTab === "type-graph" || outputTab === "entities") && (
+                          <button
+                            className="btn btn--icon"
+                            style={{ marginLeft: "auto" }}
+                            title="Expand to full screen"
+                            aria-label="Expand to full screen"
+                            onClick={() => setFullscreenTab(outputTab)}
                           >
-                            <path
-                              d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </button>
-                      )}
-                    </nav>
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 14 14"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        )
+                      }
+                    />
 
                     {compositionErrorContent ?? (
                       <>
@@ -2193,78 +1979,48 @@ export default function App() {
                 <Panel defaultSize={50} minSize={150}>
                   <div className="panel" style={{ overflow: "hidden" }}>
                     <h2 className="section-title">Results</h2>
-                    <nav className="tab-strip">
-                      <button
-                        onClick={() => setResultsTab("plan")}
-                        aria-pressed={resultsTab === "plan"}
-                        className={resultsTab === "plan" ? "tab is-active" : "tab"}
-                      >
-                        Query Plan
-                      </button>
-                      <button
-                        onClick={() => setResultsTab("sequence")}
-                        aria-pressed={resultsTab === "sequence"}
-                        className={resultsTab === "sequence" ? "tab is-active" : "tab"}
-                      >
-                        Sequence Diagram
-                      </button>
-                      <button
-                        onClick={() => setResultsTab("timeline")}
-                        aria-pressed={resultsTab === "timeline"}
-                        className={resultsTab === "timeline" ? "tab is-active" : "tab"}
-                      >
-                        Timeline
-                      </button>
-                      <button
-                        onClick={() => setResultsTab("schema-tree")}
-                        aria-pressed={resultsTab === "schema-tree"}
-                        className={resultsTab === "schema-tree" ? "tab is-active" : "tab"}
-                      >
-                        Query Shape
-                      </button>
-                      <button
-                        onClick={() => setResultsTab("output")}
-                        aria-pressed={resultsTab === "output"}
-                        className={resultsTab === "output" ? "tab is-active" : "tab"}
-                      >
-                        Output
-                      </button>
-                      {(resultsTab === "plan" ||
-                        resultsTab === "sequence" ||
-                        resultsTab === "timeline" ||
-                        resultsTab === "schema-tree") && (
-                        <button
-                          className="btn btn--icon"
-                          style={{ marginLeft: "auto" }}
-                          title="Expand to full screen"
-                          aria-label="Expand to full screen"
-                          onClick={() => setFullscreenTab(resultsTab)}
-                        >
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 14 14"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
+                    <TabStrip
+                      tabs={resultsTabs}
+                      trailing={
+                        <>
+                          {(resultsTab === "plan" ||
+                            resultsTab === "sequence" ||
+                            resultsTab === "timeline" ||
+                            resultsTab === "schema-tree") && (
+                            <button
+                              className="btn btn--icon"
+                              style={{ marginLeft: "auto" }}
+                              title="Expand to full screen"
+                              aria-label="Expand to full screen"
+                              onClick={() => setFullscreenTab(resultsTab)}
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 14 14"
+                                fill="none"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
+                                  stroke="currentColor"
+                                  strokeWidth="1.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </button>
+                          )}
+                          {resultsTab === "sequence" && (
+                            <ExportImageButton
+                              disabled={!canExportSequence}
+                              error={exportError}
+                              onClick={() => setExportDialogOpen(true)}
                             />
-                          </svg>
-                        </button>
-                      )}
-                      {resultsTab === "sequence" && (
-                        <ExportImageButton
-                          disabled={!canExportSequence}
-                          error={exportError}
-                          onClick={() => setExportDialogOpen(true)}
-                        />
-                      )}
-                    </nav>
+                          )}
+                        </>
+                      }
+                    />
                     {resultsTab === "plan" && planContent}
                     {resultsTab === "sequence" && sequenceContent}
                     {resultsTab === "timeline" && timelineContent}
