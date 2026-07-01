@@ -529,10 +529,13 @@ layers cloud sync on top of localStorage:
   workspace; `version` is bumped before each push. On 409 (stale version) the
   client adopts the server row.
 - **Delete:** removing a workspace while logged in calls
-  `DELETE /api/workspaces/:id` (soft-delete on the server).
-- **Offline fallback:** edits made while offline (or before login) are queued
-  in memory and flushed on the `online` event or next login. localStorage
-  remains authoritative at all times — no edits are lost.
+  `DELETE /api/workspaces/:id` (soft-delete on the server). A delete that
+  fails or is issued offline is tombstoned in memory and retried on the
+  `online` event or next login, same as a queued edit.
+- **Offline fallback:** edits and deletes made while offline (or before
+  login) are queued in memory and flushed on the `online` event or next
+  login. localStorage remains authoritative at all times — no edits are
+  lost.
 - **Anonymous mode:** no API calls. localStorage-only behavior is unchanged.
 - **No sync loop:** a store update triggered by a pull (within `isSyncing=true`)
   does not re-queue a debounced save.

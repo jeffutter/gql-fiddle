@@ -11,7 +11,8 @@
 //     GET ?since=<syncCursor>, where syncCursor is a server-issued
 //     high-water-mark (never a client wall-clock value — see the cursor
 //     contract in AGENTS.md); polling every 20 s while tab is visible.
-//   - Offline: edits queued in memory and flushed on "online" event / login.
+//   - Offline: edits and deletes queued in memory and flushed on "online"
+//     event / login.
 //   - Anonymous / logged-out: store subscription short-circuits, no API calls.
 import type { WorkspaceEntry, WorkspacePayload } from "./share";
 import { useWorkspace, makeDefaultWorkspace } from "./store";
@@ -153,11 +154,21 @@ async function pushWorkspace(ws: WorkspaceEntry): Promise<WorkspaceRow | null> {
   return decryptRow(key, data.workspace);
 }
 
+/**
+ * Soft-delete one workspace on the server.
+ * Resolves normally on 204 (deleted) and on 404 (already gone — e.g. a
+ * retried delete after an earlier attempt succeeded but the client didn't
+ * see the response, or the row was already reaped). Throws on any other
+ * status or network failure so the caller can queue it for retry — mirrors
+ * pushWorkspace's error contract just above.
+ */
 async function deleteWorkspace(id: string): Promise<void> {
-  await fetch(`/api/workspaces/${id}`, {
+  const res = await fetch(`/api/workspaces/${id}`, {
     method: "DELETE",
     credentials: "include",
   });
+  if (res.ok || res.status === 404) return;
+  throw new Error(`Delete failed: ${res.status}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +226,7 @@ const AUTOSAVE_DEBOUNCE_MS = 2_000; // 2 s — balance responsiveness vs. push f
 export function initSync(): () => void {
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const offlineQueue = new Map<string, WorkspaceEntry>(); // keyed by id
+  const offlineDeleteQueue = new Set<string>(); // ids pending soft-delete
 
   async function onLogin() {
     isSyncing = true;
@@ -329,8 +341,36 @@ export function initSync(): () => void {
     }
   }
 
+  // Mirrors autoSave's offline/error handling (same navigator.onLine check,
+  // same setSyncStatus calls, same catch-all) so a delete that can't reach
+  // the server — whether offline or due to a transient failure — is queued
+  // for retry instead of silently dropped.
+  async function requestDelete(id: string) {
+    if (!navigator.onLine) {
+      offlineDeleteQueue.add(id);
+      useAuth.getState().setSyncStatus("offline");
+      return;
+    }
+    try {
+      await deleteWorkspace(id);
+      useAuth.getState().setSyncStatus("synced");
+    } catch (err) {
+      console.error("Sync: delete failed", err);
+      offlineDeleteQueue.add(id);
+      useAuth.getState().setSyncStatus(navigator.onLine ? "error" : "offline");
+    }
+  }
+
   async function flushOfflineQueue() {
     if (useAuth.getState().status !== "authed") return;
+    // Deletes first: a queued delete should win over ever re-pushing a
+    // since-deleted workspace (in practice the two queues are already
+    // disjoint per id — see the unsubStore handler below).
+    const deleteIds = Array.from(offlineDeleteQueue);
+    offlineDeleteQueue.clear();
+    for (const id of deleteIds) {
+      await requestDelete(id);
+    }
     const entries = Array.from(offlineQueue.values());
     offlineQueue.clear();
     for (const ws of entries) {
@@ -357,7 +397,7 @@ export function initSync(): () => void {
     const currIds = new Set(curr.map((w) => w.id).filter(Boolean));
     for (const ws of prev) {
       if (ws.id && !currIds.has(ws.id)) {
-        void deleteWorkspace(ws.id);
+        void requestDelete(ws.id);
         offlineQueue.delete(ws.id);
       }
     }

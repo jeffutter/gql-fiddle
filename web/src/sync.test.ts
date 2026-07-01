@@ -646,3 +646,163 @@ describe("initSync no sync loop", () => {
     expect(putCount).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// initSync — offline queue (TASK-94.3): edits flush from live store state,
+// and deletes issued or failed offline are tombstoned and retried.
+// ---------------------------------------------------------------------------
+
+describe("initSync offline queue", () => {
+  let cleanup: (() => void) | undefined;
+
+  function setOnline(value: boolean) {
+    vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(value);
+  }
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("AC #1 regression: flush pushes the latest store content, not the stale queued snapshot", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    const wsId = "ws-stale-flush";
+    const putBodies: { name: string }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          return Promise.resolve(
+            new Response(JSON.stringify({ workspace: makeRow({ id: wsId }) }), { status: 200 }),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    cleanup = initSync();
+
+    const ws = makeEntry({ id: wsId, name: "Initial" });
+    useWorkspace.setState({ workspaces: [ws] });
+
+    // Go offline, then edit — the debounced autoSave fires while offline and
+    // captures this (first) edit's id in the offline queue.
+    setOnline(false);
+    useWorkspace.setState({ workspaces: [{ ...ws, name: "Edit 1 (offline)" }] });
+    await vi.advanceTimersByTimeAsync(2_100);
+    expect(putBodies.length).toBe(0); // still offline — nothing sent yet
+
+    // A further edit lands after the offline autoSave already queued the id,
+    // without going through another debounced autoSave call itself — the
+    // live store now holds content newer than whatever autoSave observed
+    // when it queued the id.
+    useWorkspace.setState({ workspaces: [{ ...ws, name: "Edit 2 (latest)" }] });
+
+    // Reconnect and flush. flushOfflineQueue must re-read the current store
+    // entry by id (as autoSave always does), not push a stale captured
+    // snapshot from when the id was first queued.
+    setOnline(true);
+    window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(putBodies.length).toBe(1);
+    expect(putBodies[0].name).toBe("Edit 2 (latest)");
+  });
+
+  it("AC #2: a delete issued offline propagates to the server on reconnect", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    const wsId = "ws-del";
+    const ws = makeEntry({ id: wsId, name: "To delete" });
+    useWorkspace.setState({ workspaces: [ws], activeWorkspaceIndex: 0 });
+
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    cleanup = initSync();
+
+    // Remove the workspace from the store while offline (simulates the user
+    // deleting it without connectivity).
+    setOnline(false);
+    useWorkspace.setState({ workspaces: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deleteCalls.length).toBe(0); // no DELETE attempted while offline
+
+    // Reconnect — the tombstoned delete should flush.
+    setOnline(true);
+    window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(deleteCalls.length).toBe(1);
+    expect(deleteCalls[0]).toContain(`/api/workspaces/${wsId}`);
+  });
+
+  it("AC #3: a failed delete is retried rather than silently dropped", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    const wsId = "ws-fail";
+    const ws = makeEntry({ id: wsId, name: "Flaky delete" });
+    useWorkspace.setState({ workspaces: [ws], activeWorkspaceIndex: 0 });
+
+    let deleteAttempts = 0;
+    let failNextDelete = true;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteAttempts++;
+          if (failNextDelete) {
+            return Promise.resolve(new Response(null, { status: 500 }));
+          }
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    cleanup = initSync();
+
+    // Online throughout — the first DELETE attempt fails (500), so it must
+    // be queued rather than dropped.
+    useWorkspace.setState({ workspaces: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deleteAttempts).toBe(1);
+
+    // A second flush (e.g. the next "online" event) retries the queued
+    // delete; this time it succeeds.
+    failNextDelete = false;
+    window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(deleteAttempts).toBe(2);
+  });
+});
