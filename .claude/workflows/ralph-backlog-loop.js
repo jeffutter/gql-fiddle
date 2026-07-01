@@ -165,11 +165,17 @@ Report via structured output:
 function executePrompt(ticketId) {
   return `You're working in the gql-fiddle repo at its root (no git submodules — commits happen directly here).
 
-Use the Skill tool to invoke "/backlog-execute ${ticketId}". This skill will claim the ticket, implement the work, mark acceptance criteria, add implementation notes/summary, set the ticket status to Done, and commit the result — all per its own instructions. If the skill determines the ticket is blocked by new/unforeseen work, it will revert the ticket's status to "To Do" and exit without completing it.
+First, run: backlog task ${ticketId} --plain
+Check its "Dependencies" field and the status of each dependency (backlog task <dep-id> --plain). If ANY dependency is not "Done", this ticket cannot proceed right now:
+- Set its status to "Blocked" (not "To Do" — "Blocked" removes it from the Dev Ready pool so the loop won't re-select it every iteration; "To Do" would just put it right back in front of Choose/Plan and it would land back in Dev Ready next pass).
+- Add ONE brief implementation note if none already documents this exact block reason — do NOT append a new near-duplicate "still blocked, re-verified" note if the ticket already has one from a prior pass; that just wastes commits without changing anything.
+- Report outcome "blocked-reverted" and stop — do NOT invoke the execute skill.
+
+Otherwise (dependencies are satisfied, or there are none), use the Skill tool to invoke "/backlog-execute ${ticketId}". This skill will claim the ticket, implement the work, mark acceptance criteria, add implementation notes/summary, set the ticket status to Done, and commit the result — all per its own instructions. If the skill determines the ticket is blocked by new/unforeseen work discovered mid-implementation, it will revert the ticket's status to "To Do" (this is fine — that work is a normal re-planning candidate, unlike a hard dependency block).
 
 After the skill finishes, report via structured output:
 - ticketId: "${ticketId}"
-- outcome: "completed" if the ticket was finished and committed, "blocked-reverted" if it was reverted to To Do, or "error" if something went wrong
+- outcome: "completed" if the ticket was finished and committed, "blocked-reverted" if it was moved to Blocked or reverted to To Do, or "error" if something went wrong
 - summary: one sentence describing what happened`;
 }
 
@@ -242,6 +248,8 @@ const results = [];
 let stopReason = "cap";
 let executeCount = 0;
 let executedSinceReview = [];
+let lastExecuteTarget = null;
+let lastExecuteOutcome = null;
 
 for (let i = 0; i < MAX_ITERATIONS; i++) {
   phase("State");
@@ -258,6 +266,25 @@ for (let i = 0; i < MAX_ITERATIONS; i++) {
 
   if (state.inProgress.length > 0 || state.devReady.length > 0) {
     const target = state.inProgress[0] || state.devReady[0];
+
+    // Backstop: if the same ticket was blocked-reverted last iteration and is
+    // still the top pick, the agent failed to move it out of the Dev Ready
+    // pool. Don't burn the rest of the iteration cap re-trying it.
+    if (
+      target === lastExecuteTarget &&
+      lastExecuteOutcome === "blocked-reverted"
+    ) {
+      results.push({
+        ticketId: target,
+        phase: "execute",
+        outcome: "stuck",
+        summary:
+          "Same ticket re-selected immediately after a blocked-reverted outcome; it was not actually moved out of the Dev Ready pool. Stopping to avoid burning the iteration cap on repeats.",
+      });
+      stopReason = "stuck-ticket";
+      break;
+    }
+
     phase("Execute");
     log(`Iteration ${i + 1}: execute -> ${target}`);
     const outcome = await agent(executePrompt(target), {
@@ -280,6 +307,8 @@ for (let i = 0; i < MAX_ITERATIONS; i++) {
       outcome: outcome.outcome,
       summary: outcome.summary,
     });
+    lastExecuteTarget = target;
+    lastExecuteOutcome = outcome.outcome;
 
     executeCount++;
     executedSinceReview.push(target);
