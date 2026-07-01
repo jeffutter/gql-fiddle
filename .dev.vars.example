@@ -3,9 +3,12 @@
 #
 # To apply: wrangler pages dev web/dist reads .dev.vars automatically.
 
-# "development" enables the /api/auth/dev-login bypass (default when unset).
-# Set to "production" to test real GitHub OAuth locally (requires a registered
-# OAuth App with http://localhost:8788/api/auth/github/callback as callback URL).
+# "development" enables the /api/auth/dev-login bypass. This must be set
+# explicitly — the gate is fail-closed, so an unset (or any other) value
+# 404s the dev-login endpoint and routes /api/auth/login to GitHub OAuth.
+# Set to "production" (or remove this line) to test real GitHub OAuth locally
+# (requires a registered OAuth App with
+# http://localhost:8788/api/auth/github/callback as callback URL).
 ENVIRONMENT=development
 
 # Synthetic user identity for /api/auth/dev-login.

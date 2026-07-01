@@ -64,13 +64,13 @@ describe("GET /api/auth/login", () => {
     expect(loc.pathname).toBe("/api/auth/github");
   });
 
-  it("redirects to /api/auth/dev-login when ENVIRONMENT is unset", async () => {
+  it("redirects to /api/auth/github when ENVIRONMENT is unset (fail-closed, e.g. previews)", async () => {
     const ctx = makeCtx<{ ENVIRONMENT?: string }>({});
     const res = await loginHandler(ctx);
 
     expect(res.status).toBe(302);
     const loc = new URL(res.headers.get("Location")!);
-    expect(loc.pathname).toBe("/api/auth/dev-login");
+    expect(loc.pathname).toBe("/api/auth/github");
   });
 
   it("redirects to /api/auth/dev-login when ENVIRONMENT=development", async () => {
@@ -98,6 +98,15 @@ describe("GET /api/auth/dev-login", () => {
 
   it("returns 404 when ENVIRONMENT=production", async () => {
     const ctx = makeCtx({ DB: db, SESSIONS: kv, ENVIRONMENT: "production" });
+    const res = await devLoginHandler(ctx);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 when ENVIRONMENT is unset (fail-closed, e.g. previews)", async () => {
+    const ctx = makeCtx<{ DB: D1Database; SESSIONS: KVNamespace; ENVIRONMENT?: string }>({
+      DB: db,
+      SESSIONS: kv,
+    });
     const res = await devLoginHandler(ctx);
     expect(res.status).toBe(404);
   });

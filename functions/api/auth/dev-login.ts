@@ -1,7 +1,9 @@
 // GET /api/auth/dev-login — dev-only endpoint that creates/looks up a
 // synthetic user in D1 and mints a real KV session, identical to what the
-// OAuth callback produces. Gated on ENVIRONMENT !== "production" — returns
-// 404 in production so the route can't be probed.
+// OAuth callback produces. Fail-closed: only enabled when
+// ENVIRONMENT === "development"; returns 404 for every other value
+// (including unset, e.g. on Cloudflare Pages preview/branch deployments
+// that don't inherit the production vars) so the route can't be probed.
 //
 // Local usage: hit /api/auth/dev-login in the browser while running
 // `wrangler pages dev web/dist`. The DEV_USER_ID env var (from .dev.vars,
@@ -21,7 +23,7 @@ interface Env {
 }
 
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  if (ctx.env.ENVIRONMENT === "production") {
+  if (ctx.env.ENVIRONMENT !== "development") {
     return new Response("Not found", { status: 404 });
   }
 

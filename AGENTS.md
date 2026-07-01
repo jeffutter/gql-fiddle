@@ -118,13 +118,13 @@ functions/
   api/
     health.ts         GET /api/health → { ok: true, bindings: { db, sessions } }
     auth/
-      login.ts        GET /api/auth/login — unified redirect (→ GitHub in prod, → dev-login in dev)
+      login.ts        GET /api/auth/login — unified redirect (→ dev-login only when ENVIRONMENT=development, → GitHub otherwise)
       github.ts       GET /api/auth/github — generate state, redirect to GitHub
       github/
         callback.ts   GET /api/auth/github/callback — validate state, exchange code, mint session
       me.ts           GET /api/auth/me — return current user or 401
       logout.ts       POST /api/auth/logout — delete session from KV, clear cookie
-      dev-login.ts    GET /api/auth/dev-login — dev-only bypass (404 in production)
+      dev-login.ts    GET /api/auth/dev-login — dev-only bypass (fail-closed: 404 unless ENVIRONMENT=development)
       enc-meta.ts     GET /api/auth/enc-meta — returns { kwk, wrapped_dek } for the session user
                       PUT /api/auth/enc-meta — stores the client-generated wrapped DEK
     workspaces/
@@ -230,9 +230,14 @@ wrangler pages dev web/dist
 open http://localhost:8788/api/auth/dev-login
 ```
 
-The `ENVIRONMENT` variable controls which auth flow is used:
-- `ENVIRONMENT=development` (default when unset) → `/api/auth/login` redirects to `/api/auth/dev-login`
-- `ENVIRONMENT=production` → `/api/auth/login` redirects to `/api/auth/github`
+The `ENVIRONMENT` variable controls which auth flow is used, and is
+**fail-closed**: only the exact value `development` enables the bypass.
+- `ENVIRONMENT=development` → `/api/auth/login` redirects to `/api/auth/dev-login`
+- unset, `ENVIRONMENT=production`, or any other value → `/api/auth/login`
+  redirects to `/api/auth/github`, and `/api/auth/dev-login` itself 404s.
+  This matters because Cloudflare Pages preview/branch deployments do not
+  inherit the production `vars` and would otherwise leave `ENVIRONMENT`
+  unset — fail-closed ensures those previews can't be used to bypass auth.
 
 `DEV_USER_ID` (in `.dev.vars`) sets the synthetic user's login name; defaults
 to `dev-user-1`. To simulate two different users, run a second `wrangler pages
