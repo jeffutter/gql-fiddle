@@ -7,7 +7,14 @@
   "compatibility_date": "2026-06-01",
 
   "vars": {
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
+    // Public origin used to build the GitHub OAuth redirect_uri (TASK-100) —
+    // must never be derived from the request Host header, since that's
+    // attacker-influenceable. Placeholder: replace with the real production
+    // custom domain (or *.pages.dev subdomain) once known, and register the
+    // matching callback URL (`${APP_ORIGIN}/api/auth/github/callback`) in the
+    // GitHub OAuth App settings.
+    "APP_ORIGIN": "https://gql-fiddle.pages.dev"
   },
 
   // D1 SQLite database for workspace persistence (TASK-88.2 adds the schema).

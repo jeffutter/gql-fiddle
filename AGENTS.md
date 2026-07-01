@@ -184,6 +184,24 @@ profile and is then discarded — it is never persisted.
    `http://localhost:8788/api/auth/github/callback`
 3. Copy the **Client ID** and generate a **Client Secret**.
 
+#### APP_ORIGIN
+
+`GET /api/auth/github` builds the OAuth `redirect_uri` from the `APP_ORIGIN`
+config var — never from the incoming request's Host header, which is
+attacker-influenceable (spoofable / reachable via alternate hostnames).
+`APP_ORIGIN` is a plain `vars` entry (not a secret, since it's public
+information), configured in:
+
+- `wrangler.jsonc`'s top-level `"vars"` block for production — must match
+  whatever origin is registered as the GitHub OAuth App's callback URL
+  (e.g. `https://<project>.pages.dev`).
+- `.dev.vars` for local dev — set to `http://localhost:8788` to match the
+  `wrangler pages dev` default port and the local callback URL registered
+  in step 2 above.
+
+The endpoint fails closed (`500`) if `APP_ORIGIN` is unset, rather than
+falling back to the request's Host.
+
 #### Required secrets
 
 Never commit these values. Set them via Wrangler or the Cloudflare dashboard:
