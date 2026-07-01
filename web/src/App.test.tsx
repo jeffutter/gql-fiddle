@@ -1753,4 +1753,22 @@ describe("App — tour playback", () => {
     // The normal fiddle should not be rendered.
     expect(container.querySelector(".page-header")).toBeNull();
   });
+
+  // TASK-115: Export-image button on the Sequence Diagram tab.
+  it("shows a disabled Export-image button on the Sequence tab when no plan is rendered (AC#1, AC#5)", async () => {
+    render(<App />);
+    await act(async () => {});
+
+    // No export control while on the default (Query Plan) tab.
+    expect(screen.queryByLabelText("Export image")).toBeNull();
+
+    // Switch to the Sequence Diagram tab.
+    fireEvent.click(screen.getByText("Sequence Diagram"));
+
+    // The button appears but is disabled — no query has been run, so there is
+    // no diagram to export.
+    const exportBtn = screen.getByLabelText("Export image");
+    expect(exportBtn).toBeInTheDocument();
+    expect(exportBtn).toBeDisabled();
+  });
 });

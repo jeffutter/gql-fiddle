@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useMobile } from "./hooks";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { loader } from "@monaco-editor/react";
@@ -16,6 +17,8 @@ import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
 import type { ComposeResult, Diagnostic, GqlCore, MockResult, PlanResult } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
 import { AboutModal } from "./AboutModal";
+import { ExportImageDialog } from "./ExportImageDialog";
+import { exportPng, exportSvg } from "./imageExport";
 import { TourPlayback } from "./TourPlayback";
 import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
@@ -139,6 +142,45 @@ function ErrorMessage({ text }: { text: string }) {
         {copied ? "✓" : "⎘"}
       </button>
     </div>
+  );
+}
+
+/**
+ * Icon button that opens the image-export dialog, styled like the expand button
+ * (btn btn--icon). Disabled when there is no diagram to export; flips to a
+ * transient error state (via `error`) when an export fails. Generic — any
+ * visual tab can render it.
+ */
+function ExportImageButton({
+  disabled,
+  error,
+  onClick,
+  style,
+}: {
+  disabled: boolean;
+  error: string | null;
+  onClick: () => void;
+  style?: CSSProperties;
+}) {
+  return (
+    <button
+      className={error ? "btn btn--icon is-error" : "btn btn--icon"}
+      disabled={disabled}
+      title={error ?? "Export image"}
+      aria-label={error ?? "Export image"}
+      onClick={onClick}
+      style={style}
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path
+          d="M7 1v8M4 6l3 3 3-3M1 11v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 
@@ -266,6 +308,10 @@ export default function App() {
     "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | null
   >(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  // Lets the tab-strip export button reach the live sequence-diagram <svg>.
+  const sequenceSvgContainerRef = useRef<HTMLDivElement>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -337,6 +383,13 @@ export default function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [fullscreenTab]);
+
+  // Transient export error: surface it on the button, then clear after 2.5s.
+  useEffect(() => {
+    if (exportError === null) return;
+    const timer = setTimeout(() => setExportError(null), 2500);
+    return () => clearTimeout(timer);
+  }, [exportError]);
 
   // Restore workspace from URL hash on mount (once only).
   // Also handles #t= tour playback hashes.
@@ -1400,12 +1453,35 @@ export default function App() {
     </div>
   );
 
+  // A rendered diagram exists only when the plan succeeded; gates the export button.
+  const canExportSequence = planResult !== null && planResult.ok;
+
+  const handleExportSequence = async (format: "svg" | "png") => {
+    const svg = sequenceSvgContainerRef.current?.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) {
+      setExportError("No diagram to export");
+      return;
+    }
+    try {
+      if (format === "svg") {
+        exportSvg(svg, "sequence-diagram.svg");
+      } else {
+        const background =
+          getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() ||
+          "#16243a";
+        await exportPng(svg, "sequence-diagram.png", background);
+      }
+    } catch (e) {
+      setExportError(String(e));
+    }
+  };
+
   const sequenceContent = (
     <div className="scroll">
       {planResult === null ? (
         <p className="empty-state">Run a query to see the sequence diagram.</p>
       ) : planResult.ok ? (
-        <SequenceDiagram node={planResult.query_plan} />
+        <SequenceDiagram node={planResult.query_plan} containerRef={sequenceSvgContainerRef} />
       ) : (
         <div className="callout callout--error">
           {planResult.errors.map((e, i) => (
@@ -2034,6 +2110,14 @@ export default function App() {
                   >
                     Output
                   </button>
+                  {resultsTab === "sequence" && (
+                    <ExportImageButton
+                      disabled={!canExportSequence}
+                      error={exportError}
+                      onClick={() => setExportDialogOpen(true)}
+                      style={{ marginLeft: "auto" }}
+                    />
+                  )}
                 </nav>
                 {resultsTab === "plan" && planContent}
                 {resultsTab === "sequence" && sequenceContent}
@@ -2349,6 +2433,13 @@ export default function App() {
                           </svg>
                         </button>
                       )}
+                      {resultsTab === "sequence" && (
+                        <ExportImageButton
+                          disabled={!canExportSequence}
+                          error={exportError}
+                          onClick={() => setExportDialogOpen(true)}
+                        />
+                      )}
                     </nav>
                     {resultsTab === "plan" && planContent}
                     {resultsTab === "sequence" && sequenceContent}
@@ -2416,13 +2507,22 @@ export default function App() {
           >
             <div className="fullscreen-modal__header">
               <span className="fullscreen-modal__title">{VISUAL_TAB_LABELS[fullscreenTab]}</span>
-              <button
-                className="btn btn--icon"
-                aria-label="Close full screen"
-                onClick={() => setFullscreenTab(null)}
-              >
-                ×
-              </button>
+              <div style={{ display: "flex", gap: 4 }}>
+                {fullscreenTab === "sequence" && (
+                  <ExportImageButton
+                    disabled={!canExportSequence}
+                    error={exportError}
+                    onClick={() => setExportDialogOpen(true)}
+                  />
+                )}
+                <button
+                  className="btn btn--icon"
+                  aria-label="Close full screen"
+                  onClick={() => setFullscreenTab(null)}
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div className="fullscreen-modal__body">
               {fullscreenTab === "plan" && planContent}
@@ -2436,6 +2536,12 @@ export default function App() {
         </div>
       )}
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
+      {exportDialogOpen && (
+        <ExportImageDialog
+          onClose={() => setExportDialogOpen(false)}
+          onChoose={handleExportSequence}
+        />
+      )}
     </>
   );
 }

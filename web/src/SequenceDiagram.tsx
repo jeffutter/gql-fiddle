@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import type { PlanNode } from "./core/types";
 import { planToMermaid } from "./planToMermaid";
 import { MERMAID_THEME_VARIABLES } from "./monacoTheme";
@@ -11,8 +12,17 @@ import { MERMAID_THEME_VARIABLES } from "./monacoTheme";
 // layout arithmetic; Mermaid handles this automatically.
 let mermaidInitialized = false;
 
-export function SequenceDiagram({ node }: { node: PlanNode }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+export function SequenceDiagram({
+  node,
+  containerRef: externalRef,
+}: {
+  node: PlanNode;
+  // Optional: lets a parent reach the rendered <svg> (e.g. for image export)
+  // without a global document query. Falls back to an internal ref.
+  containerRef?: RefObject<HTMLDivElement | null>;
+}) {
+  const internalRef = useRef<HTMLDivElement>(null);
+  const containerRef = externalRef ?? internalRef;
   const [error, setError] = useState<string | null>(null);
   const idCounter = useRef(0);
 
@@ -47,7 +57,8 @@ export function SequenceDiagram({ node }: { node: PlanNode }) {
     return () => {
       cancelled = true;
     };
-  }, [node]);
+    // containerRef is stable (a ref object); listed to satisfy exhaustive-deps.
+  }, [node, containerRef]);
 
   if (error) {
     return (

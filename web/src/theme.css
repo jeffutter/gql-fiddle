@@ -260,6 +260,12 @@ body {
   border-color: color-mix(in srgb, var(--success) 45%, var(--border));
 }
 
+/* Transient error feedback (e.g. a failed image export). */
+.btn.is-error {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
 /* Active/toggled-on state (e.g. Vim keybindings enabled). */
 .btn.is-active {
   color: var(--accent);
@@ -1698,6 +1704,29 @@ body {
   width: min(96vw, 680px);
   height: auto;
   max-height: min(92vh, 760px);
+}
+
+/* Compact image-export format-choice dialog (SVG vs PNG). */
+.export-image-dialog {
+  width: min(94vw, 360px);
+  height: auto;
+}
+.export-image-dialog__body {
+  padding: 20px 24px 24px;
+}
+.export-image-dialog__prompt {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.export-image-dialog__actions {
+  display: flex;
+  gap: 12px;
+}
+.export-image-dialog__actions .btn {
+  flex: 1;
+  justify-content: center;
+  padding: 8px 10px;
 }
 
 .about-modal__body {
