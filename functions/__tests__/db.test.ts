@@ -6,7 +6,7 @@ import {
   getOrCreateUser,
   getWrappedDek,
   listWorkspaces,
-  setWrappedDek,
+  setWrappedDekIfAbsent,
   softDeleteWorkspace,
   upsertWorkspace,
 } from "../_lib/db";
@@ -217,7 +217,7 @@ describe("softDeleteWorkspace", () => {
   });
 });
 
-describe("getWrappedDek / setWrappedDek", () => {
+describe("getWrappedDek / setWrappedDekIfAbsent", () => {
   it("returns null when no wrapped_dek has been set", async () => {
     const user = await getOrCreateUser(db, {
       github_id: 4001,
@@ -235,19 +235,22 @@ describe("getWrappedDek / setWrappedDek", () => {
       name: null,
       avatar_url: null,
     });
-    await setWrappedDek(db, user.id, "E1:abc123==");
+    const stored = await setWrappedDekIfAbsent(db, user.id, "E1:abc123==");
+    expect(stored).toBe("E1:abc123==");
     expect(await getWrappedDek(db, user.id)).toBe("E1:abc123==");
   });
 
-  it("overwrites a previously stored wrapped_dek", async () => {
+  it("ignores a second call and returns the first-stored wrapped_dek", async () => {
     const user = await getOrCreateUser(db, {
       github_id: 4003,
       login: "isla",
       name: null,
       avatar_url: null,
     });
-    await setWrappedDek(db, user.id, "E1:first==");
-    await setWrappedDek(db, user.id, "E1:second==");
-    expect(await getWrappedDek(db, user.id)).toBe("E1:second==");
+    const first = await setWrappedDekIfAbsent(db, user.id, "E1:first==");
+    const second = await setWrappedDekIfAbsent(db, user.id, "E1:second==");
+    expect(first).toBe("E1:first==");
+    expect(second).toBe("E1:first==");
+    expect(await getWrappedDek(db, user.id)).toBe("E1:first==");
   });
 });

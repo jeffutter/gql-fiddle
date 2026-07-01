@@ -169,15 +169,38 @@ export async function getWrappedDek(
   return row?.wrapped_dek ?? null;
 }
 
-export async function setWrappedDek(
+/**
+ * Store a wrapped DEK the first time a user sets one, and otherwise leave the
+ * existing value untouched. This makes first-login races between two devices
+ * safe: whichever device's UPDATE reaches the row first "wins" (the
+ * `wrapped_dek IS NULL` guard turns the loser's UPDATE into a no-op), and
+ * both callers read back the same winning value via the trailing SELECT.
+ * Correctness relies on D1/SQLite serializing individual statements, the same
+ * assumption `upsertWorkspace`'s conditional `ON CONFLICT ... WHERE` above
+ * relies on.
+ *
+ * Returns the wrapped DEK now stored for this user (which may be the
+ * caller's own value, or another device's if it won the race).
+ */
+export async function setWrappedDekIfAbsent(
   db: D1Database,
   userId: string,
   wrappedDek: string,
-): Promise<void> {
+): Promise<string> {
   await db
-    .prepare("UPDATE users SET wrapped_dek = ? WHERE id = ?")
+    .prepare(
+      "UPDATE users SET wrapped_dek = ? WHERE id = ? AND wrapped_dek IS NULL",
+    )
     .bind(wrappedDek, userId)
     .run();
+
+  const current = await getWrappedDek(db, userId);
+  if (current === null) {
+    throw new Error(
+      `wrapped_dek missing after setWrappedDekIfAbsent (user_id=${userId})`,
+    );
+  }
+  return current;
 }
 
 /**

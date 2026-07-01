@@ -8,7 +8,7 @@
 // Neither KV nor D1 alone is sufficient to decrypt workspace data; both are required.
 // The plaintext DEK is constructed and used only in the browser — the server never sees it.
 import { requireUser } from "../../_lib/auth";
-import { getWrappedDek, setWrappedDek } from "../../_lib/db";
+import { getWrappedDek, setWrappedDekIfAbsent } from "../../_lib/db";
 
 interface Env {
   DB: D1Database;
@@ -61,6 +61,6 @@ export const onRequestPut: PagesFunction<Env> = async (ctx) => {
     );
   }
 
-  await setWrappedDek(ctx.env.DB, user.id, wrapped_dek);
-  return new Response(null, { status: 204 });
+  const stored = await setWrappedDekIfAbsent(ctx.env.DB, user.id, wrapped_dek);
+  return Response.json({ wrapped_dek: stored });
 };

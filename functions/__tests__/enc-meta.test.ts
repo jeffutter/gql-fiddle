@@ -209,11 +209,13 @@ describe("PUT /api/auth/enc-meta", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 204 and stores the wrapped_dek", async () => {
+  it("returns 200 with the stored wrapped_dek", async () => {
     const res = await onRequestPut(
       makePutCtx(env, { wrapped_dek: "E1:realWrapped==" }, userCookie),
     );
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { wrapped_dek: string };
+    expect(body.wrapped_dek).toBe("E1:realWrapped==");
 
     // Verify it is readable back via GET
     const getRes = await onRequestGet(makeGetCtx(env, userCookie));
@@ -223,18 +225,23 @@ describe("PUT /api/auth/enc-meta", () => {
     expect(wrapped_dek).toBe("E1:realWrapped==");
   });
 
-  it("overwrites a previously stored wrapped_dek", async () => {
-    await onRequestPut(
+  it("second PUT is a no-op and both callers get the first-stored wrapped_dek", async () => {
+    const res1 = await onRequestPut(
       makePutCtx(env, { wrapped_dek: "E1:first==" }, userCookie),
     );
-    await onRequestPut(
+    const body1 = (await res1.json()) as { wrapped_dek: string };
+    expect(body1.wrapped_dek).toBe("E1:first==");
+
+    const res2 = await onRequestPut(
       makePutCtx(env, { wrapped_dek: "E1:second==" }, userCookie),
     );
+    const body2 = (await res2.json()) as { wrapped_dek: string };
+    expect(body2.wrapped_dek).toBe("E1:first==");
 
     const getRes = await onRequestGet(makeGetCtx(env, userCookie));
     const { wrapped_dek } = (await getRes.json()) as {
       wrapped_dek: string | null;
     };
-    expect(wrapped_dek).toBe("E1:second==");
+    expect(wrapped_dek).toBe("E1:first==");
   });
 });

@@ -107,9 +107,13 @@ describe("sync + encryption integration", () => {
             }),
           );
         }
-        // enc-meta PUT: accept the wrapped DEK (returns 204)
+        // enc-meta PUT: accept the wrapped DEK and echo it back (this device
+        // is alone, so it "wins" per the server's setWrappedDekIfAbsent contract)
         if (urlStr.includes("/api/auth/enc-meta") && method === "PUT") {
-          return Promise.resolve(new Response(null, { status: 204 }));
+          const body = JSON.parse((opts?.body as string) ?? "{}") as {
+            wrapped_dek: string;
+          };
+          return Promise.resolve(Response.json({ wrapped_dek: body.wrapped_dek }, { status: 200 }));
         }
         // workspaces GET: empty list (first login — no server-side workspaces yet)
         if (urlStr.includes("/api/workspaces") && method === "GET") {
@@ -193,7 +197,10 @@ describe("sync + encryption integration", () => {
           );
         }
         if (urlStr.includes("/api/auth/enc-meta") && method === "PUT") {
-          return Promise.resolve(new Response(null, { status: 204 }));
+          const body = JSON.parse((opts?.body as string) ?? "{}") as {
+            wrapped_dek: string;
+          };
+          return Promise.resolve(Response.json({ wrapped_dek: body.wrapped_dek }, { status: 200 }));
         }
         if (urlStr.includes("/api/workspaces/") && method === "PUT") {
           const body = JSON.parse((opts?.body as string) ?? "{}") as {

@@ -94,15 +94,32 @@ export async function initEncryption(): Promise<void> {
         return;
       }
     } else {
-      // First device for this user: generate DEK, wrap it, store on server.
+      // First device for this user: generate DEK, wrap it, send to server.
+      // The server only stores the wrapped DEK if none exists yet
+      // (setWrappedDekIfAbsent), and always echoes back whichever value
+      // "won" — which may belong to another device racing the same login.
+      // Adopt that winning value instead of assuming our own was stored.
       dekBytes = crypto.getRandomValues(new Uint8Array(32));
       const wrapped = await aesGcmEncrypt(kwk, new TextEncoder().encode(toBase64(dekBytes)));
-      await fetch("/api/auth/enc-meta", {
+      const putRes = await fetch("/api/auth/enc-meta", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ wrapped_dek: wrapped }),
       });
+      if (putRes.ok) {
+        const { wrapped_dek: winningWrapped } = (await putRes.json()) as {
+          wrapped_dek: string;
+        };
+        if (winningWrapped !== wrapped) {
+          // Lost the race to another device — adopt its DEK instead of ours.
+          const dekRaw = await aesGcmDecrypt(kwk, winningWrapped);
+          if (dekRaw) dekBytes = fromBase64(new TextDecoder().decode(dekRaw));
+        }
+      }
+      // If the PUT failed (offline / network error) or the winning DEK
+      // failed to unwrap, keep our own generated dekBytes — no regression
+      // versus the previous fire-and-forget behavior for that case.
     }
 
     localStorage.setItem(DEK_CACHE_KEY, toBase64(dekBytes));
