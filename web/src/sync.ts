@@ -119,7 +119,21 @@ async function pullWorkspaces(since: number): Promise<{ rows: WorkspaceRow[]; cu
   if (!res.ok) throw new Error(`Pull failed: ${res.status}`);
   const data = (await res.json()) as { workspaces: WorkspaceRow[]; cursor: number };
   const key = await getOrCreateKey();
-  const rows = await Promise.all(data.workspaces.map((row) => decryptRow(key, row)));
+  const settled = await Promise.allSettled(data.workspaces.map((row) => decryptRow(key, row)));
+  const rows: WorkspaceRow[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const result = settled[i];
+    if (result.status === "fulfilled") {
+      rows.push(result.value);
+    } else {
+      // Never surface ciphertext as plaintext: skip rows whose decryption
+      // failed (wrong key / tampering) instead of aborting the whole pull.
+      console.error(
+        `Sync: skipping workspace ${data.workspaces[i].id} — decryption failed`,
+        result.reason,
+      );
+    }
+  }
   return { rows, cursor: data.cursor };
 }
 

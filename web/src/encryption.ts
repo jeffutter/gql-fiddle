@@ -126,19 +126,31 @@ export async function encrypt(key: CryptoKey, plaintext: string): Promise<string
   return COMPRESSED_PREFIX + (await aesGcmEncrypt(key, compressed));
 }
 
-// Returns plaintext, or the original value unchanged if decryption fails.
+// Thrown by decrypt() when a value carries a known ciphertext prefix
+// (CE1:/E1:) but fails to decrypt (wrong key, tampering, truncation).
+// Callers must never treat the caught value as plaintext.
+export class DecryptionError extends Error {
+  constructor(message = "Failed to decrypt value") {
+    super(message);
+    this.name = "DecryptionError";
+  }
+}
+
+// Returns plaintext. Throws DecryptionError if the value has a known
+// ciphertext prefix (CE1:/E1:) but decryption fails — callers must surface
+// an error or skip the row, never fall back to the raw ciphertext.
 // CE1: — compressed+encrypted (current format)
 // E1:  — encrypted without compression (legacy)
-// no prefix — plaintext (legacy, pre-encryption)
+// no prefix — plaintext (legacy, pre-encryption) — returned unchanged
 export async function decrypt(key: CryptoKey, value: string): Promise<string> {
   if (value.startsWith(COMPRESSED_PREFIX)) {
     const bytes = await aesGcmDecrypt(key, value.slice(COMPRESSED_PREFIX.length));
-    if (bytes === null) return value;
+    if (bytes === null) throw new DecryptionError();
     return pako.inflate(bytes, { to: "string" });
   }
   if (value.startsWith(PREFIX)) {
     const bytes = await aesGcmDecrypt(key, value.slice(PREFIX.length));
-    if (bytes === null) return value;
+    if (bytes === null) throw new DecryptionError();
     return new TextDecoder().decode(bytes);
   }
   return value;

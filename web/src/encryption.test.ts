@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getOrCreateKey, encrypt, decrypt, initEncryption } from "./encryption";
+import { getOrCreateKey, encrypt, decrypt, initEncryption, DecryptionError } from "./encryption";
+
+async function randomKey(): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw",
+    crypto.getRandomValues(new Uint8Array(32)),
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
 
 // ---------------------------------------------------------------------------
 // encrypt / decrypt roundtrips (uses getOrCreateKey offline fallback)
@@ -34,6 +44,13 @@ describe("encrypt / decrypt", () => {
     const c2 = await encrypt(key, plaintext);
     expect(await decrypt(key, c1)).toBe(plaintext);
     expect(await decrypt(key, c2)).toBe(plaintext);
+  });
+
+  it("throws DecryptionError (never returns raw ciphertext) when decrypted with the wrong key", async () => {
+    const rightKey = await randomKey();
+    const wrongKey = await randomKey();
+    const ciphertext = await encrypt(rightKey, "workspace name");
+    await expect(decrypt(wrongKey, ciphertext)).rejects.toThrow(DecryptionError);
   });
 });
 
