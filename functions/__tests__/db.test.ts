@@ -137,6 +137,27 @@ describe("upsertWorkspace and listWorkspaces", () => {
     expect(list[0].name).toBe("v2 name");
     expect(list[0].version).toBe(2);
   });
+
+  it("delta filter is inclusive: since === row.updated_at still returns the row", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 2003,
+      login: "grace",
+      name: null,
+      avatar_url: null,
+    });
+
+    const { row } = await upsertWorkspace(db, {
+      id: "ws-eeee-0005",
+      user_id: user.id,
+      name: "Boundary",
+      payload: "{}",
+      version: 1,
+    });
+
+    // Under the old exclusive `>` comparison this row would be excluded.
+    const list = await listWorkspaces(db, user.id, row.updated_at);
+    expect(list.map((r) => r.id)).toContain(row.id);
+  });
 });
 
 describe("softDeleteWorkspace", () => {

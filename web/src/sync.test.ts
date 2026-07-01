@@ -40,6 +40,7 @@ function makeRow(overrides: {
   name?: string;
   deleted_at?: number | null;
   subgraphs?: { name: string; sdl: string }[];
+  updated_at?: number;
 }) {
   return {
     id: overrides.id,
@@ -52,7 +53,7 @@ function makeRow(overrides: {
       mockConfig: "",
     }),
     version: overrides.version ?? 1,
-    updated_at: Date.now(),
+    updated_at: overrides.updated_at ?? Date.now(),
     deleted_at: overrides.deleted_at ?? null,
   };
 }
@@ -190,8 +191,9 @@ describe("mergeWorkspaces", () => {
 describe("deltaRefresh throttle", () => {
   beforeEach(() => {
     resetStores();
-    // Reset lastPullTs by calling module-level setter trick via re-import
-    // is not straightforward; instead we advance fake time past the throttle.
+    // Resetting lastPullAttemptTs via a module-level setter trick isn't
+    // straightforward across tests; instead we advance fake time past the
+    // throttle window.
   });
 
   afterEach(() => {
@@ -209,11 +211,95 @@ describe("deltaRefresh throttle", () => {
     useAuth.setState({ status: "authed" });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ workspaces: [] }), { status: 200 }));
+      .mockResolvedValue(
+        new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+      );
     // Advance time well past the 30 s throttle window
     vi.setSystemTime(new Date(Date.now() + 60_000));
     await deltaRefresh();
     expect(fetchSpy).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deltaRefresh — server cursor contract (TASK-94.2)
+// ---------------------------------------------------------------------------
+
+describe("deltaRefresh server cursor contract", () => {
+  beforeEach(() => {
+    resetStores();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("AC #1: a client clock skewed +10 minutes does not change the since= sent on the next pull", async () => {
+    useAuth.setState({ status: "authed" });
+    const serverCursor = Date.now();
+    const urls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((url: RequestInfo | URL) => {
+      urls.push(String(url));
+      return Promise.resolve(
+        new Response(JSON.stringify({ workspaces: [], cursor: serverCursor }), { status: 200 }),
+      );
+    });
+
+    // First pull (force=true bypasses the 15 s throttle) — the client learns
+    // the server-issued cursor.
+    await deltaRefresh(true);
+
+    // Client clock skews forward by 10 minutes before the next pull.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.now() + 10 * 60_000));
+
+    await deltaRefresh(true);
+
+    // The second request's since= must equal the server cursor returned by
+    // the first response, never a client-derived (skewed) Date.now() value.
+    expect(urls).toHaveLength(2);
+    expect(urls[1]).toContain(`since=${serverCursor}`);
+    expect(urls[1]).not.toContain(`since=${serverCursor + 10 * 60_000}`);
+  });
+
+  it("AC #2: a row landing exactly on the previous cursor is not missed on the next pull", async () => {
+    useAuth.setState({ status: "authed" });
+    const firstCursor = Date.now();
+    const urls: string[] = [];
+    let call = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((url: RequestInfo | URL) => {
+      urls.push(String(url));
+      call++;
+      if (call === 1) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: firstCursor }), { status: 200 }),
+        );
+      }
+      // Second pull: the server delivers a row whose updated_at lands exactly
+      // on the cursor the first pull returned — proxying the server's
+      // inclusive `>=` boundary guarantee (functions/_lib/db.ts) through the
+      // client flow. This row must not be dropped just because it shares the
+      // exact cursor timestamp.
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            workspaces: [makeRow({ id: "ws-race", version: 2, updated_at: firstCursor })],
+            cursor: firstCursor + 1,
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    await deltaRefresh(true);
+    await deltaRefresh(true);
+
+    // The second request must have echoed back the exact first cursor.
+    expect(urls[1]).toContain(`since=${firstCursor}`);
+    // And the boundary-equal row must have been merged into the store.
+    const { workspaces } = useWorkspace.getState();
+    expect(workspaces.some((w) => w.id === "ws-race")).toBe(true);
   });
 });
 
@@ -251,7 +337,9 @@ describe("initSync auto-save debounce", () => {
           );
         }
         // GET calls (delta refresh polling, etc.)
-        return Promise.resolve(new Response(JSON.stringify({ workspaces: [] }), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
       });
 
     cleanup = initSync();
@@ -293,7 +381,9 @@ describe("initSync auto-save debounce", () => {
             resolvers.push(resolve);
           });
         }
-        return Promise.resolve(new Response(JSON.stringify({ workspaces: [] }), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
       },
     );
 
@@ -408,7 +498,10 @@ describe("initSync onLogin", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
       return Promise.resolve(
         new Response(
-          JSON.stringify({ workspaces: [makeRow({ id: wsId, deleted_at: Date.now() })] }),
+          JSON.stringify({
+            workspaces: [makeRow({ id: wsId, deleted_at: Date.now() })],
+            cursor: Date.now(),
+          }),
           { status: 200 },
         ),
       );
@@ -448,7 +541,9 @@ describe("initSync onLogin", () => {
           );
         }
         // pullWorkspaces(0) returns nothing — server has no workspaces yet.
-        return Promise.resolve(new Response(JSON.stringify({ workspaces: [] }), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
       },
     );
 
@@ -476,7 +571,10 @@ describe("initSync onLogin", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
       return Promise.resolve(
         new Response(
-          JSON.stringify({ workspaces: [makeRow({ id: "ws-b", deleted_at: Date.now() })] }),
+          JSON.stringify({
+            workspaces: [makeRow({ id: "ws-b", deleted_at: Date.now() })],
+            cursor: Date.now(),
+          }),
           { status: 200 },
         ),
       );
@@ -528,7 +626,9 @@ describe("initSync no sync loop", () => {
             new Response(JSON.stringify({ workspace: serverRow }), { status: 200 }),
           );
         }
-        return Promise.resolve(new Response(JSON.stringify({ workspaces: [] }), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
       },
     );
 

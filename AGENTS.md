@@ -128,7 +128,7 @@ functions/
       enc-meta.ts     GET /api/auth/enc-meta — returns { kwk, wrapped_dek } for the session user
                       PUT /api/auth/enc-meta — stores the client-generated wrapped DEK
     workspaces/
-      index.ts        GET /api/workspaces[?since=<epochMs>] — list user's workspaces
+      index.ts        GET /api/workspaces[?since=<cursor>] — list user's workspaces
       [id].ts         PUT /api/workspaces/:id — upsert; DELETE /api/workspaces/:id — soft-delete
   _lib/
     db.ts             D1 data-access helpers (getOrCreateUser, listWorkspaces, upsertWorkspace,
@@ -248,7 +248,7 @@ Cross-user access returns 404 (not 403) to avoid id enumeration.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/workspaces` | Full snapshot — live (non-deleted) workspaces for the caller |
-| GET | `/api/workspaces?since=<epochMs>` | Delta — rows updated after `since`, including soft-deleted rows so clients learn about deletions |
+| GET | `/api/workspaces?since=<cursor>` | Delta — rows updated at-or-after `since`, including soft-deleted rows so clients learn about deletions. `since` must be a `cursor` value previously returned by this endpoint (or `0`), never a client timestamp. Every response (snapshot or delta) includes a `cursor` field — see "Cursor contract" below |
 | PUT | `/api/workspaces/:id` | Upsert. Body: `{ name, payload, version }`. Returns 200 + row on accept, 409 + current row on stale version |
 | DELETE | `/api/workspaces/:id` | Soft-delete (sets `deleted_at`, bumps `version`). Returns 204 |
 
@@ -540,11 +540,40 @@ layers cloud sync on top of localStorage:
 ### Cross-device refresh strategy
 
 When the tab regains focus or becomes visible (`visibilitychange`), a delta
-`GET /api/workspaces?since=<lastPullTs>` is issued and merged into the store.
-Throttled to at most **one delta pull per 15 seconds** to respect D1 read
-limits.
+`GET /api/workspaces?since=<syncCursor>` is issued and merged into the store,
+where `syncCursor` is the server-issued cursor from the previous pull (see
+"Cursor contract" below) — never a client wall-clock value. Throttled to at
+most **one delta pull per 15 seconds** to respect D1 read limits.
 
 Polling: every **20 seconds** while the tab is visible.
+
+### Cursor contract (delta sync)
+
+`since`/`cursor` is a server-owned opaque high-water-mark, not a timestamp
+the client may compute itself:
+
+- The server captures `cursor = Date.now()` immediately **before** running
+  the DB query (`functions/api/workspaces/index.ts`), not derived from the
+  result rows — so even an empty result set yields a fresh, usable cursor.
+- Every `GET /api/workspaces` response — full snapshot or delta — includes
+  this `cursor` field. Clients must persist whatever cursor they last
+  received and echo it back verbatim as `since` on the next call; they must
+  never substitute `Date.now()` or any other client-derived value. This
+  makes delta sync immune to client/server clock skew — a client clock
+  running ahead of (or behind) the server can no longer cause the server to
+  skip rows the client hasn't seen yet.
+- The delta filter is inclusive (`updated_at >= since`, not `>`) so that a
+  write committing at the exact instant a cursor was issued is still
+  delivered on the next pull rather than silently dropped. This means the
+  same row can occasionally be re-delivered across two consecutive pulls;
+  that's expected and safe because `mergeWorkspaces` compares `version` per
+  workspace id and treats re-receiving an already-applied version as a
+  no-op.
+- Known residual limitation: this narrows but does not perfectly eliminate
+  races at sub-millisecond granularity within D1/SQLite's serialized write
+  path — it closes the "client clock skew" and "write lands within the same
+  pull request" gaps described above, not every theoretically possible
+  interleaving.
 
 Sync status indicator: an 8 px dot in the page header (synced/saving/offline/error)
 using existing CSS variables — no hardcoded colors, no layout shift.

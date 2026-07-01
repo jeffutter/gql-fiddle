@@ -8,7 +8,9 @@
 //     before each push; 409 causes client to adopt server row (LWW).
 //   - Delete while logged in: soft-delete via DELETE /api/workspaces/:id.
 //   - Cross-device refresh: window focus / visibilitychange → throttled delta
-//     GET ?since=<lastPullTs>; polling every 20 s while tab is visible.
+//     GET ?since=<syncCursor>, where syncCursor is a server-issued
+//     high-water-mark (never a client wall-clock value — see the cursor
+//     contract in AGENTS.md); polling every 20 s while tab is visible.
 //   - Offline: edits queued in memory and flushed on "online" event / login.
 //   - Anonymous / logged-out: store subscription short-circuits, no API calls.
 import type { WorkspaceEntry, WorkspacePayload } from "./share";
@@ -108,13 +110,16 @@ async function decryptRow(key: CryptoKey, row: WorkspaceRow): Promise<WorkspaceR
   };
 }
 
-async function pullWorkspaces(since?: number): Promise<WorkspaceRow[]> {
-  const url = since !== undefined ? `/api/workspaces?since=${since}` : "/api/workspaces";
-  const res = await fetch(url, { credentials: "include" });
+// `since` must be either 0 (initial pull — returns all rows including
+// soft-deleted ones) or a cursor previously returned by this same endpoint.
+// Never pass a client-derived timestamp: the server owns the cursor value.
+async function pullWorkspaces(since: number): Promise<{ rows: WorkspaceRow[]; cursor: number }> {
+  const res = await fetch(`/api/workspaces?since=${since}`, { credentials: "include" });
   if (!res.ok) throw new Error(`Pull failed: ${res.status}`);
-  const data = (await res.json()) as { workspaces: WorkspaceRow[] };
+  const data = (await res.json()) as { workspaces: WorkspaceRow[]; cursor: number };
   const key = await getOrCreateKey();
-  return Promise.all(data.workspaces.map((row) => decryptRow(key, row)));
+  const rows = await Promise.all(data.workspaces.map((row) => decryptRow(key, row)));
+  return { rows, cursor: data.cursor };
 }
 
 /**
@@ -159,7 +164,15 @@ async function deleteWorkspace(id: string): Promise<void> {
 // Delta refresh (TASK-88.7) — exported so tests can trigger it directly
 // ---------------------------------------------------------------------------
 
-export let lastPullTs = 0;
+// syncCursor is the server-provided high-water-mark, echoed back verbatim as
+// `since` on the next pull. It is only ever assigned from a server
+// response's `cursor` field — never from Date.now() — so client/server clock
+// skew cannot cause deltas to be skipped (see AGENTS.md's cursor contract).
+export let syncCursor = 0;
+// lastPullAttemptTs is pure client-side wall-clock bookkeeping used only to
+// throttle how often deltaRefresh fires; unlike syncCursor it never crosses
+// the network as data, so wall-clock time is fine here.
+export let lastPullAttemptTs = 0;
 const THROTTLE_MS = 15_000; // at most one delta pull per 15 s (dampen focus/visibility bursts)
 
 // isSyncing is module-level so both initSync and deltaRefresh can check it.
@@ -168,11 +181,13 @@ let isSyncing = false;
 export async function deltaRefresh(force = false): Promise<void> {
   if (useAuth.getState().status !== "authed") return;
   const now = Date.now();
-  if (!force && now - lastPullTs < THROTTLE_MS) return;
-  const since = lastPullTs;
-  lastPullTs = now;
+  if (!force && now - lastPullAttemptTs < THROTTLE_MS) return;
+  lastPullAttemptTs = now;
   try {
-    const rows = await pullWorkspaces(since);
+    const { rows, cursor } = await pullWorkspaces(syncCursor);
+    // Advance the cursor unconditionally — even when nothing changed — so a
+    // later pull doesn't re-request rows already known not to exist.
+    syncCursor = cursor;
     if (rows.length === 0) return;
     const local = useWorkspace.getState().workspaces;
     const merged = mergeWorkspaces(local, rows);
@@ -206,11 +221,14 @@ export function initSync(): () => void {
     try {
       useAuth.getState().setSyncStatus("saving");
       await initEncryption();
-      // Use since=0 so the delta endpoint returns all rows (including soft-deleted
-      // ones). pullWorkspaces() with no arg hits /api/workspaces which filters
-      // deleted_at IS NULL, causing deleted workspaces to be re-created locally.
-      const rows = await pullWorkspaces(0);
-      lastPullTs = Date.now();
+      // Use since=0 so the delta endpoint returns all rows (including
+      // soft-deleted ones) — since=0 always matches the inclusive `>=`
+      // filter, whereas the full-snapshot branch (no `since`) filters
+      // deleted_at IS NULL, which would cause deleted workspaces to be
+      // re-created locally.
+      const { rows, cursor } = await pullWorkspaces(0);
+      syncCursor = cursor;
+      lastPullAttemptTs = Date.now();
       const local = useWorkspace.getState().workspaces;
       const merged = mergeWorkspaces(local, rows);
 

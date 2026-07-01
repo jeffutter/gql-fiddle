@@ -71,8 +71,19 @@ export async function getOrCreateUser(
  * List a user's workspaces.
  *
  * Without `since`: returns only live (non-deleted) rows, ordered by updated_at DESC.
- * With `since` (epoch ms): returns all rows updated after `since`, including
- * soft-deleted ones, so clients can learn about deletions on the next delta pull.
+ * With `since` (a cursor previously issued by this endpoint — see
+ * functions/api/workspaces/index.ts): returns all rows updated at-or-after
+ * `since`, including soft-deleted ones, so clients can learn about deletions
+ * on the next delta pull.
+ *
+ * The boundary is inclusive (`>=`, not `>`) by design: the cursor is captured
+ * on the server immediately before this query runs, so a write racing that
+ * exact instant could land with `updated_at` equal to the previously issued
+ * cursor. An exclusive `>` would silently drop that row from every future
+ * delta pull. `>=` trades a small amount of duplicate row re-delivery for
+ * closing that race — safe because `mergeWorkspaces` on the client compares
+ * `version` per row and treats re-receiving an already-applied version as a
+ * no-op.
  */
 export async function listWorkspaces(
   db: D1Database,
@@ -83,7 +94,7 @@ export async function listWorkspaces(
     const result = await db
       .prepare(
         `SELECT * FROM workspaces
-         WHERE user_id = ? AND updated_at > ?
+         WHERE user_id = ? AND updated_at >= ?
          ORDER BY updated_at DESC`,
       )
       .bind(userId, since)

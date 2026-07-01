@@ -162,18 +162,23 @@ describe("GET /api/workspaces — full snapshot", () => {
     const res = await onRequestGet(ctx);
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { workspaces: Array<{ id: string }> };
+    const body = (await res.json()) as {
+      workspaces: Array<{ id: string }>;
+      cursor: number;
+    };
     const ids = body.workspaces.map((w) => w.id);
     expect(ids).toContain(id1);
     expect(ids).not.toContain(id2);
+    // Full snapshot responses must also carry a cursor for the client's next delta pull.
+    expect(typeof body.cursor).toBe("number");
   });
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/workspaces?since=<ts> — delta
+// GET /api/workspaces?since=<cursor> — delta
 // ---------------------------------------------------------------------------
 
-describe("GET /api/workspaces?since=<ts>", () => {
+describe("GET /api/workspaces?since=<cursor>", () => {
   it("includes soft-deleted rows so clients learn of deletions", async () => {
     const id = crypto.randomUUID();
     await onRequestPut(
@@ -200,10 +205,43 @@ describe("GET /api/workspaces?since=<ts>", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       workspaces: Array<{ id: string; deleted_at: number | null }>;
+      cursor: number;
     };
     const ws = body.workspaces.find((w) => w.id === id);
     expect(ws).toBeDefined();
     expect(ws!.deleted_at).not.toBeNull();
+    expect(typeof body.cursor).toBe("number");
+  });
+
+  it("returns a row whose updated_at equals `since` exactly (inclusive `>=` boundary)", async () => {
+    const id = crypto.randomUUID();
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "Boundary WS", payload: "{}", version: 1 },
+        userCookie,
+      ),
+    );
+
+    const raw = await db
+      .prepare(`SELECT updated_at FROM workspaces WHERE id = ?`)
+      .bind(id)
+      .first<{ updated_at: number }>();
+    const exactUpdatedAt = raw!.updated_at;
+
+    // Requesting since=<exact updated_at> must still include the row — under
+    // the old exclusive `>` comparison this row would have been excluded.
+    const ctx = makeGetCtx(
+      env,
+      `http://localhost/api/workspaces?since=${exactUpdatedAt}`,
+      userCookie,
+    );
+    const res = await onRequestGet(ctx);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { workspaces: Array<{ id: string }> };
+    expect(body.workspaces.map((w) => w.id)).toContain(id);
   });
 });
 
@@ -452,4 +490,3 @@ describe("DELETE /api/workspaces/:id", () => {
     expect(res.status).toBe(401);
   });
 });
-
