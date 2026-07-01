@@ -4,7 +4,7 @@ title: Extract useGraphQLPipeline() hook from App.tsx
 status: Dev Ready
 assignee: []
 created_date: '2026-07-01 00:29'
-updated_date: '2026-07-01 20:44'
+updated_date: '2026-07-01 20:51'
 labels:
   - review
   - planned
@@ -99,4 +99,6 @@ No new sub-tickets: this is a single, tightly-coupled mechanical extraction (one
 Execution attempt on 2026-07-01: ticket's own implementation plan requires TASK-112 and TASK-96.1 (which itself depends on TASK-113) to be Done before starting, since this hook extraction relocates the auto-run effect (fixed by TASK-112) and consumes the registerSchema() entry point (introduced by TASK-96.1/TASK-113). Verified via 'backlog task TASK-112/TASK-96.1/TASK-113 --plain': all three are still status 'To Do'. No code changes made. Leaving status as-is (Dev Ready, not started/claimed) pending upstream work; not reverting from In Progress since it was never claimed.
 
 Execution attempt on 2026-07-01 (second pass): re-verified TASK-112, TASK-96.1, and TASK-113 via 'backlog task ... --plain' — all three remain status 'To Do'. This ticket's own implementation plan requires all three Done before starting (auto-run effect fix from TASK-112, and the registerSchema() entry point from TASK-96.1/TASK-113). No code changes made. Status left unchanged (Dev Ready, never claimed/in-progress) pending upstream work.
+
+Execution attempt on 2026-07-01 (third pass): re-verified TASK-112, TASK-96.1, and TASK-113 via 'backlog task ... --plain' — all three remain status 'To Do'. This ticket's implementation plan explicitly requires all three Done before starting (auto-run effect fix from TASK-112 must land first so it isn't lost during the move; the registerSchema() entry point from TASK-96.1, which itself depends on TASK-113, must exist before this hook can consume it cleanly). No code changes made. Status left unchanged (Dev Ready, never claimed/in-progress) pending upstream work.
 <!-- SECTION:NOTES:END -->
