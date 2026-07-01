@@ -377,6 +377,38 @@ describe("PUT /api/workspaces/:id", () => {
     expect(res.status).toBe(413);
   });
 
+  it("returns 413 for a multi-byte payload over 1 MB in bytes but under 1 MB in UTF-16 units", async () => {
+    const id = crypto.randomUUID();
+    // "あ" is 1 UTF-16 code unit but 3 UTF-8 bytes: 400,000 units is only
+    // ~800 KB as .length would (wrongly) measure it, but ~1.2 MB in bytes.
+    const bigPayload = "あ".repeat(400_000);
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "multibyte", payload: bigPayload, version: 1 },
+      userCookie,
+    );
+    const res = await onRequestPut(ctx);
+    expect(res.status).toBe(413);
+  });
+
+  it("returns 400 when name exceeds the byte limit", async () => {
+    const id = crypto.randomUUID();
+    const bigName = "x".repeat(300);
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: bigName, payload: "{}", version: 1 },
+      userCookie,
+    );
+    const res = await onRequestPut(ctx);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/name too long/i);
+  });
+
   it("returns 404 when the workspace id belongs to another user", async () => {
     // Bob creates a workspace
     const bob = await getOrCreateUser(db, {

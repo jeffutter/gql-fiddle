@@ -12,6 +12,7 @@ interface Env {
 }
 
 const PAYLOAD_SIZE_LIMIT = 1_048_576; // 1 MB
+const NAME_MAX_BYTES = 256; // generous for a display name; no prior documented contract
 
 export const onRequestPut: PagesFunction<Env> = async (ctx) => {
   const result = await requireUser(ctx.request, ctx.env.SESSIONS, ctx.env.DB);
@@ -20,9 +21,38 @@ export const onRequestPut: PagesFunction<Env> = async (ctx) => {
 
   const id = ctx.params.id as string;
 
+  // Reject on the declared Content-Length before touching the body at all.
+  // This is the primary DoS mitigation: an honestly-declared oversized
+  // request never gets buffered or parsed.
+  const contentLength = ctx.request.headers.get("content-length");
+  if (contentLength !== null && Number(contentLength) > PAYLOAD_SIZE_LIMIT) {
+    return Response.json(
+      { error: "Payload too large (max 1 MB)" },
+      { status: 413 },
+    );
+  }
+
+  let rawBody: string;
+  try {
+    rawBody = await ctx.request.text();
+  } catch {
+    return Response.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  // Defends against a missing/understated Content-Length header. Measured
+  // in real UTF-8 bytes (not UTF-16 code units) so multi-byte payloads
+  // can't slip past the documented 1 MB contract. Gates the expensive
+  // JSON.parse below.
+  if (new TextEncoder().encode(rawBody).length > PAYLOAD_SIZE_LIMIT) {
+    return Response.json(
+      { error: "Payload too large (max 1 MB)" },
+      { status: 413 },
+    );
+  }
+
   let body: { name: string; payload: string; version: number };
   try {
-    body = (await ctx.request.json()) as typeof body;
+    body = JSON.parse(rawBody) as typeof body;
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -39,10 +69,10 @@ export const onRequestPut: PagesFunction<Env> = async (ctx) => {
     );
   }
 
-  if (payload.length > PAYLOAD_SIZE_LIMIT) {
+  if (new TextEncoder().encode(name).length > NAME_MAX_BYTES) {
     return Response.json(
-      { error: "Payload too large (max 1 MB)" },
-      { status: 413 },
+      { error: `Name too long (max ${NAME_MAX_BYTES} bytes)` },
+      { status: 400 },
     );
   }
 
