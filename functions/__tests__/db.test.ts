@@ -99,13 +99,14 @@ describe("upsertWorkspace and listWorkspaces", () => {
     });
 
     expect(accepted).toBe(true);
-    expect(ws.id).toBe("ws-aaaa-0001");
-    expect(ws.name).toBe("My Workspace");
-    expect(ws.deleted_at).toBeNull();
+    expect(ws).not.toBeNull();
+    expect(ws?.id).toBe("ws-aaaa-0001");
+    expect(ws?.name).toBe("My Workspace");
+    expect(ws?.deleted_at).toBeNull();
 
     const list = await listWorkspaces(db, user.id);
     expect(list).toHaveLength(1);
-    expect(list[0].id).toBe(ws.id);
+    expect(list[0].id).toBe(ws?.id);
   });
 
   it("last-write-wins: lower version does not overwrite", async () => {
@@ -125,7 +126,7 @@ describe("upsertWorkspace and listWorkspaces", () => {
     });
 
     // Lower version — must not overwrite
-    await upsertWorkspace(db, {
+    const { accepted, row } = await upsertWorkspace(db, {
       id: "ws-bbbb-0002",
       user_id: user.id,
       name: "v1 name (stale)",
@@ -133,9 +134,52 @@ describe("upsertWorkspace and listWorkspaces", () => {
       version: 1,
     });
 
+    // Same-user stale-version conflict must still return the caller's own
+    // current row (non-null) so the 409 body can echo it back.
+    expect(accepted).toBe(false);
+    expect(row).not.toBeNull();
+    expect(row?.name).toBe("v2 name");
+    expect(row?.version).toBe(2);
+
     const list = await listWorkspaces(db, user.id);
     expect(list[0].name).toBe("v2 name");
     expect(list[0].version).toBe(2);
+  });
+
+  it("cross-user id collision: never returns another user's row", async () => {
+    const userA = await getOrCreateUser(db, {
+      github_id: 2010,
+      login: "alice",
+      name: null,
+      avatar_url: null,
+    });
+    const userB = await getOrCreateUser(db, {
+      github_id: 2011,
+      login: "bob",
+      name: null,
+      avatar_url: null,
+    });
+
+    await upsertWorkspace(db, {
+      id: "ws-ffff-0006",
+      user_id: userA.id,
+      name: "Alice's Workspace",
+      payload: JSON.stringify({ secret: "alice-only" }),
+      version: 1,
+    });
+
+    // Same id, different user — the ON CONFLICT owner guard rejects the
+    // write, and the scoped re-read must find nothing to leak.
+    const { accepted, row } = await upsertWorkspace(db, {
+      id: "ws-ffff-0006",
+      user_id: userB.id,
+      name: "Bob's attempt",
+      payload: JSON.stringify({ secret: "bob-payload" }),
+      version: 1,
+    });
+
+    expect(accepted).toBe(false);
+    expect(row).toBeNull();
   });
 
   it("delta filter is inclusive: since === row.updated_at still returns the row", async () => {
@@ -153,10 +197,11 @@ describe("upsertWorkspace and listWorkspaces", () => {
       payload: "{}",
       version: 1,
     });
+    expect(row).not.toBeNull();
 
     // Under the old exclusive `>` comparison this row would be excluded.
-    const list = await listWorkspaces(db, user.id, row.updated_at);
-    expect(list.map((r) => r.id)).toContain(row.id);
+    const list = await listWorkspaces(db, user.id, row!.updated_at);
+    expect(list.map((r) => r.id)).toContain(row!.id);
   });
 });
 

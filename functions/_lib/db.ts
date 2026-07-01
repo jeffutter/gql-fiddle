@@ -122,12 +122,16 @@ export async function listWorkspaces(
  *
  * Enforces user ownership: if a row with the given id already exists and
  * belongs to a different user, the ON CONFLICT clause rejects the write
- * (user_id guard) and `accepted` will be false.
+ * (user_id guard) and `accepted` will be false. The post-upsert re-read is
+ * scoped to `id AND user_id` so it can never return another user's row: in
+ * the cross-user-collision case the scoped read matches nothing and this
+ * returns `{ accepted: false, row: null }` — the caller should treat that as
+ * not-found (404), never as a conflict body to echo back.
  */
 export async function upsertWorkspace(
   db: D1Database,
   row: WorkspaceUpsert,
-): Promise<{ accepted: boolean; row: WorkspaceRow }> {
+): Promise<{ accepted: boolean; row: WorkspaceRow | null }> {
   const now = Date.now();
   await db
     .prepare(
@@ -145,16 +149,20 @@ export async function upsertWorkspace(
     .run();
 
   const current = await db
-    .prepare(`SELECT * FROM workspaces WHERE id = ?`)
-    .bind(row.id)
+    .prepare(`SELECT * FROM workspaces WHERE id = ? AND user_id = ?`)
+    .bind(row.id, row.user_id)
     .first<WorkspaceRow>();
-  if (!current)
-    throw new Error(`Workspace not found after upsert (id=${row.id})`);
+  if (!current) {
+    // Either the id collided with another user's row (the ON CONFLICT guard
+    // rejected the write) or some other unexpected state. Both are treated
+    // identically as "not accepted, nothing to return" — no cross-user data
+    // ever crosses the function boundary.
+    return { accepted: false, row: null };
+  }
 
   // If the stored version is higher than what we sent, the WHERE clause
   // rejected the update — the write was not accepted.
-  const accepted =
-    current.version <= row.version && current.user_id === row.user_id;
+  const accepted = current.version <= row.version;
   return { accepted, row: current };
 }
 

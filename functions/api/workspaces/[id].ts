@@ -66,6 +66,9 @@ export const onRequestPut: PagesFunction<Env> = async (ctx) => {
   });
 
   if (!accepted) {
+    if (!row) {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
     return Response.json({ conflict: true, current: row }, { status: 409 });
   }
 
