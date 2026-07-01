@@ -1,9 +1,10 @@
 ---
 id: TASK-95.3
 title: Namespace the cached DEK per user in localStorage
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:29'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

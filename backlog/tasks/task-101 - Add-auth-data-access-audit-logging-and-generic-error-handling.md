@@ -1,9 +1,10 @@
 ---
 id: TASK-101
 title: Add auth/data-access audit logging and generic error handling
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:27'
+updated_date: '2026-07-01 15:49'
 labels:
   - review
 dependencies: []

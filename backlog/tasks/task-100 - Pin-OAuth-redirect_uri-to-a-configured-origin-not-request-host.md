@@ -1,9 +1,10 @@
 ---
 id: TASK-100
 title: 'Pin OAuth redirect_uri to a configured origin, not request host'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:27'
+updated_date: '2026-07-01 15:49'
 labels:
   - review
 dependencies: []

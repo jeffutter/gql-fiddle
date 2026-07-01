@@ -1,9 +1,10 @@
 ---
 id: TASK-99
 title: 'Enforce payload cap by bytes, pre-parse, and bound workspace name'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:27'
+updated_date: '2026-07-01 15:49'
 labels:
   - review
 dependencies: []

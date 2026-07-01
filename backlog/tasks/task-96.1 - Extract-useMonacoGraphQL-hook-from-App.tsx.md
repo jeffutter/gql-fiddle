@@ -1,9 +1,10 @@
 ---
 id: TASK-96.1
 title: Extract useMonacoGraphQL() hook from App.tsx
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:29'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

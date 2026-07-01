@@ -3,9 +3,10 @@ id: TASK-105
 title: >-
   Use apollo-federation error code/location accessors instead of hand-rolled
   matches
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:28'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

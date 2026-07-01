@@ -1,9 +1,10 @@
 ---
 id: TASK-110
 title: Factor a single PlanNode traversal visitor to remove 4-way duplication
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:28'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

@@ -1,9 +1,10 @@
 ---
 id: TASK-97
 title: 'Gate dev-login fail-closed (development only), not fail-open'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:27'
+updated_date: '2026-07-01 15:49'
 labels:
   - review
 dependencies: []

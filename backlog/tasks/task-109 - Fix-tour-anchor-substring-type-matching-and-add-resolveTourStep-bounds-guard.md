@@ -1,9 +1,10 @@
 ---
 id: TASK-109
 title: Fix tour anchor substring type matching and add resolveTourStep bounds guard
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:28'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

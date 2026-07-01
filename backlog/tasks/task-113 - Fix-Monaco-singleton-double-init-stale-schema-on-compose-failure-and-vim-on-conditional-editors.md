@@ -3,9 +3,10 @@ id: TASK-113
 title: >-
   Fix Monaco singleton double-init, stale schema on compose failure, and vim on
   conditional editors
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:28'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

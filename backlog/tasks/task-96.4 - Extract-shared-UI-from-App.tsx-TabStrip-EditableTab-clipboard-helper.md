@@ -1,9 +1,10 @@
 ---
 id: TASK-96.4
 title: 'Extract shared UI from App.tsx: TabStrip, EditableTab, clipboard helper'
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:29'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

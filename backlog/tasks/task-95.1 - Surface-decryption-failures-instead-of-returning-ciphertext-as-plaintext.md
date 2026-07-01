@@ -1,9 +1,10 @@
 ---
 id: TASK-95.1
 title: Surface decryption failures instead of returning ciphertext as plaintext
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:29'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []

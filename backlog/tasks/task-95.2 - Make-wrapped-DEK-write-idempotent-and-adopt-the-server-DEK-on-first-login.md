@@ -1,10 +1,10 @@
 ---
 id: TASK-95.2
 title: Make wrapped-DEK write idempotent and adopt the server DEK on first login
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:29'
-updated_date: '2026-07-01 00:30'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies:

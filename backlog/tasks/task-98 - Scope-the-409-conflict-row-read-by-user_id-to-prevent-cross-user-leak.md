@@ -1,9 +1,10 @@
 ---
 id: TASK-98
 title: Scope the 409 conflict row read by user_id to prevent cross-user leak
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:27'
+updated_date: '2026-07-01 15:49'
 labels:
   - review
 dependencies: []

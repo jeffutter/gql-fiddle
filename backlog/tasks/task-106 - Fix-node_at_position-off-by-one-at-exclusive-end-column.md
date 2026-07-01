@@ -1,9 +1,10 @@
 ---
 id: TASK-106
 title: Fix node_at_position off-by-one at exclusive end column
-status: Backlog
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:28'
+updated_date: '2026-07-01 15:50'
 labels:
   - review
 dependencies: []
