@@ -247,24 +247,56 @@ export function initSync(): () => void {
     }
   }
 
-  async function autoSave(ws: WorkspaceEntry) {
+  // The Zustand store is the single source of truth for each workspace's
+  // monotonic version counter — autoSave never trusts a version snapshot
+  // passed in by a caller, only whatever is currently committed to the
+  // store. It bumps that version synchronously (before the network request
+  // is even sent) so two overlapping autoSave calls for the same workspace
+  // (e.g. a fired-and-in-flight request plus a subsequent debounce firing)
+  // can never compute the same "next" version: each bump is atomic against
+  // the last committed store state. Without this, both calls would read the
+  // same stale version, send equal version numbers, and the server (which
+  // accepts version >= stored, not just >) would let the second push
+  // silently clobber the first with no conflict signal.
+  async function autoSave(id: string) {
+    const ws = useWorkspace.getState().workspaces.find((w) => w.id === id);
+    if (!ws) return; // deleted concurrently — nothing to save
+
     if (!navigator.onLine) {
-      offlineQueue.set(ws.id!, ws);
+      offlineQueue.set(id, ws);
       useAuth.getState().setSyncStatus("offline");
       return;
     }
-    // Bump version locally before sending
-    const bumped = { ...ws, version: (ws.version ?? 0) + 1 };
+
+    let bumped: WorkspaceEntry | undefined;
+    isSyncing = true;
+    try {
+      const workspaces = useWorkspace.getState().workspaces.map((w) => {
+        if (w.id !== id) return w;
+        bumped = { ...w, version: (w.version ?? 0) + 1 };
+        return bumped;
+      });
+      useWorkspace.setState({ workspaces });
+    } finally {
+      isSyncing = false;
+    }
+    if (!bumped) return; // deleted concurrently between lookup and bump
+
     useAuth.getState().setSyncStatus("saving");
     try {
       const serverRow = await pushWorkspace(bumped);
       if (serverRow) {
-        // Update local entry to match server row (handles both 200 and 409)
+        // Update local entry to match server row (handles both 200 and 409).
         isSyncing = true;
         try {
-          const workspaces = useWorkspace
-            .getState()
-            .workspaces.map((w) => (w.id === ws.id ? rowToEntry(serverRow, w) : w));
+          const workspaces = useWorkspace.getState().workspaces.map((w) => {
+            if (w.id !== id) return w;
+            // A late-arriving response for an older in-flight request must
+            // not roll back a newer edit/version that a later request (or a
+            // later local edit) has already advanced the store past.
+            if (serverRow.version < (w.version ?? 0)) return w;
+            return rowToEntry(serverRow, w);
+          });
           useWorkspace.setState({ workspaces });
         } finally {
           isSyncing = false;
@@ -273,7 +305,8 @@ export function initSync(): () => void {
       useAuth.getState().setSyncStatus("synced");
     } catch (err) {
       console.error("Sync: auto-save failed", err);
-      offlineQueue.set(ws.id!, ws);
+      const current = useWorkspace.getState().workspaces.find((w) => w.id === id);
+      if (current) offlineQueue.set(id, current);
       useAuth.getState().setSyncStatus(navigator.onLine ? "error" : "offline");
     }
   }
@@ -283,7 +316,7 @@ export function initSync(): () => void {
     const entries = Array.from(offlineQueue.values());
     offlineQueue.clear();
     for (const ws of entries) {
-      await autoSave(ws);
+      await autoSave(ws.id!);
     }
   }
 
@@ -324,10 +357,10 @@ export function initSync(): () => void {
           id,
           setTimeout(() => {
             debounceTimers.delete(id);
-            // Read current state so we always push the latest version, not the
-            // snapshot captured when the timer was last (re)set.
-            const current = useWorkspace.getState().workspaces.find((w) => w.id === id);
-            if (current) void autoSave(current);
+            // autoSave re-reads the current store entry itself, so it always
+            // sees the latest content/version, not a snapshot captured when
+            // the timer was last (re)set.
+            void autoSave(id);
           }, AUTOSAVE_DEBOUNCE_MS),
         );
       }

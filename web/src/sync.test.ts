@@ -272,6 +272,78 @@ describe("initSync auto-save debounce", () => {
     );
     expect(putCalls.length).toBe(1);
   });
+
+  it("two edits faster than the mocked round-trip get distinct increasing versions and never lose the newer edit", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    const wsId = "ws-race";
+    const putBodies: { version: number; name: string }[] = [];
+    const resolvers: ((res: Response) => void)[] = [];
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          // Never resolves on its own — the test resolves it manually, to
+          // simulate a save whose round-trip is slower than the next edit.
+          return new Promise<Response>((resolve) => {
+            resolvers.push(resolve);
+          });
+        }
+        return Promise.resolve(new Response(JSON.stringify({ workspaces: [] }), { status: 200 }));
+      },
+    );
+
+    cleanup = initSync();
+
+    const ws = makeEntry({ id: wsId, name: "Initial", version: 1 });
+    useWorkspace.setState({ workspaces: [ws] });
+
+    // First edit: advance past the debounce so autoSave fires and its PUT is
+    // sent, but leave the response unresolved (in-flight).
+    useWorkspace.setState({ workspaces: [{ ...ws, name: "Edit 1" }] });
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    // Second edit fires while the first request is still pending.
+    const afterFirstBump = useWorkspace.getState().workspaces.find((w) => w.id === wsId);
+    useWorkspace.setState({ workspaces: [{ ...afterFirstBump!, name: "Edit 2" }] });
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    // AC #1: a burst of rapid edits produces distinct, monotonically
+    // increasing versions in what's actually sent over the wire — never the
+    // same version twice.
+    expect(putBodies.map((b) => b.version)).toEqual([2, 3]);
+
+    // Resolve the responses out of order: the newer (second) request's
+    // response arrives before the older (first) request's stale response.
+    resolvers[1](
+      new Response(
+        JSON.stringify({ workspace: makeRow({ id: wsId, version: 3, name: "Edit 2" }) }),
+        {
+          status: 200,
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    resolvers[0](
+      new Response(
+        JSON.stringify({ workspace: makeRow({ id: wsId, version: 2, name: "Edit 1" }) }),
+        {
+          status: 200,
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    // AC #2: no save silently overwrites a newer local edit — the late
+    // arriving stale (version 2) response must not roll the store back.
+    const finalWs = useWorkspace.getState().workspaces.find((w) => w.id === wsId);
+    expect(finalWs?.version).toBe(3);
+    expect(finalWs?.name).toBe("Edit 2");
+  });
 });
 
 // ---------------------------------------------------------------------------
