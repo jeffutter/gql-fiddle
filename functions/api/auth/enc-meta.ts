@@ -2,13 +2,23 @@
 // PUT /api/auth/enc-meta — stores the client-generated wrapped DEK.
 //
 // Security model:
-//   KWK  (Key Wrapping Key): random 256-bit key, stored in KV under kwk:<user_id>.
+//   KWK  (Key Wrapping Key): random 256-bit key, stored in D1 alongside the wrapped DEK.
 //   DEK  (Data Encryption Key): generated client-side, wrapped with KWK, stored in D1.
 //
-// Neither KV nor D1 alone is sufficient to decrypt workspace data; both are required.
-// The plaintext DEK is constructed and used only in the browser — the server never sees it.
+// Both the KWK and the wrapped DEK live in the same database (D1) — this is no
+// longer a two-separate-storage-backends design (see TASK-118: the prior KV-backed
+// KWK could not be written race-safely, so it moved into D1 using the same
+// conditional-write pattern as the wrapped DEK).
+// The plaintext DEK is constructed and used only in the browser — the server never
+// sees it, so a D1 compromise yields the wrapped DEK and the KWK but never the
+// unwrapped plaintext.
 import { requireUser } from "../../_lib/auth";
-import { getWrappedDek, setWrappedDekIfAbsent } from "../../_lib/db";
+import {
+  getKwk,
+  getWrappedDek,
+  setKwkIfAbsent,
+  setWrappedDekIfAbsent,
+} from "../../_lib/db";
 import { jsonError, withErrorHandling } from "../../_lib/http";
 import { logEvent } from "../../_lib/log";
 
@@ -17,19 +27,13 @@ interface Env {
   SESSIONS: KVNamespace;
 }
 
-const KWK_PREFIX = "kwk:";
-
-async function getOrCreateKwk(
-  kv: KVNamespace,
-  userId: string,
-): Promise<string> {
-  const existing = await kv.get(`${KWK_PREFIX}${userId}`);
+async function getOrCreateKwk(db: D1Database, userId: string): Promise<string> {
+  const existing = await getKwk(db, userId);
   if (existing) return existing;
 
   const raw = crypto.getRandomValues(new Uint8Array(32));
   const b64 = btoa(Array.from(raw, (b) => String.fromCharCode(b)).join(""));
-  await kv.put(`${KWK_PREFIX}${userId}`, b64);
-  return b64;
+  return setKwkIfAbsent(db, userId, b64);
 }
 
 export const onRequestGet: PagesFunction<Env> = withErrorHandling(
@@ -38,7 +42,7 @@ export const onRequestGet: PagesFunction<Env> = withErrorHandling(
     if (result instanceof Response) return result;
     const user = result;
 
-    const kwk = await getOrCreateKwk(ctx.env.SESSIONS, user.id);
+    const kwk = await getOrCreateKwk(ctx.env.DB, user.id);
     const wrapped_dek = await getWrappedDek(ctx.env.DB, user.id);
 
     return Response.json({ kwk, wrapped_dek });

@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createD1Mock } from "./d1-mock";
 import {
+  getKwk,
   getOrCreateUser,
   getWrappedDek,
   listWorkspaces,
+  setKwkIfAbsent,
   setWrappedDekIfAbsent,
   softDeleteWorkspace,
   upsertWorkspace,
@@ -17,6 +19,7 @@ const migrationSql = [
     join(__dirname, "../../migrations/0002_users_wrapped_dek.sql"),
     "utf-8",
   ),
+  readFileSync(join(__dirname, "../../migrations/0003_users_kwk.sql"), "utf-8"),
 ].join("\n");
 
 let db: D1Database;
@@ -297,5 +300,46 @@ describe("getWrappedDek / setWrappedDekIfAbsent", () => {
     expect(first).toBe("E1:first==");
     expect(second).toBe("E1:first==");
     expect(await getWrappedDek(db, user.id)).toBe("E1:first==");
+  });
+});
+
+describe("getKwk / setKwkIfAbsent", () => {
+  it("returns null when no kwk has been set", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 5001,
+      login: "jack",
+      name: null,
+      avatar_url: null,
+    });
+    expect(await getKwk(db, user.id)).toBeNull();
+  });
+
+  it("stores and retrieves kwk", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 5002,
+      login: "kate",
+      name: null,
+      avatar_url: null,
+    });
+    const stored = await setKwkIfAbsent(db, user.id, "kwk-abc123==");
+    expect(stored).toBe("kwk-abc123==");
+    expect(await getKwk(db, user.id)).toBe("kwk-abc123==");
+  });
+
+  it("ignores a second call and returns the first-stored kwk — the TASK-118 race regression test", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 5003,
+      login: "liam",
+      name: null,
+      avatar_url: null,
+    });
+    // Simulates two devices racing the first GET /api/auth/enc-meta: both
+    // generate a different KWK and both call setKwkIfAbsent concurrently.
+    // Only the first write should stick; both callers must converge on it.
+    const first = await setKwkIfAbsent(db, user.id, "kwk-first==");
+    const second = await setKwkIfAbsent(db, user.id, "kwk-second==");
+    expect(first).toBe("kwk-first==");
+    expect(second).toBe("kwk-first==");
+    expect(await getKwk(db, user.id)).toBe("kwk-first==");
   });
 });

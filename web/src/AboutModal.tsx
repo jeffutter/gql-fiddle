@@ -44,33 +44,37 @@ export function AboutModal({ onClose }: Props) {
             <ul className="about-list">
               <li>
                 <strong>Key Wrapping Key (KWK)</strong> — a random 256-bit key generated for your
-                account and stored in our session store (Cloudflare KV).
+                account and stored in our database (Cloudflare D1).
               </li>
               <li>
                 <strong>Data Encryption Key (DEK)</strong> — a random 256-bit key generated in your
-                browser. The DEK is encrypted with the KWK and the resulting ciphertext is stored in
-                our database (Cloudflare D1). Your plaintext DEK never leaves your browser.
+                browser. The DEK is encrypted with the KWK and the resulting ciphertext is stored
+                alongside the KWK in the same database. Your plaintext DEK never leaves your
+                browser.
               </li>
             </ul>
             <p>
-              All workspace data is encrypted with the DEK. To reconstruct the DEK an attacker would
-              need simultaneous access to both the session store (KWK) and the database (wrapped
-              DEK) — neither alone is sufficient.
+              All workspace data is encrypted with the DEK. The KWK and the wrapped DEK both live in
+              our database, so this is not a defense against a database compromise — see
+              &quot;Limitations&quot; below. What it does guarantee is that the plaintext DEK is
+              generated and used only in your browser: it is never transmitted to or stored on our
+              servers, and our servers never perform the unwrap, so a database compromise yields
+              ciphertext (the wrapped DEK) rather than the key needed to read your workspace data.
             </p>
 
             <h3 className="about-section__subheading">Cross-device sync</h3>
             <p>
-              When you sign in on a new device, the browser fetches the KWK from our session store
-              and the encrypted DEK from the database, then unwraps the DEK locally. After that
-              first fetch, the DEK is cached in your browser for offline use.
+              When you sign in on a new device, the browser fetches both the KWK and the encrypted
+              DEK from the server in one call, then unwraps the DEK locally. After that first fetch,
+              the DEK is cached in your browser for offline use.
             </p>
 
             <h3 className="about-section__subheading">Limitations</h3>
             <p>
-              This is defense-in-depth, not end-to-end encryption. An operator with simultaneous
-              access to both storage systems could reconstruct the DEK. Workspace names are
-              encrypted alongside payloads. Anonymous (signed-out) sessions use a browser-local key
-              that does not sync across devices.
+              This is defense-in-depth, not end-to-end encryption. The KWK and the wrapped DEK are
+              both stored in the same database, so an operator with database access alone could
+              reconstruct the DEK. Workspace names are encrypted alongside payloads. Anonymous
+              (signed-out) sessions use a browser-local key that does not sync across devices.
             </p>
           </section>
         </div>

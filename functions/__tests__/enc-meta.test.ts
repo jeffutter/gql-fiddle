@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { onRequestGet, onRequestPut } from "../api/auth/enc-meta";
 import { SESSION_COOKIE_NAME, mintSession } from "../_lib/auth";
-import { getOrCreateUser } from "../_lib/db";
+import { getKwk, getOrCreateUser } from "../_lib/db";
 import { createD1Mock } from "./d1-mock";
 
 const migrationSql = [
@@ -12,6 +12,7 @@ const migrationSql = [
     join(__dirname, "../../migrations/0002_users_wrapped_dek.sql"),
     "utf-8",
   ),
+  readFileSync(join(__dirname, "../../migrations/0003_users_kwk.sql"), "utf-8"),
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -93,13 +94,13 @@ function makePutCtx(
 
 let db: D1Database;
 let kv: KVNamespace;
-let kvStore: Map<string, string>;
 let env: Env;
 let userCookie: string;
+let userId: string;
 
 beforeEach(async () => {
   db = createD1Mock(migrationSql);
-  ({ kv, store: kvStore } = createKVMock());
+  ({ kv } = createKVMock());
   env = { DB: db, SESSIONS: kv };
 
   const user = await getOrCreateUser(db, {
@@ -108,6 +109,7 @@ beforeEach(async () => {
     name: "Alice",
     avatar_url: null,
   });
+  userId = user.id;
 
   const token = await mintSession(kv, user.id);
   userCookie = `${SESSION_COOKIE_NAME}=${token}`;
@@ -149,16 +151,18 @@ describe("GET /api/auth/enc-meta", () => {
     expect(kwk1).toBe(kwk2);
   });
 
-  it("stores the KWK in KV under kwk:<user_id>", async () => {
-    const kwkKeysBefore = [...kvStore.keys()].filter((k) =>
-      k.startsWith("kwk:"),
-    );
-    expect(kwkKeysBefore).toHaveLength(0);
+  it("stores the KWK in the users table", async () => {
+    expect(await getKwk(db, userId)).toBeNull();
 
-    await onRequestGet(makeGetCtx(env, userCookie));
+    const res = await onRequestGet(makeGetCtx(env, userCookie));
+    const { kwk } = (await res.json()) as { kwk: string };
 
-    const kwkKeys = [...kvStore.keys()].filter((k) => k.startsWith("kwk:"));
-    expect(kwkKeys).toHaveLength(1);
+    const stored = await getKwk(db, userId);
+    expect(stored).toBe(kwk);
+
+    // Must decode to 32 bytes, same shape asserted on the response above.
+    const decoded = Uint8Array.from(atob(stored!), (c) => c.charCodeAt(0));
+    expect(decoded.byteLength).toBe(32);
   });
 
   it("returns the wrapped_dek after it has been stored via PUT", async () => {

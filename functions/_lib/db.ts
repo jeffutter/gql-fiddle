@@ -211,6 +211,47 @@ export async function setWrappedDekIfAbsent(
   return current;
 }
 
+export async function getKwk(
+  db: D1Database,
+  userId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT kwk FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ kwk: string | null }>();
+  return row?.kwk ?? null;
+}
+
+/**
+ * Store a KWK the first time a user needs one, and otherwise leave the
+ * existing value untouched. Same race-safe contract as
+ * `setWrappedDekIfAbsent`: whichever caller's UPDATE reaches the row first
+ * wins (the `kwk IS NULL` guard turns a racing second UPDATE into a no-op),
+ * and every caller reads back the same winning value via the trailing
+ * SELECT. This closes the first-login KWK race described in TASK-118 — two
+ * devices calling this concurrently with different freshly-generated KWKs
+ * converge on one value instead of each keeping its own.
+ *
+ * Returns the KWK now stored for this user (which may be the caller's own
+ * value, or another device's if it won the race).
+ */
+export async function setKwkIfAbsent(
+  db: D1Database,
+  userId: string,
+  kwk: string,
+): Promise<string> {
+  await db
+    .prepare("UPDATE users SET kwk = ? WHERE id = ? AND kwk IS NULL")
+    .bind(kwk, userId)
+    .run();
+
+  const current = await getKwk(db, userId);
+  if (current === null) {
+    throw new Error(`kwk missing after setKwkIfAbsent (user_id=${userId})`);
+  }
+  return current;
+}
+
 /**
  * Soft-delete a workspace: set deleted_at, bump version, and update updated_at
  * so the deletion appears in delta pulls (?since=).

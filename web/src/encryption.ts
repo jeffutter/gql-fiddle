@@ -1,13 +1,15 @@
 // Client-side AES-256-GCM encryption for workspace sync.
 //
 // Two-layer key system:
-//   KWK (Key Wrapping Key) — random 256-bit key stored in KV on the server.
+//   KWK (Key Wrapping Key) — random 256-bit key stored in the D1 database.
 //   DEK (Data Encryption Key) — random 256-bit key generated in the browser,
-//     wrapped (encrypted) with the KWK and stored in the D1 database.
+//     wrapped (encrypted) with the KWK and also stored in the D1 database.
 //
 // Workspace payloads are compressed with deflate then encrypted with the DEK.
-// Neither the server's KV store nor its database alone can decrypt user data —
-// both are required to reconstruct the DEK.
+// The plaintext DEK is generated and used only in the browser and is never
+// transmitted or stored server-side in any form — the server only ever holds
+// the wrapped (encrypted) DEK, alongside the KWK, and never performs the
+// unwrap itself.
 //
 // The DEK is also cached in localStorage for offline resilience. On a new device,
 // it is reconstructed from the KWK + wrapped DEK fetched from the server.
