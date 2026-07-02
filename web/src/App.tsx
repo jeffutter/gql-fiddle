@@ -496,18 +496,25 @@ export default function App() {
   });
 
   const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped at the start of every debounce cycle; a callback that resumes after
+  // `await loadCore()` compares its captured generation against the current
+  // value to detect whether a newer compose has already superseded it.
+  const composeGenerationRef = useRef(0);
 
   // Debounced composition effect.
   useEffect(() => {
     if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
     composeTimeoutRef.current = setTimeout(async () => {
+      const generation = ++composeGenerationRef.current;
       const core = await loadCore();
+      // A newer compose started (and possibly finished) while we were
+      // awaiting loadCore(); discard this stale result so it can't
+      // double-init the singleton or clobber a fresher schema.
+      if (generation !== composeGenerationRef.current) return;
       const result = core.compose(subgraphs);
       if (result.ok) {
         useWorkspace.getState().setComposeResult(result.supergraph_sdl, null, result.hints.length);
-        if (!monacoGraphQLAPI) {
-          monacoGraphQLAPI = initializeMode();
-        }
+        monacoGraphQLAPI ??= initializeMode();
         monacoGraphQLAPI.setModeConfiguration({
           completionItems: true,
           diagnostics: false,
@@ -524,6 +531,9 @@ export default function App() {
         ]);
       } else {
         useWorkspace.getState().setComposeResult(null, result.errors, 0);
+        // Deregister the previously-successful schema so completions/hovers
+        // don't keep suggesting fields from a supergraph that no longer composes.
+        monacoGraphQLAPI?.setSchemaConfig([]);
       }
       setCompose(result);
     }, COMPOSE_DEBOUNCE_MS);
@@ -866,6 +876,16 @@ export default function App() {
       vimDisposersRef.current = [];
     };
   }, [vimMode, editor]);
+
+  // Attaches vim keybindings to an editor as soon as it mounts, based on the
+  // *current* vimMode. The centralized vim effect above only re-runs on
+  // [vimMode, editor] changes, so it never sees the query/mock-config editors
+  // remount when `showMockConfig` toggles — this covers that case directly.
+  function attachVimOnMount(ed: _monaco.editor.IStandaloneCodeEditor) {
+    if (!vimMode || !vimStatusBarRef.current) return;
+    const vimInst = initVimMode(ed, vimStatusBarRef.current);
+    vimDisposersRef.current.push(() => vimInst.dispose());
+  }
 
   function copyForLLM() {
     const ws = activeWorkspace(useWorkspace.getState());
@@ -1681,6 +1701,8 @@ export default function App() {
                       beforeMount={(m) => defineMonacoTheme(m)}
                       onMount={(ed) => {
                         mockConfigEditorRef.current = ed;
+                        queryEditorRef.current = null; // the other editor just unmounted
+                        attachVimOnMount(ed);
                       }}
                     />
                   </div>
@@ -1701,6 +1723,8 @@ export default function App() {
                       beforeMount={(m) => defineMonacoTheme(m)}
                       onMount={(ed) => {
                         queryEditorRef.current = ed;
+                        mockConfigEditorRef.current = null; // the other editor just unmounted
+                        attachVimOnMount(ed);
                       }}
                     />
                   </div>
@@ -1958,6 +1982,8 @@ export default function App() {
                           beforeMount={(m) => defineMonacoTheme(m)}
                           onMount={(ed) => {
                             mockConfigEditorRef.current = ed;
+                            queryEditorRef.current = null; // the other editor just unmounted
+                            attachVimOnMount(ed);
                           }}
                         />
                       </div>
@@ -1974,6 +2000,8 @@ export default function App() {
                           beforeMount={(m) => defineMonacoTheme(m)}
                           onMount={(ed) => {
                             queryEditorRef.current = ed;
+                            mockConfigEditorRef.current = null; // the other editor just unmounted
+                            attachVimOnMount(ed);
                           }}
                         />
                       </div>

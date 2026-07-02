@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import App from "./App";
 import { useWorkspace, activeWorkspace } from "./store";
 import * as monaco from "monaco-editor";
+import { initVimMode } from "monaco-vim";
 import type { Diagnostic } from "./core/types";
 import { encode, encodeTour } from "./share";
 import type { Tour, WorkspaceEntry } from "./share";
@@ -46,8 +47,10 @@ const mockMonacoGraphQLAPI = {
   setModeConfiguration: mockSetModeConfiguration,
   setDiagnosticSettings: mockSetDiagnosticSettings,
 };
+// Named so tests can assert call counts directly (TASK-113 AC#1).
+const mockInitializeMode = vi.fn(() => mockMonacoGraphQLAPI);
 vi.mock("monaco-graphql/initializeMode", () => ({
-  initializeMode: vi.fn(() => mockMonacoGraphQLAPI),
+  initializeMode: () => mockInitializeMode(),
 }));
 
 vi.mock("mermaid", () => ({
@@ -64,15 +67,19 @@ const validateSubgraphMock = vi.fn(() => {
 
 const mockExecuteMock = vi.fn(() => ({ data: {} }));
 
+// Named so tests can control when loadCore() resolves, to simulate two
+// overlapping debounce cycles racing each other (TASK-113 AC#1).
+const mockLoadCore = vi.fn(() =>
+  Promise.resolve({
+    compose: mockCompose,
+    validateSubgraph: validateSubgraphMock,
+    validateQuery: vi.fn(() => ({ diagnostics: [] })),
+    plan: vi.fn(() => ({ ok: false, errors: [] })),
+    executeMock: mockExecuteMock,
+  }),
+);
 vi.mock("./core", () => ({
-  loadCore: () =>
-    Promise.resolve({
-      compose: mockCompose,
-      validateSubgraph: validateSubgraphMock,
-      validateQuery: vi.fn(() => ({ diagnostics: [] })),
-      plan: vi.fn(() => ({ ok: false, errors: [] })),
-      executeMock: mockExecuteMock,
-    }),
+  loadCore: () => mockLoadCore(),
 }));
 
 describe("App", () => {
@@ -873,6 +880,56 @@ describe("App", () => {
     expect(aw().queryTabs[0].query).toBe("");
   });
 
+  it("TASK-113 AC#1: rapid successive composes never double-initialize the monaco-graphql singleton", async () => {
+    vi.useFakeTimers();
+
+    // The first debounce cycle's loadCore() call is held pending on this
+    // deferred promise, simulating it still being in-flight when a second,
+    // faster debounce cycle starts and completes.
+    type CoreInstance = Awaited<ReturnType<typeof mockLoadCore>>;
+    let resolveFirstLoadCore!: (core: CoreInstance) => void;
+    mockLoadCore.mockImplementationOnce(
+      () =>
+        new Promise<CoreInstance>((resolve) => {
+          resolveFirstLoadCore = resolve;
+        }),
+    );
+
+    render(<App />);
+
+    // Fire the initial-mount debounce cycle; it's now suspended awaiting
+    // loadCore(), before it ever reaches the `monacoGraphQLAPI` check.
+    await vi.advanceTimersByTimeAsync(350);
+
+    // A second edit starts a new debounce cycle whose loadCore() call
+    // resolves immediately (the default mock implementation), so it runs to
+    // completion — including calling core.compose() and initializing the
+    // singleton — while the first cycle is still pending.
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { b: String }");
+    await vi.advanceTimersByTimeAsync(350);
+    const countAfterSecondCycle = composeCallCount;
+    expect(countAfterSecondCycle).toBeGreaterThan(0);
+
+    // Now let the stale first cycle resume. Without the generation guard it
+    // would proceed to call core.compose() a second time and race the
+    // second cycle to (re-)initialize the singleton / register a schema.
+    resolveFirstLoadCore({
+      compose: mockCompose,
+      validateSubgraph: validateSubgraphMock,
+      validateQuery: vi.fn(() => ({ diagnostics: [] })),
+      plan: vi.fn(() => ({ ok: false, errors: [] })),
+      executeMock: mockExecuteMock,
+    });
+    await act(async () => {});
+
+    // The superseded first cycle must have bailed out before calling
+    // core.compose() (and, by extension, before touching monacoGraphQLAPI) —
+    // so the compose call count is unchanged.
+    expect(composeCallCount).toBe(countAfterSecondCycle);
+
+    vi.useRealTimers();
+  });
+
   // ---- AC#1: setModeConfiguration enables autocomplete on init ----
 
   it("AC#1: calls setModeConfiguration with all features enabled after successful compose", async () => {
@@ -934,20 +991,69 @@ describe("App", () => {
     vi.useRealTimers();
   });
 
-  it("AC#3: does not call setSchemaConfig when compose fails", async () => {
+  it("TASK-113 AC#2: a compose failure clears the previously-registered schema", async () => {
     vi.useFakeTimers();
     mockSetSchemaConfig.mockClear();
 
+    const apiSchemaSdl = "type Query { products: [Product] }";
     mockCompose.mockReturnValueOnce({
-      ok: false,
-      errors: [{ code: "ERR001", message: "bad" }],
+      ok: true,
+      supergraph_sdl: "# supergraph",
+      api_schema_sdl: apiSchemaSdl,
+      hints: [],
     });
 
     render(<App />);
 
+    // Let the initial compose succeed and register a schema.
+    await vi.advanceTimersByTimeAsync(350);
+    expect(mockSetSchemaConfig).toHaveBeenCalledWith([
+      {
+        documentString: apiSchemaSdl,
+        uri: "api-schema.graphql",
+        fileMatch: ["**/*.graphql"],
+      },
+    ]);
+    mockSetSchemaConfig.mockClear();
+
+    // A subsequent edit breaks composition.
+    mockCompose.mockReturnValueOnce({
+      ok: false,
+      errors: [{ code: "ERR001", message: "bad" }],
+    });
+    useWorkspace.getState().setSubgraphSdl(0, "type Query { b: String }");
     await vi.advanceTimersByTimeAsync(350);
 
-    expect(mockSetSchemaConfig).not.toHaveBeenCalled();
+    // Stale completions/hovers from the previous schema must be deregistered.
+    expect(mockSetSchemaConfig).toHaveBeenCalledWith([]);
+
+    vi.useRealTimers();
+  });
+
+  it("TASK-113 AC#3: enabling vim then opening the mock-config editor attaches vim to it", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+    await vi.advanceTimersByTimeAsync(350);
+
+    // Enable vim mode. This does not touch the mock-config editor yet since
+    // it isn't mounted (the query editor is showing by default).
+    fireEvent.click(screen.getByTitle("Toggle vim keybindings"));
+
+    // Switch to the mock-config editor, mounting it for the first time.
+    fireEvent.click(screen.getByTestId("mock-config-tab"));
+
+    const mockConfigOnMount = globalThis.__editorTestHarness.onMountByPath["ws-0-mock-config.yaml"];
+    expect(mockConfigOnMount).toBeDefined();
+
+    const mockEditor = { getModel: vi.fn(() => ({})), focus: vi.fn() };
+    act(() => {
+      mockConfigOnMount!(mockEditor, monaco);
+    });
+
+    // vim must have been attached directly to the freshly-mounted editor,
+    // since the centralized [vimMode, editor] effect never re-runs for it.
+    expect(vi.mocked(initVimMode)).toHaveBeenCalledWith(mockEditor, expect.anything());
 
     vi.useRealTimers();
   });
