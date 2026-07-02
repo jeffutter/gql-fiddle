@@ -34,6 +34,7 @@ import type {
   FragmentSpreadNode,
 } from "graphql";
 import type { PlanNode } from "./core/types";
+import { iterateFetches } from "./planWalk";
 
 export interface FieldRange {
   /** 1-based line number in the original query string. */
@@ -44,48 +45,6 @@ export interface FieldRange {
   len: number;
   /** The subgraph service that resolves this field. */
   service: string;
-}
-
-// ---------------------------------------------------------------------------
-// Collect Fetch nodes
-// ---------------------------------------------------------------------------
-
-interface FetchEntry {
-  service: string;
-  resolvedFields: Array<{ field_name: string; type_condition: string | null }>;
-}
-
-function collectFetches(node: PlanNode, out: FetchEntry[] = []): FetchEntry[] {
-  switch (node.kind) {
-    case "Fetch":
-      out.push({
-        service: node.service,
-        resolvedFields: node.resolved_fields ?? [],
-      });
-      break;
-    case "Sequence":
-    case "Parallel":
-      node.nodes.forEach((n) => collectFetches(n, out));
-      break;
-    case "Flatten":
-      collectFetches(node.node, out);
-      break;
-    case "Subscription":
-      collectFetches(node.primary, out);
-      if (node.rest) collectFetches(node.rest, out);
-      break;
-    case "Defer":
-      if (node.primary) collectFetches(node.primary, out);
-      node.deferred.forEach((d) => {
-        if (d.node) collectFetches(d.node, out);
-      });
-      break;
-    case "Condition":
-      if (node.ifBranch) collectFetches(node.ifBranch, out);
-      if (node.elseBranch) collectFetches(node.elseBranch, out);
-      break;
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +167,7 @@ export function planToFieldRanges(root: PlanNode, originalQuery: string): FieldR
   }
 
   // Collect all Fetch nodes from the plan.
-  const fetches = collectFetches(root);
+  const fetches = iterateFetches(root);
   if (fetches.length === 0) return [];
 
   // For each Fetch: read resolved_fields (pre-computed by Rust), partition into
@@ -218,7 +177,8 @@ export function planToFieldRanges(root: PlanNode, originalQuery: string): FieldR
   const results = new Map<string, FieldRange>();
 
   for (const fetch of fetches) {
-    if (fetch.resolvedFields.length === 0) continue;
+    const resolvedFields = fetch.resolved_fields ?? [];
+    if (resolvedFields.length === 0) continue;
 
     // Partition resolved_fields into:
     //   matchedNames: plain fields (type_condition === null)
@@ -226,7 +186,7 @@ export function planToFieldRanges(root: PlanNode, originalQuery: string): FieldR
     const matchedNames = new Set<string>();
     const entityFragmentFields = new Map<string, Set<string>>();
 
-    for (const rf of fetch.resolvedFields) {
+    for (const rf of resolvedFields) {
       if (rf.type_condition === null) {
         matchedNames.add(rf.field_name);
       } else {
@@ -259,18 +219,7 @@ export function planToFieldRanges(root: PlanNode, originalQuery: string): FieldR
   return Array.from(results.values());
 }
 
-/**
- * Collect unique service names from a PlanNode tree in first-encounter order.
- * Exported so App.tsx can derive the legend without importing planToMermaid.
- */
-export function collectServiceNames(root: PlanNode): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const f of collectFetches(root)) {
-    if (!seen.has(f.service)) {
-      seen.add(f.service);
-      out.push(f.service);
-    }
-  }
-  return out;
-}
+// Re-exported so App.tsx and planToFieldRanges.test.ts's existing
+// `import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges"`
+// keeps working unchanged.
+export { collectServiceNames } from "./planWalk";

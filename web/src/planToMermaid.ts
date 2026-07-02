@@ -1,42 +1,5 @@
 import type { PlanNode, RequiresSelection } from "./core/types";
-
-/** Walk the tree and return unique service names in first-encounter order. */
-function collectParticipants(
-  node: PlanNode,
-  seen = new Set<string>(),
-  out: string[] = [],
-): string[] {
-  switch (node.kind) {
-    case "Fetch":
-      if (!seen.has(node.service)) {
-        seen.add(node.service);
-        out.push(node.service);
-      }
-      break;
-    case "Sequence":
-    case "Parallel":
-      node.nodes.forEach((n) => collectParticipants(n, seen, out));
-      break;
-    case "Flatten":
-      collectParticipants(node.node, seen, out);
-      break;
-    case "Subscription":
-      collectParticipants(node.primary, seen, out);
-      if (node.rest) collectParticipants(node.rest, seen, out);
-      break;
-    case "Defer":
-      if (node.primary) collectParticipants(node.primary, seen, out);
-      node.deferred.forEach((d) => {
-        if (d.node) collectParticipants(d.node, seen, out);
-      });
-      break;
-    case "Condition":
-      if (node.ifBranch) collectParticipants(node.ifBranch, seen, out);
-      if (node.elseBranch) collectParticipants(node.elseBranch, seen, out);
-      break;
-  }
-  return out;
-}
+import { collectServiceNames, planChildren } from "./planWalk";
 
 /** Extract the first top-level field name from a GraphQL operation string. */
 function topLevelSelection(operation: string): string {
@@ -79,9 +42,6 @@ function emitLines(node: PlanNode, flattenPath?: string[]): string[] {
       return lines;
     }
 
-    case "Sequence":
-      return node.nodes.flatMap((n) => emitLines(n));
-
     case "Parallel": {
       if (node.nodes.length === 0) return [];
       // Single-branch Parallel: Mermaid rejects a par block with < 2 branches.
@@ -99,20 +59,14 @@ function emitLines(node: PlanNode, flattenPath?: string[]): string[] {
     case "Flatten":
       return emitLines(node.node, node.path);
 
+    // Sequence/Subscription/Defer/Condition are pure descent (no auxiliary
+    // parameter threading like Flatten's path or Parallel's par/and/end
+    // wrapping), so they share planChildren's traversal order.
+    case "Sequence":
     case "Subscription":
-      return [...emitLines(node.primary), ...(node.rest ? emitLines(node.rest) : [])];
-
     case "Defer":
-      return [
-        ...(node.primary ? emitLines(node.primary) : []),
-        ...node.deferred.flatMap((d) => (d.node ? emitLines(d.node) : [])),
-      ];
-
     case "Condition":
-      return [
-        ...(node.ifBranch ? emitLines(node.ifBranch) : []),
-        ...(node.elseBranch ? emitLines(node.elseBranch) : []),
-      ];
+      return planChildren(node).flatMap((n) => emitLines(n));
   }
 }
 
@@ -125,7 +79,7 @@ function emitLines(node: PlanNode, flattenPath?: string[]): string[] {
  * keeps the ~200 KB bundle cost out of the initial load.
  */
 export function planToMermaid(root: PlanNode): string {
-  const participants = collectParticipants(root);
+  const participants = collectServiceNames(root);
   const header = [
     "sequenceDiagram",
     "  participant Router",
