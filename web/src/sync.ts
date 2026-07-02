@@ -114,13 +114,21 @@ async function decryptRow(key: CryptoKey, row: WorkspaceRow): Promise<WorkspaceR
 // `since` must be either 0 (initial pull — returns all rows including
 // soft-deleted ones) or a cursor previously returned by this same endpoint.
 // Never pass a client-derived timestamp: the server owns the cursor value.
-async function pullWorkspaces(since: number): Promise<{ rows: WorkspaceRow[]; cursor: number }> {
+//
+// Returns `skippedIds` — IDs of rows that existed on the server but failed
+// to decrypt (wrong key / tampering). Callers must include these in any
+// "remote" ID set to avoid re-pushing stale local copies that would clobber
+// the valid server-side encrypted data.
+async function pullWorkspaces(
+  since: number,
+): Promise<{ rows: WorkspaceRow[]; cursor: number; skippedIds: Set<string> }> {
   const res = await fetch(`/api/workspaces?since=${since}`, { credentials: "include" });
   if (!res.ok) throw new Error(`Pull failed: ${res.status}`);
   const data = (await res.json()) as { workspaces: WorkspaceRow[]; cursor: number };
   const key = await getOrCreateKey();
   const settled = await Promise.allSettled(data.workspaces.map((row) => decryptRow(key, row)));
   const rows: WorkspaceRow[] = [];
+  const skippedIds = new Set<string>();
   for (let i = 0; i < settled.length; i++) {
     const result = settled[i];
     if (result.status === "fulfilled") {
@@ -132,9 +140,10 @@ async function pullWorkspaces(since: number): Promise<{ rows: WorkspaceRow[]; cu
         `Sync: skipping workspace ${data.workspaces[i].id} — decryption failed`,
         result.reason,
       );
+      skippedIds.add(data.workspaces[i].id);
     }
   }
-  return { rows, cursor: data.cursor };
+  return { rows, cursor: data.cursor, skippedIds };
 }
 
 /**
@@ -252,7 +261,7 @@ export function initSync(): () => void {
       // filter, whereas the full-snapshot branch (no `since`) filters
       // deleted_at IS NULL, which would cause deleted workspaces to be
       // re-created locally.
-      const { rows, cursor } = await pullWorkspaces(0);
+      const { rows, cursor, skippedIds } = await pullWorkspaces(0);
       syncCursor = cursor;
       lastPullAttemptTs = Date.now();
       const local = useWorkspace.getState().workspaces;
@@ -260,7 +269,10 @@ export function initSync(): () => void {
 
       // Push workspaces that exist locally but not on the server; adopt the
       // server row on success so local versions are authoritative from login.
-      const remoteIds = new Set(rows.map((r) => r.id));
+      // Include skippedIds so we don't re-push workspaces that exist on the
+      // server but failed to decrypt (wrong key) — pushing those would
+      // clobber the valid server-side encrypted data.
+      const remoteIds = new Set([...rows.map((r) => r.id), ...skippedIds]);
       const finalMerged = [...merged];
       for (let i = 0; i < finalMerged.length; i++) {
         const ws = finalMerged[i];

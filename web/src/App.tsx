@@ -567,7 +567,7 @@ export default function App() {
     return () => {
       if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
     };
-  }, [currentQuery, supergraphSdl, seed]);
+  }, [currentQuery, supergraphSdl, seed, mockConfig]);
 
   // Debounced validation effect.
   useEffect(() => {
