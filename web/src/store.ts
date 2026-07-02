@@ -101,7 +101,7 @@ const DEFAULT_SEED = 42;
 
 export const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT_QUERY }];
 
-function generateUUID() {
+export function generateUUID() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
   }

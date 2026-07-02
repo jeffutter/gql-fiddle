@@ -147,3 +147,134 @@ export function resolveTourStep(tour: Tour, stepIndex: number): WorkspacePayload
   if (!step || !step.overrides) return tour.base;
   return { ...tour.base, ...step.overrides };
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Multi-workspace export/import (TASK-116)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** A single workspace as it appears inside an export file. No `id`/`version`
+ * — imported workspaces always get a fresh id and start at version 1. */
+export interface ExportedWorkspace {
+  name: string;
+  subgraphs: { name: string; sdl: string }[];
+  activeSubgraph: number;
+  queryTabs: { name: string; query: string }[];
+  activeQueryTab: number;
+  seed: number;
+  mockConfig: string;
+  tourDraft: Tour | null;
+}
+
+export interface ExportFormat {
+  exportVersion: 1;
+  /** ISO 8601 timestamp of when the file was generated. */
+  exportedAt: string;
+  workspaces: ExportedWorkspace[];
+}
+
+export interface DecodedExport {
+  format: ExportFormat;
+  /** Count of raw entries in the file's `workspaces` array that were dropped
+   *  because they were missing required fields. Callers surface this as a
+   *  warning; decodeExport itself never throws for a single bad entry. */
+  skippedCount: number;
+}
+
+const GZIP_MAGIC_0 = 0x1f;
+const GZIP_MAGIC_1 = 0x8b;
+
+/**
+ * Serialize the given workspaces into a gzip-compressed export file.
+ *
+ * Deviation from the original spec text: the file holds *raw* gzip bytes,
+ * not base64url-encoded text. Base64 is necessary for the `#w=` URL hash
+ * codec above (URLs can't carry binary), but a downloaded file can hold
+ * arbitrary bytes directly, so base64 would only add size and complexity.
+ * This also keeps the gzip-magic-byte auto-detection in decodeExport
+ * meaningful, and makes the file openable with `gunzip` for debugging.
+ */
+export function encodeExport(workspaces: WorkspaceEntry[]): Uint8Array {
+  const exported: ExportedWorkspace[] = workspaces.map((ws) => ({
+    name: ws.name,
+    subgraphs: ws.subgraphs,
+    activeSubgraph: ws.activeSubgraph,
+    queryTabs: ws.queryTabs,
+    activeQueryTab: ws.activeQueryTab,
+    seed: ws.seed,
+    mockConfig: ws.mockConfig,
+    tourDraft: ws.tourDraft ?? null,
+  }));
+  const format: ExportFormat = {
+    exportVersion: 1,
+    exportedAt: new Date().toISOString(),
+    workspaces: exported,
+  };
+  return pako.gzip(JSON.stringify(format));
+}
+
+/**
+ * Parse an export file's bytes back into an `ExportFormat`. Auto-detects
+ * gzip (via magic bytes) vs. plain UTF-8 JSON text, so future plain-text
+ * export files remain readable.
+ *
+ * Throws a friendly `Error` for corrupt gzip, invalid JSON, an unsupported
+ * `exportVersion`, or a missing/malformed `workspaces` array. Individual
+ * malformed workspace entries are dropped rather than causing a throw; the
+ * count of dropped entries is returned as `skippedCount`.
+ */
+export function decodeExport(bytes: Uint8Array): DecodedExport {
+  const isGzip = bytes[0] === GZIP_MAGIC_0 && bytes[1] === GZIP_MAGIC_1;
+  let json: string;
+  try {
+    json = isGzip ? pako.inflate(bytes, { to: "string" }) : new TextDecoder().decode(bytes);
+  } catch {
+    throw new Error("Invalid export file: not valid JSON");
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    throw new Error("Invalid export file: not valid JSON");
+  }
+
+  if (parsed.exportVersion !== 1) {
+    throw new Error("Unsupported export file version");
+  }
+  if (!Array.isArray(parsed.workspaces)) {
+    throw new Error("Invalid export file: missing workspaces");
+  }
+
+  let skippedCount = 0;
+  const workspaces: ExportedWorkspace[] = [];
+  for (const raw of parsed.workspaces as unknown[]) {
+    const entry = raw as Record<string, unknown>;
+    if (
+      typeof entry?.name !== "string" ||
+      !Array.isArray(entry.subgraphs) ||
+      !Array.isArray(entry.queryTabs)
+    ) {
+      skippedCount++;
+      continue;
+    }
+    workspaces.push({
+      name: entry.name,
+      subgraphs: entry.subgraphs as ExportedWorkspace["subgraphs"],
+      activeSubgraph: typeof entry.activeSubgraph === "number" ? entry.activeSubgraph : 0,
+      queryTabs: entry.queryTabs as ExportedWorkspace["queryTabs"],
+      activeQueryTab: typeof entry.activeQueryTab === "number" ? entry.activeQueryTab : 0,
+      seed: typeof entry.seed === "number" ? entry.seed : 42,
+      mockConfig: typeof entry.mockConfig === "string" ? entry.mockConfig : "",
+      tourDraft: (entry.tourDraft as Tour | null | undefined) ?? null,
+    });
+  }
+
+  return {
+    format: {
+      exportVersion: 1,
+      exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : "",
+      workspaces,
+    },
+    skippedCount,
+  };
+}

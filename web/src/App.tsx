@@ -14,6 +14,7 @@ import type { ComposeResult, Diagnostic, GqlCore, MockResult, PlanResult } from 
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
 import { AboutModal } from "./AboutModal";
 import { ExportImageDialog } from "./ExportImageDialog";
+import { ExportDialog, ImportDialog } from "./ExportImportDialog";
 import { exportPng, exportSvg } from "./imageExport";
 import { TourPlayback } from "./TourPlayback";
 import { PlanTree } from "./PlanTree";
@@ -260,6 +261,8 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [workspaceExportOpen, setWorkspaceExportOpen] = useState(false);
+  const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
   // Lets the tab-strip export button reach the live sequence-diagram <svg>.
   const sequenceSvgContainerRef = useRef<HTMLDivElement>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -1221,6 +1224,50 @@ export default function App() {
         <button onClick={copyForLLM} className={copiedLLM ? "btn is-success" : "btn"}>
           {copiedLLM ? "Copied!" : "Copy for LLM"}
         </button>
+        <button
+          onClick={() => setWorkspaceExportOpen(true)}
+          className="btn"
+          title="Export workspaces"
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M7 1.5v8" />
+            <path d="M3.5 6.5 7 10l3.5-3.5" />
+            <path d="M1.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" />
+          </svg>
+          Export
+        </button>
+        <button
+          onClick={() => setWorkspaceImportOpen(true)}
+          className="btn"
+          title="Import workspaces"
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M7 9.5v-8" />
+            <path d="M3.5 4.5 7 1l3.5 3.5" />
+            <path d="M1.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" />
+          </svg>
+          Import
+        </button>
         {tourDraft !== null ? (
           <>
             <button
@@ -1899,6 +1946,10 @@ export default function App() {
           onChoose={handleExportSequence}
         />
       )}
+      {workspaceExportOpen && (
+        <ExportDialog workspaces={workspaces} onClose={() => setWorkspaceExportOpen(false)} />
+      )}
+      {workspaceImportOpen && <ImportDialog onClose={() => setWorkspaceImportOpen(false)} />}
     </>
   );
 }

@@ -1734,6 +1734,48 @@ body {
   overflow-y: auto;
 }
 
+/* ==========================================================================
+ * Import / export workspaces dialog
+ * ========================================================================== */
+
+.import-export-dialog {
+  width: min(96vw, 480px);
+  height: auto;
+  max-height: min(92vh, 640px);
+}
+.import-export-dialog__body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.import-export-dialog__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+}
+.import-export-dialog__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.import-export-dialog__item input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.import-export-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+.import-export-dialog__warning {
+  color: var(--warning);
+}
+
 .about-section__heading {
   font-size: 15px;
   font-weight: 700;
