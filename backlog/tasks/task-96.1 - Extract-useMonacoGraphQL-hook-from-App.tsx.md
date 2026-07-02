@@ -1,10 +1,11 @@
 ---
 id: TASK-96.1
 title: Extract useMonacoGraphQL() hook from App.tsx
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@ralph'
 created_date: '2026-07-01 00:29'
-updated_date: '2026-07-01 20:32'
+updated_date: '2026-07-02 15:14'
 labels:
   - review
   - planned
@@ -23,9 +24,9 @@ Pull the MonacoEnvironment worker wiring (web/src/App.tsx ~167-178), the monacoG
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 all monaco-graphql wiring lives in the hook
-- [ ] #2 App.tsx no longer references the module-scope singleton directly
-- [ ] #3 behavior is unchanged
+- [x] #1 all monaco-graphql wiring lives in the hook
+- [x] #2 App.tsx no longer references the module-scope singleton directly
+- [x] #3 behavior is unchanged
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -79,4 +80,47 @@ No new sub-tickets: this is a single, tightly-coupled mechanical extraction (one
 
 <!-- SECTION:NOTES:BEGIN -->
 Blocked: this ticket depends on TASK-113 (Monaco singleton double-init / stale-schema-on-failure / vim-on-conditional-editors fix), which is still To Do. The implementation plan explicitly requires TASK-113 to be Done first since it touches the exact same singleton lifecycle code (~L56, ~647-672) that this ticket relocates into the new hook. Starting now would mean re-targeting TASK-113's fix at the new hook file with no savings and added merge risk. Reverting to To Do; re-run once TASK-113 is Done.
+
+Created web/src/useMonacoGraphQL.ts and moved into it:
+- Module-scope MonacoEnvironment worker override, loader.config(), dev-only
+  window.__monaco exposure, and the monacoGraphQLAPI singleton declaration
+  (these run once on first import of the hook module, same timing as before
+  since App.tsx imports the hook).
+- useMonacoGraphQL(compose) hook exposing a stable (useCallback, []) registerSchema(apiSchemaSdl: string | null):
+  - non-null: lazily inits the singleton, calls setModeConfiguration + setSchemaConfig (the success path).
+  - null: calls setSchemaConfig([]) to deregister a stale schema (the TASK-113 failure-clearing path).
+  This single function replaces both call sites that used to inline the singleton logic in the
+  debounced compose effect.
+- mockConfigFieldKeysRef/mockConfigConcreteTypesRef and the two effects that
+  derive them from compose.api_schema_sdl and register the mock-config.yaml
+  completion provider, moved verbatim.
+
+App.tsx changes:
+- Removed now-unused imports (loader, GraphQLWorker, initializeMode, MonacoGraphQLAPI type,
+  buildSchema/getNamedType/isInterfaceType/isObjectType/isUnionType from graphql).
+- Removed the module-scope monacoGraphQLAPI singleton and MonacoEnvironment block.
+- Removed the two ref declarations and the two effects moved into the hook.
+- Added `const { registerSchema } = useMonacoGraphQL(compose);` and replaced the inline
+  singleton-init/setSchemaConfig calls in the debounced compose effect with
+  registerSchema(result.api_schema_sdl) / registerSchema(null); added registerSchema to
+  that effect's dependency array (safe since it's a stable useCallback reference).
+
+Note: the ticket's original plan (written pre-TASK-113) described a simpler registerSchema(sdl: string)
+success-only API. TASK-113 had since added a failure-path setSchemaConfig([]) call plus a
+composeGenerationRef concurrency guard around the whole effect. Adapted registerSchema to accept
+`string | null` (null = clear) so both the success and failure paths funnel through one function,
+and left the generation-guard logic in App.tsx's compose effect untouched (it's pipeline concurrency
+control, not monaco-graphql wiring, so out of scope for this ticket per the plan's own scoping notes).
+
+Verification: `pnpm --dir web exec tsc --noEmit` clean; `pnpm --dir web exec eslint src/App.tsx src/useMonacoGraphQL.ts`
+shows zero new warnings (the two pre-existing react-hooks/exhaustive-deps warnings on unrelated effects
+are unchanged, confirmed via git stash diff); full `pnpm --dir web exec vitest run` — 406/406 tests pass,
+including all TASK-113 AC tests and the App.test.tsx AC#1/AC#3/AC#4 monaco-graphql tests, unmodified.
+grep -c "monacoGraphQLAPI" App.tsx returns 0 (AC#2). App.tsx: 2161 -> 1904 lines.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Extracted all monaco-graphql wiring (MonacoEnvironment worker override, the monacoGraphQLAPI singleton, schema registration on compose success/failure, and the mock-config.yaml completion provider) from App.tsx into a new useMonacoGraphQL(compose) hook, cutting App.tsx by ~257 lines. App.tsx now interacts with monaco-graphql only via a single stable registerSchema(sdl | null) call from the hook; no other behavior changed (406/406 tests pass, tsc/eslint clean).
+<!-- SECTION:FINAL_SUMMARY:END -->
