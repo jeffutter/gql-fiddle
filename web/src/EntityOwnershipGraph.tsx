@@ -318,13 +318,11 @@ export function EntityOwnershipGraph({ graph }: EntityOwnershipGraphProps) {
 
         {/* Edges — rendered after nodes so arrows overlay clusters */}
         {graph.edges.map((edge) => {
-          // Find the best source/target node layouts.
-          // Source: entity node in the sourceSubgraph (any type that happens to have a
-          // field referencing targetType — we use the first node in the source cluster).
-          const srcNode = nodeLayouts.find((n) => n.subgraph === edge.sourceSubgraph);
-          const tgtNode = nodeLayouts.find(
-            (n) => n.subgraph === edge.targetSubgraph && n.typeName === edge.typeName,
-          );
+          // Source/target: resolved via nodeById using the edge's actual source/target
+          // type names (sourceTypeName/typeName), not just subgraph — a subgraph can own
+          // multiple entities, so matching on subgraph alone would pick an arbitrary node.
+          const srcNode = nodeById.get(`${edge.sourceSubgraph}:${edge.sourceTypeName}`);
+          const tgtNode = nodeById.get(`${edge.targetSubgraph}:${edge.typeName}`);
 
           const bidir = isBidirectional(edge, graph.edges);
           // Determine ordering for curve offset — use id comparison for stability.
