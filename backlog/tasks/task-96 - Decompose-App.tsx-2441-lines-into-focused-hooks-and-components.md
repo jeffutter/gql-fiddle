@@ -1,16 +1,16 @@
 ---
 id: TASK-96
 title: Decompose App.tsx (2441 lines) into focused hooks and components
-status: Blocked
+status: To Do
 assignee: []
 created_date: '2026-07-01 00:27'
-updated_date: '2026-07-02 15:23'
+updated_date: '2026-07-02 16:18'
 labels:
   - review
 dependencies:
   - TASK-112
   - TASK-113
-ordinal: 117000
+ordinal: 500
 ---
 
 ## Description

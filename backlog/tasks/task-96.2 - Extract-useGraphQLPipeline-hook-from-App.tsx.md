@@ -1,10 +1,11 @@
 ---
 id: TASK-96.2
 title: Extract useGraphQLPipeline() hook from App.tsx
-status: Blocked
-assignee: []
+status: Done
+assignee:
+  - '@ralph'
 created_date: '2026-07-01 00:29'
-updated_date: '2026-07-01 21:01'
+updated_date: '2026-07-02 16:28'
 labels:
   - review
   - planned
@@ -13,7 +14,7 @@ dependencies:
   - TASK-96.1
 parent_task_id: TASK-96
 priority: low
-ordinal: 142000
+ordinal: 1000
 ---
 
 ## Description
@@ -24,9 +25,9 @@ Pull the debounced compose, subgraph-validate, query-validate and auto-run effec
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the core compose/validate/plan/run effects live in one hook
-- [ ] #2 App.tsx consumes the hook's return value
-- [ ] #3 behavior is unchanged
+- [x] #1 the core compose/validate/plan/run effects live in one hook
+- [x] #2 App.tsx consumes the hook's return value
+- [x] #3 behavior is unchanged
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -113,4 +114,12 @@ Execution attempt on 2026-07-01 (seventh pass): re-verified TASK-112, TASK-96.1,
 Execution attempt on 2026-07-01 (eighth pass): re-verified TASK-112, TASK-96.1, and TASK-113 via 'backlog task ... --plain' -- all three remain status 'To Do'. This ticket's implementation plan explicitly requires all three Done before starting (auto-run effect fix from TASK-112 must land first so it isn't lost during the move; the registerSchema() entry point from TASK-96.1, which itself depends on TASK-113, must exist before this hook can consume it cleanly). No code changes made. Status left unchanged (Dev Ready, never claimed/in-progress) pending upstream work.
 
 Execution attempt on 2026-07-01 (ninth pass): re-verified TASK-112, TASK-96.1, and TASK-113 via 'backlog task ... --plain' -- all three remain status 'To Do'. This ticket's implementation plan explicitly requires all three Done before starting (auto-run effect fix from TASK-112 must land first so it isn't lost during the move; the registerSchema() entry point from TASK-96.1, which itself depends on TASK-113, must exist before this hook can consume it cleanly). No code changes made. Status left unchanged (Dev Ready, never claimed/in-progress) pending upstream work.
+
+Implemented per plan step 2's bridging approach (not step 1's registerSchema-as-pipeline-param approach, which is not mechanically achievable: useGraphQLPipeline produces compose, useMonacoGraphQL(compose) produces registerSchema, and threading registerSchema back into the pipeline hook's call-time params would require it before it exists in the same render -- a genuine circular value dependency, not just an ordering nuisance). Created web/src/useGraphQLPipeline.ts (compose/planResult/mockResult/isRunning/configError state + timer refs + the four debounced effects + parseYamlToJson/doRun/runQuery, moved verbatim, fully decoupled from monaco-graphql). App.tsx now: calls useGraphQLPipeline() to get compose, then useMonacoGraphQL(compose) to get registerSchema, then a small bridging useEffect(() => { if (compose) registerSchema(compose.ok ? compose.api_schema_sdl : null); }, [compose, registerSchema]) that replicates the original compose-effect's success/failure registerSchema calls (the ticket's own step-2 code sample only handled the success case; fixed to also deregister on failure, matching TASK-113's behavior). Removed jsYaml import, COMPOSE_DEBOUNCE_MS/AUTO_RUN_DEBOUNCE_MS consts, diagnosticToMarker helper, and all associated state/refs/effects/functions from App.tsx. Verified: pnpm --dir web exec tsc --noEmit clean; pnpm --dir web lint clean (same 2 pre-existing react-hooks/exhaustive-deps warnings as baseline, now living in the new file); pnpm --dir web exec vitest run -- all 429 tests / 117 suites pass, including App.test.tsx's debounce and auto-run tests; grep for doRun/parseYamlToJson/diagnosticToMarker in App.tsx returns zero matches. App.tsx shrank by ~175 lines (net -151 with the new hook-wiring lines added).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Extracted the debounced compose, auto-run, subgraph-validate, and query-validate effects plus doRun/runQuery/parseYamlToJson out of App.tsx into a new useGraphQLPipeline() hook, deliberately decoupled from monaco-graphql; App.tsx now wires it to useMonacoGraphQL via a small bridging effect. Behavior unchanged (verified by the full existing test suite), App.tsx reduced from 1955 to 1804 lines.
+<!-- SECTION:FINAL_SUMMARY:END -->

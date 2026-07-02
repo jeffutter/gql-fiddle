@@ -10,7 +10,7 @@ import { initSync } from "./sync";
 import { loadCore } from "./core";
 import { decode, encode, encodeTour, decodeTour } from "./share";
 import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
-import type { ComposeResult, Diagnostic, GqlCore, MockResult, PlanResult } from "./core/types";
+import type { GqlCore } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
 import { AboutModal } from "./AboutModal";
 import { ExportImageDialog } from "./ExportImageDialog";
@@ -25,6 +25,7 @@ import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges";
 import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subgraphColors";
 import { useTourAuthoringDecorations } from "./useTourAuthoringDecorations";
 import { useMonacoGraphQL } from "./useMonacoGraphQL";
+import { useGraphQLPipeline } from "./useGraphQLPipeline";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { EditableTab } from "./EditableTab";
 import { TabStrip } from "./TabStrip";
@@ -33,7 +34,6 @@ import { schemaToEntityGraph } from "./schemaToEntityGraph";
 import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
 import { TypeGraph } from "./TypeGraph";
 import { QueryShape } from "./QueryShape";
-import * as jsYaml from "js-yaml";
 import { initVimMode, VimMode } from "monaco-vim";
 
 // VimMode is the CodeMirror default export from keymap_vim; Vim is attached as CodeMirror.Vim.
@@ -54,9 +54,6 @@ Vim.defineEx("Commentary", "", (cm) => {
   cm.editor.getAction("editor.action.commentLine")?.run();
 });
 Vim.map("gc", ":Commentary<CR>", "visual");
-
-const COMPOSE_DEBOUNCE_MS = 300;
-const AUTO_RUN_DEBOUNCE_MS = 400;
 
 // Shared Monaco options for a clean, minimal editor: no minimap clutter,
 // breathing room, theme-matched mono font. Spread and extend per editor.
@@ -179,23 +176,6 @@ function SubgraphLegend({ services }: { services: string[] }) {
   );
 }
 
-function diagnosticToMarker(
-  diagnostic: Diagnostic,
-  monacoInstance: typeof _monaco,
-): _monaco.editor.IMarkerData {
-  return {
-    startLineNumber: diagnostic.line,
-    startColumn: diagnostic.col,
-    endLineNumber: diagnostic.line,
-    endColumn: diagnostic.col + Math.max(diagnostic.len, 1),
-    message: diagnostic.message,
-    severity:
-      diagnostic.severity === "error"
-        ? monacoInstance.MarkerSeverity.Error
-        : monacoInstance.MarkerSeverity.Warning,
-  };
-}
-
 export default function App() {
   // Global (non-workspace) state
   const {
@@ -241,14 +221,9 @@ export default function App() {
   const [playbackTour, setPlaybackTour] = useState<Tour | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
-  const [compose, setCompose] = useState<ComposeResult | null>(null);
-  const { registerSchema } = useMonacoGraphQL(compose);
   // WASM core instance — loaded once and cached; available on first render cycle after load.
   const [coreInstance, setCoreInstance] = useState<GqlCore | null>(null);
-  const [mockResult, setMockResult] = useState<MockResult | null>(null);
-  const [planResult, setPlanResult] = useState<PlanResult | null>(null);
   const [showMockConfig, setShowMockConfig] = useState(false);
-  const [configError, setConfigError] = useState<string | null>(null);
   const [outputTab, setOutputTab] = useState<"type-graph" | "entities" | "sdl" | "api-sdl">(
     "type-graph",
   );
@@ -265,7 +240,6 @@ export default function App() {
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
   // Lets the tab-strip export button reach the live sequence-diagram <svg>.
   const sequenceSvgContainerRef = useRef<HTMLDivElement>(null);
-  const [isRunning, setIsRunning] = useState(false);
   // Each copy button tracks its own "Copied!" state independently (TASK-96.4:
   // these previously shared one `copied` flag, so clicking one button also
   // flipped the others' text).
@@ -276,15 +250,34 @@ export default function App() {
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
   const [monacoInstance, setMonacoInstance] = monacoRef;
+  // Core compose/validate/plan/run pipeline (debounced compose, auto-run,
+  // subgraph/query validation) — see useGraphQLPipeline.ts.
+  const { compose, planResult, mockResult, isRunning, configError, runQuery } = useGraphQLPipeline({
+    subgraphs,
+    activeSubgraph,
+    supergraphSdl,
+    currentQuery,
+    seed,
+    mockConfig,
+    editor,
+    monacoInstance,
+    activeWorkspaceIndex,
+    activeQueryTab,
+  });
+  const { registerSchema } = useMonacoGraphQL(compose);
+  // Registers the composed API schema with the monaco-graphql singleton
+  // whenever `compose` changes; deregisters (passes `null`) on a failed
+  // compose so completions/hovers don't keep suggesting fields from a
+  // supergraph that no longer composes.
+  useEffect(() => {
+    if (compose) registerSchema(compose.ok ? compose.api_schema_sdl : null);
+  }, [compose, registerSchema]);
   // Query editor instance ref — used to apply field-attribution decorations.
   const queryEditorRef = useRef<_monaco.editor.IStandaloneCodeEditor | null>(null);
   // Monaco decoration collection for field-attribution highlights.
   const decorationsRef = useRef<ReturnType<
     _monaco.editor.IStandaloneCodeEditor["createDecorationsCollection"]
   > | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const queryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoRunTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mock-config editor instance — needed to attach vim keybindings when vimMode is on.
   const mockConfigEditorRef = useRef<_monaco.editor.IStandaloneCodeEditor | null>(null);
   // DOM node for the vim mode status bar (normal/insert/visual indicator).
@@ -466,37 +459,6 @@ export default function App() {
     setActiveSubgraph,
   });
 
-  const composeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped at the start of every debounce cycle; a callback that resumes after
-  // `await loadCore()` compares its captured generation against the current
-  // value to detect whether a newer compose has already superseded it.
-  const composeGenerationRef = useRef(0);
-
-  // Debounced composition effect.
-  useEffect(() => {
-    if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
-    composeTimeoutRef.current = setTimeout(async () => {
-      const generation = ++composeGenerationRef.current;
-      const core = await loadCore();
-      // A newer compose started (and possibly finished) while we were
-      // awaiting loadCore(); discard this stale result so it can't
-      // double-init the singleton or clobber a fresher schema.
-      if (generation !== composeGenerationRef.current) return;
-      const result = core.compose(subgraphs);
-      if (result.ok) {
-        useWorkspace.getState().setComposeResult(result.supergraph_sdl, null, result.hints.length);
-        registerSchema(result.api_schema_sdl);
-      } else {
-        useWorkspace.getState().setComposeResult(null, result.errors, 0);
-        registerSchema(null);
-      }
-      setCompose(result);
-    }, COMPOSE_DEBOUNCE_MS);
-    return () => {
-      if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
-    };
-  }, [subgraphs, registerSchema]);
-
   // When workspace switches, stale Monaco models may exist at the new index's
   // paths (e.g., workspace index is reused after removal). Sync them to the
   // store so the editor doesn't show leftover content from a previous workspace.
@@ -518,82 +480,6 @@ export default function App() {
       // monacoInstance may be a partial mock (e.g., in tests); skip gracefully.
     }
   }, [activeWorkspaceIndex, monacoInstance]);
-
-  // Auto-run effect: re-executes the query whenever inputs change.
-  useEffect(() => {
-    if (supergraphSdl === null) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsRunning(true);
-    if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
-    const sdl = supergraphSdl;
-    autoRunTimeoutRef.current = setTimeout(() => {
-      void doRun(currentQuery, sdl, seed);
-    }, AUTO_RUN_DEBOUNCE_MS);
-    return () => {
-      if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
-    };
-  }, [currentQuery, supergraphSdl, seed, mockConfig]);
-
-  // Debounced validation effect.
-  useEffect(() => {
-    const currentSdl = subgraphs[activeSubgraph]?.sdl ?? "";
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    timeoutRef.current = setTimeout(() => {
-      void (async () => {
-        const core = await loadCore();
-        const result = core.validateSubgraph(currentSdl);
-        if (editor && monacoInstance) {
-          const model = editor.getModel();
-          if (model) {
-            monacoInstance.editor.setModelMarkers(
-              model,
-              "validation",
-              result.diagnostics.map((d) => diagnosticToMarker(d, monacoInstance)),
-            );
-          }
-        }
-      })();
-    }, 300);
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, [editor, monacoInstance, activeSubgraph, subgraphs]);
-
-  // Debounced query validation effect — uses WASM core so federation directives don't produce false positives.
-  useEffect(() => {
-    if (!monacoInstance || supergraphSdl === null) return;
-    if (queryTimeoutRef.current) clearTimeout(queryTimeoutRef.current);
-    queryTimeoutRef.current = setTimeout(() => {
-      void (async () => {
-        const core = await loadCore();
-        const result = core.validateQuery(supergraphSdl, currentQuery);
-        const uri = monacoInstance.Uri.parse(
-          `inmemory://model/ws-${activeWorkspaceIndex}-query-${activeQueryTab}.graphql`,
-        );
-        const model = monacoInstance.editor.getModel(uri);
-        if (model) {
-          // A schemaError means the fault is in the schema/supergraph, not
-          // this query — don't paint it onto the query editor. Just clear
-          // any stale query-validation markers (TASK-104).
-          if ("schemaError" in result) {
-            console.debug("validateQuery: schema error, not a query fault:", result.schemaError);
-          }
-          const markers =
-            "schemaError" in result
-              ? []
-              : result.diagnostics.map((d) => diagnosticToMarker(d, monacoInstance));
-          monacoInstance.editor.setModelMarkers(model, "query-validation", markers);
-        }
-      })();
-    }, 300);
-    return () => {
-      if (queryTimeoutRef.current) clearTimeout(queryTimeoutRef.current);
-    };
-  }, [monacoInstance, supergraphSdl, currentQuery, activeQueryTab]);
 
   // Vim keybindings effect — attaches or detaches monaco-vim on all editors
   // whenever vimMode changes or the schema editor instance is replaced.
@@ -711,43 +597,6 @@ export default function App() {
     const shareUrl = origin + window.location.pathname + hash;
 
     copyTourShare(shareUrl);
-  }
-
-  /**
-   * Parse a YAML string into a JSON string suitable for passing to
-   * `core.executeMock`. Returns `"{}"` and sets `configError` on parse
-   * failure so the query still runs with default generation.
-   */
-  function parseYamlToJson(yaml: string): string {
-    if (!yaml.trim()) return "{}";
-    try {
-      const parsed = jsYaml.load(yaml);
-      if (parsed === null || parsed === undefined) return "{}";
-      setConfigError(null);
-      return JSON.stringify(parsed);
-    } catch (err) {
-      setConfigError(err instanceof Error ? err.message : "Invalid YAML");
-      return "{}";
-    }
-  }
-
-  async function doRun(query: string, sdl: string, s: number) {
-    const core = await loadCore();
-    const mockConfigJson = parseYamlToJson(mockConfig);
-    const [execResult, plan] = await Promise.all([
-      Promise.resolve(core.executeMock(sdl, query, s, mockConfigJson)),
-      Promise.resolve(core.plan(sdl, query)),
-    ]);
-    setMockResult(execResult);
-    setPlanResult(plan);
-    setIsRunning(false);
-  }
-
-  function runQuery() {
-    if (supergraphSdl === null) return;
-    if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
-    setIsRunning(true);
-    void doRun(currentQuery, supergraphSdl, seed);
   }
 
   // Shared JSX fragments used by both layouts.
