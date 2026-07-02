@@ -3,10 +3,10 @@ id: TASK-117
 title: >-
   Fix: onLogin push-if-missing clobbers server workspaces that merely failed to
   decrypt
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-01 20:50'
-updated_date: '2026-07-02 13:40'
+updated_date: '2026-07-02 13:42'
 labels:
   - review-fix
   - planned

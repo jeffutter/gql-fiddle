@@ -1,10 +1,10 @@
 ---
 id: TASK-95
 title: Fix client-side encryption key lifecycle correctness
-status: Blocked
+status: Done
 assignee: []
 created_date: '2026-07-01 00:27'
-updated_date: '2026-07-01 16:03'
+updated_date: '2026-07-02 01:32'
 labels:
   - review
   - planned

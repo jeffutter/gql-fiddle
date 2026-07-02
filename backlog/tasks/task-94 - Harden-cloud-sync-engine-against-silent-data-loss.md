@@ -1,10 +1,10 @@
 ---
 id: TASK-94
 title: Harden cloud sync engine against silent data loss
-status: Blocked
+status: Done
 assignee: []
 created_date: '2026-07-01 00:25'
-updated_date: '2026-07-01 16:00'
+updated_date: '2026-07-02 01:23'
 labels:
   - review
   - planned
@@ -12,7 +12,7 @@ dependencies:
   - TASK-94.1
   - TASK-94.2
   - TASK-94.3
-ordinal: 115000
+ordinal: 58500
 ---
 
 ## Description
