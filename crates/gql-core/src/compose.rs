@@ -221,7 +221,7 @@ fn build_entity_graph(sdl: &str) -> EntityGraph {
                         continue;
                     }
                     // Edge key mirrors the TS: "SRCSUB->TGTSUB:TargetType"
-                    let edge_key = format!("{}->{}", src_sg, tgt_sg);
+                    let edge_key = format!("{}->{}:{}", src_sg, tgt_sg, ret_type);
                     if edge_set.insert(edge_key) {
                         edges.push(GraphEdge {
                             source: format!("{}:{}", src_sg, type_name),
@@ -1292,6 +1292,116 @@ mod tests {
             first_node.get("kind").is_some(),
             "type graph nodes must have a 'kind' field"
         );
+    }
+
+    #[test]
+    fn entity_graph_emits_distinct_edges_for_multiple_target_types_in_same_subgraph_pair() {
+        // Subgraph "catalog" owns two distinct entity types.
+        let catalog = SubgraphInput {
+            name: "catalog".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                    @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+                {
+                    query: Query
+                }
+
+                type Query {
+                    product: Product
+                }
+
+                type Product @key(fields: "id") {
+                    id: ID!
+                }
+
+                type Warehouse @key(fields: "id") {
+                    id: ID!
+                }
+            "#
+            .to_string(),
+        };
+
+        // Subgraph "orders" has a single entity (Order) with fields referencing
+        // *both* catalog-owned entity types — this should yield two distinct
+        // cross-subgraph edges (ORDERS->CATALOG:Product and
+        // ORDERS->CATALOG:Warehouse), not one deduped edge.
+        let orders = SubgraphInput {
+            name: "orders".to_string(),
+            sdl: r#"
+                extend schema
+                    @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+                    @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+                {
+                    query: Query
+                }
+
+                type Query {
+                    order: Order
+                }
+
+                type Order @key(fields: "id") {
+                    id: ID!
+                    product: Product
+                    warehouse: Warehouse
+                }
+
+                extend type Product @key(fields: "id") {
+                    id: ID! @external
+                }
+
+                extend type Warehouse @key(fields: "id") {
+                    id: ID! @external
+                }
+            "#
+            .to_string(),
+        };
+
+        let result = compose(&[catalog, orders]);
+        assert!(
+            result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+            "expected ok:true"
+        );
+
+        let entity_graph = result
+            .get("entity_graph")
+            .expect("entity_graph key must exist");
+        let entity_edges = entity_graph
+            .get("edges")
+            .and_then(|v| v.as_array())
+            .expect("entity_graph.edges must be an array");
+
+        let targets: Vec<&str> = entity_edges
+            .iter()
+            .filter_map(|e| e.get("target").and_then(|v| v.as_str()))
+            .collect();
+
+        assert!(
+            targets.iter().any(|t| t.contains("Product")),
+            "expected an edge targeting a Product entity, got: {targets:?}"
+        );
+        assert!(
+            targets.iter().any(|t| t.contains("Warehouse")),
+            "expected an edge targeting a Warehouse entity, got: {targets:?}"
+        );
+        assert_eq!(
+            targets.len(),
+            2,
+            "expected two distinct cross-subgraph edges (one per target entity type), got: {targets:?}"
+        );
+
+        // Every edge's source must encode the source type name alongside the
+        // source subgraph (AC #2: source type is present on the wire).
+        for edge in entity_edges {
+            let source = edge
+                .get("source")
+                .and_then(|v| v.as_str())
+                .expect("edge.source must be a string");
+            assert!(
+                source.contains("Order"),
+                "expected edge source to encode the source type name, got: {source}"
+            );
+        }
     }
 
     // ---- schema_tree tests ----

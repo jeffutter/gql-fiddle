@@ -32,6 +32,29 @@ function makeTwoSubgraphEntityReferenceGraph(): RustGraph {
 }
 
 /**
+ * Two subgraphs, same subgraph pair, two distinct target entity types:
+ * ORDERS:Order → USERS:User and ORDERS:Order → USERS:Account.
+ *
+ * Regression fixture for the entity-edge dedup bug (edges were keyed only
+ * on the subgraph pair, so a second target type from the same pair was
+ * silently dropped).
+ */
+function makeMultiTargetTypeSameSubgraphPairGraph(): RustGraph {
+  return {
+    nodes: [
+      { id: "ORDERS:Order", label: "Order", subgraphs: ["ORDERS"] },
+      { id: "USERS:User", label: "User", subgraphs: ["USERS"] },
+      { id: "USERS:Account", label: "Account", subgraphs: ["USERS"] },
+    ],
+    edges: [
+      { source: "ORDERS:Order", target: "USERS:User", label: "id" },
+      { source: "ORDERS:Order", target: "USERS:Account", label: "id" },
+    ],
+    subgraphs: ["ORDERS", "USERS"],
+  };
+}
+
+/**
  * Bidirectional: Product in CATALOG ↔ StockInfo in INVENTORY.
  */
 function makeBidirectionalGraph(): RustGraph {
@@ -108,6 +131,7 @@ describe("schemaToEntityGraph", () => {
       const edge = result.edges[0];
       expect(edge.sourceSubgraph).toBe("ORDERS");
       expect(edge.targetSubgraph).toBe("USERS");
+      expect(edge.sourceTypeName).toBe("Order");
       expect(edge.typeName).toBe("User");
       expect(edge.keyFields).toBe("id");
     });
@@ -115,6 +139,32 @@ describe("schemaToEntityGraph", () => {
     it("lists both subgraphs", () => {
       const result = schemaToEntityGraph(makeTwoSubgraphEntityReferenceGraph());
       expect(result.subgraphs).toEqual(["ORDERS", "USERS"]);
+    });
+  });
+
+  describe("multiple target entity types for the same subgraph pair", () => {
+    it("produces one distinct edge per target type, not a single deduped edge", () => {
+      const result = schemaToEntityGraph(makeMultiTargetTypeSameSubgraphPairGraph());
+      expect(result.edges).toHaveLength(2);
+
+      const toUser = result.edges.find((e) => e.typeName === "User");
+      expect(toUser).toBeDefined();
+      expect(toUser!.id).toBe("ORDERS->USERS:User");
+
+      const toAccount = result.edges.find((e) => e.typeName === "Account");
+      expect(toAccount).toBeDefined();
+      expect(toAccount!.id).toBe("ORDERS->USERS:Account");
+
+      // Both edges share the same source/target subgraph pair but must
+      // remain distinct because their target types differ.
+      expect(toUser!.id).not.toBe(toAccount!.id);
+    });
+
+    it("populates sourceTypeName from the source node's type", () => {
+      const result = schemaToEntityGraph(makeMultiTargetTypeSameSubgraphPairGraph());
+      for (const edge of result.edges) {
+        expect(edge.sourceTypeName).toBe("Order");
+      }
     });
   });
 

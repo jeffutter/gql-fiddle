@@ -26,6 +26,8 @@ export interface EntityEdge {
   id: string;
   sourceSubgraph: string;
   targetSubgraph: string;
+  /** The entity type on the source side that holds the cross-subgraph reference. */
+  sourceTypeName: string;
   /** The entity type that is referenced across the subgraph boundary. */
   typeName: string;
   /** The @key(fields) string used for resolution, e.g. "id" or "sku". */
@@ -100,10 +102,18 @@ export function schemaToEntityGraph(rustGraph: RustGraph): EntityGraph {
     const tgtColon = e.target.indexOf(":");
     const sourceSubgraph = srcColon >= 0 ? e.source.slice(0, srcColon) : e.source;
     const targetSubgraph = tgtColon >= 0 ? e.target.slice(0, tgtColon) : e.target;
+    const sourceTypeName = srcColon >= 0 ? e.source.slice(srcColon + 1) : e.source;
     const typeName = tgtColon >= 0 ? e.target.slice(tgtColon + 1) : e.target;
     // Edge id mirrors the TS original: "SRCSUB->TGTSUB:TargetType"
     const id = `${sourceSubgraph}->${targetSubgraph}:${typeName}`;
-    return { id, sourceSubgraph, targetSubgraph, typeName, keyFields: e.label ?? "" };
+    return {
+      id,
+      sourceSubgraph,
+      targetSubgraph,
+      sourceTypeName,
+      typeName,
+      keyFields: e.label ?? "",
+    };
   });
 
   return { nodes, edges, subgraphs: rustGraph.subgraphs };
