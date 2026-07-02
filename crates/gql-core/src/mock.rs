@@ -265,20 +265,22 @@ fn walk_fields(
                     continue;
                 }
                 if let Some(fragment) = doc.fragments.get(&spread.fragment_name) {
-                    let fragment_result = walk_fields(
-                        schema,
-                        doc,
-                        &fragment.selection_set,
-                        object_type,
-                        variable_definitions,
-                        variables,
-                        seed,
-                        path.clone(),
-                        config,
-                    );
-                    // Merge fragment fields into result.
-                    for (k, v) in fragment_result.as_object().unwrap() {
-                        result.insert(k.clone(), v.clone());
+                    if type_condition_applies(schema, &fragment.selection_set.ty, object_type) {
+                        let fragment_result = walk_fields(
+                            schema,
+                            doc,
+                            &fragment.selection_set,
+                            object_type,
+                            variable_definitions,
+                            variables,
+                            seed,
+                            path.clone(),
+                            config,
+                        );
+                        // Merge fragment fields into result.
+                        for (k, v) in fragment_result.as_object().unwrap() {
+                            result.insert(k.clone(), v.clone());
+                        }
                     }
                 }
             }
@@ -294,7 +296,7 @@ fn walk_fields(
                 let applies = inline_frag
                     .type_condition
                     .as_ref()
-                    .is_none_or(|tc| *object_type == **tc);
+                    .is_none_or(|tc| type_condition_applies(schema, tc, object_type));
                 if applies {
                     let frag_result = walk_fields(
                         schema,
@@ -581,6 +583,39 @@ fn resolve_field(
             )
         }
     }
+}
+
+/// Test whether a fragment's type condition applies to a concrete resolved
+/// object type — i.e. whether the fragment's fields should be included.
+///
+/// True when:
+/// 1. `type_condition` names `object_type` exactly, or
+/// 2. `type_condition` names a union of which `object_type` is a member, or
+/// 3. `type_condition` names an interface that `object_type` implements.
+fn type_condition_applies(
+    schema: &Schema,
+    type_condition: &NamedType,
+    object_type: &NamedType,
+) -> bool {
+    if type_condition.as_str() == object_type.as_str() {
+        return true;
+    }
+
+    if let Some(union_type) = schema.get_union(type_condition) {
+        return union_type
+            .members
+            .iter()
+            .any(|m| m.as_str() == object_type.as_str());
+    }
+
+    if schema.get_interface(type_condition).is_some() {
+        let implementers = schema.implementers_map();
+        if let Some(impl_set) = implementers.get(type_condition) {
+            return impl_set.iter().any(|m| m.as_str() == object_type.as_str());
+        }
+    }
+
+    false
 }
 
 /// Unwrap Type wrappers (NonNull, List) to get the base NamedType.
@@ -1161,6 +1196,107 @@ mod tests {
             typename == "User" || typename == "Product",
             "interface Node should resolve to User or Product, got {typename}"
         );
+    }
+
+    /// AC#1, AC#2, AC#3: a fragment whose type condition is a supertype of
+    /// the concrete resolved type (a union or an interface) must still
+    /// contribute its fields — for both named fragment spreads and inline
+    /// fragments.
+    #[test]
+    fn task_102_supertype_fragment_conditions_are_not_dropped() {
+        // Build a plain (non-federated) API schema where SearchResult is a
+        // union of User/Product, and Node is an interface both implement.
+        let api_sdl = r#"
+            type Query {
+                search(term: String!): SearchResult
+            }
+
+            union SearchResult = User | Product
+
+            interface Node {
+                id: ID!
+            }
+
+            type User implements Node {
+                id: ID!
+                name: String
+            }
+
+            type Product implements Node {
+                id: ID!
+                title: String
+            }
+        "#;
+        let schema = Schema::parse_and_validate(api_sdl, "<supertype-fragment-schema>")
+            .expect("schema should parse");
+
+        // Nest a named fragment on the interface (Node) and concrete inline
+        // fragments inside an outer inline fragment whose type condition is
+        // the union itself (SearchResult) — exercising both the
+        // FragmentSpread and InlineFragment supertype-matching code paths.
+        let op_sdl = r#"
+            query($term: String!) {
+                search(term: $term) {
+                    __typename
+                    ... on SearchResult {
+                        ...NodeFields
+                        ... on User { name }
+                        ... on Product { title }
+                    }
+                }
+            }
+
+            fragment NodeFields on Node {
+                id
+            }
+        "#;
+        let doc = ECExecDoc::parse_and_validate(&schema, op_sdl, "<supertype-fragment-query>")
+            .expect("operation should parse against supertype fragment schema");
+
+        let operation = doc.operations.anonymous.as_ref().expect("anonymous op");
+
+        let data = walk_selection_set(
+            &schema,
+            &doc,
+            &operation.selection_set,
+            exe::OperationType::Query,
+            &[],
+            &json!({ "term": "test" }),
+            42,
+            vec!["search".to_string()],
+            &MockConfig::new(),
+        );
+
+        let search_obj = data
+            .as_object()
+            .and_then(|o| o.get("search"))
+            .and_then(|v| v.as_object())
+            .expect("search should resolve to an object");
+
+        // The interface fragment spread (`NodeFields` on `Node`) must
+        // contribute `id` regardless of which concrete union member was
+        // resolved (AC#3 regression, interface supertype).
+        assert!(
+            search_obj.get("id").is_some(),
+            "named fragment spread 'NodeFields on Node' must not be dropped for a concrete union member"
+        );
+
+        // The concrete-type-specific inline fragment for the resolved
+        // member must also be present (AC#1/AC#2, union member resolution).
+        let typename = search_obj["__typename"]
+            .as_str()
+            .expect("__typename must be present");
+        match typename {
+            "User" => assert!(
+                search_obj.get("name").is_some(),
+                "inline fragment '... on User' must apply when resolved type is User"
+            ),
+            "Product" => assert!(
+                search_obj.get("title").is_some(),
+                "inline fragment '... on Product' must apply when resolved type is Product"
+            ),
+            other => panic!("unexpected resolved type {other}"),
+        }
     }
 
     /// AC#3: @skip/@include directives are honored via variables.
