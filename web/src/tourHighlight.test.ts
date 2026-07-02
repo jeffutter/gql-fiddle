@@ -162,6 +162,92 @@ describe("applyTourHighlight", () => {
       expect(() => handle.dispose()).not.toThrow();
     });
 
+    it("does not latch onto a type whose name is a substring of another type (AC#1)", () => {
+      const sdl = `type User {
+  id: ID!
+  name: String
+}
+
+type UserProfile {
+  id: ID!
+  bio: String
+}
+`;
+      const step: TourStep = {
+        label: "User id field",
+        prose: "The id field on User",
+        anchor: { subgraphIndex: 0, typeName: "User", fieldName: "id" },
+      };
+
+      const handle = applyTourHighlight(
+        editorMock as never,
+        monacoMock as never,
+        step,
+        sdl,
+        sdl,
+        0,
+      );
+
+      expect(editorMock.createDecorationsCollection).toHaveBeenCalledOnce();
+      const decorations = getDecorations(editorMock);
+      // "  id: ID!" inside "type User {" is line 2, NOT line 7 (inside UserProfile).
+      expect(decorations[0]!.range.startLineNumber).toBe(2);
+
+      handle.dispose();
+    });
+
+    it("does not throw and finds nothing extra when a field line merely mentions the type name as a substring", () => {
+      const sdl = `type Query {
+  user: User
+}
+
+type User {
+  id: ID!
+}
+`;
+      const step: TourStep = {
+        label: "User id field",
+        prose: "The id field on User",
+        anchor: { subgraphIndex: 0, typeName: "User", fieldName: "id" },
+      };
+
+      const handle = applyTourHighlight(
+        editorMock as never,
+        monacoMock as never,
+        step,
+        sdl,
+        sdl,
+        0,
+      );
+
+      expect(editorMock.createDecorationsCollection).toHaveBeenCalledOnce();
+      const decorations = getDecorations(editorMock);
+      // "  id: ID!" inside "type User {" is line 6, not confused with "user: User" on line 2.
+      expect(decorations[0]!.range.startLineNumber).toBe(6);
+
+      handle.dispose();
+    });
+
+    it("does not throw when typeName or fieldName contain regex metacharacters (AC#2)", () => {
+      const sdl = `type User {
+  id: ID!
+}
+`;
+      const step: TourStep = {
+        label: "Weird name",
+        prose: "Synthetic anchor with regex metacharacters",
+        anchor: { subgraphIndex: 0, typeName: "User+Foo", fieldName: "id.bar" },
+      };
+
+      expect(() =>
+        applyTourHighlight(editorMock as never, monacoMock as never, step, sdl, sdl, 0),
+      ).not.toThrow();
+
+      // Neither the type nor the field exists (the metacharacter names don't
+      // match anything in the SDL) — must fall back to no-op rather than throw.
+      expect(editorMock.createDecorationsCollection).not.toHaveBeenCalled();
+    });
+
     it("falls through to diff-based path when anchor targets a different subgraph", () => {
       const step: TourStep = {
         label: "Other subgraph anchor",

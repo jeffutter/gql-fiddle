@@ -25,6 +25,20 @@ export interface TourHighlightHandle {
 /** A no-op handle returned when there is nothing to decorate. */
 const NO_OP_HANDLE: TourHighlightHandle = { dispose: () => {} };
 
+/** Escape regex metacharacters so a name can be safely interpolated into a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * True if `line` is the `type`/`interface` declaration line for `typeName`
+ * (e.g. `type User {`), not merely a line that mentions `typeName` as a
+ * substring (e.g. `type UserProfile {` or `user: User`).
+ */
+function isTypeDeclarationLine(line: string, typeName: string): boolean {
+  return new RegExp(`^(type|interface)\\s+${escapeRegExp(typeName)}[\\s{@]`).test(line);
+}
+
 /**
  * Scan SDL lines for the 1-based line number of a type or field declaration.
  *
@@ -38,12 +52,12 @@ function findAnchorLine(lines: string[], typeName: string, fieldName?: string): 
     let inType = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (/^(type|interface)\s+\w/.test(line) && line.includes(typeName)) {
+      if (isTypeDeclarationLine(line, typeName)) {
         inType = true;
       } else if (inType && /^\}/.test(line)) {
         inType = false;
       } else if (inType) {
-        const fieldPattern = new RegExp(`^\\s+${fieldName}\\s*[:(]`);
+        const fieldPattern = new RegExp(`^\\s+${escapeRegExp(fieldName)}\\s*[:(]`);
         if (fieldPattern.test(line)) {
           return i + 1; // Monaco lines are 1-based
         }
@@ -53,7 +67,7 @@ function findAnchorLine(lines: string[], typeName: string, fieldName?: string): 
   }
 
   for (let i = 0; i < lines.length; i++) {
-    if (new RegExp(`^(type|interface)\\s+${typeName}[\\s{@]`).test(lines[i])) {
+    if (isTypeDeclarationLine(lines[i], typeName)) {
       return i + 1;
     }
   }

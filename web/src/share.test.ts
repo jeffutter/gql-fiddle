@@ -307,4 +307,17 @@ describe("resolveTourStep", () => {
     expect(result.subgraphs).toEqual(SAMPLE_TOUR.base.subgraphs);
     expect(result.activeQueryTab).toBe(SAMPLE_TOUR.base.activeQueryTab);
   });
+
+  it("returns tour.base without throwing when stepIndex is out of range (AC#3)", () => {
+    expect(() => resolveTourStep(SAMPLE_TOUR, SAMPLE_TOUR.steps.length)).not.toThrow();
+    const result = resolveTourStep(SAMPLE_TOUR, SAMPLE_TOUR.steps.length);
+    expect(result).toBe(SAMPLE_TOUR.base);
+  });
+
+  it("returns tour.base without throwing when steps is empty (AC#3)", () => {
+    const emptyStepsTour: Tour = { ...SAMPLE_TOUR, steps: [] };
+    expect(() => resolveTourStep(emptyStepsTour, 0)).not.toThrow();
+    const result = resolveTourStep(emptyStepsTour, 0);
+    expect(result).toBe(emptyStepsTour.base);
+  });
 });

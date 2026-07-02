@@ -144,6 +144,6 @@ export function decodeTour(hash: string): Tour {
  */
 export function resolveTourStep(tour: Tour, stepIndex: number): WorkspacePayload {
   const step = tour.steps[stepIndex];
-  if (!step.overrides) return tour.base;
+  if (!step || !step.overrides) return tour.base;
   return { ...tour.base, ...step.overrides };
 }
