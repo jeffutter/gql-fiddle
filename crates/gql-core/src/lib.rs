@@ -143,3 +143,50 @@ mod tests {
         assert!(out.contains("BAD_INPUT"));
     }
 }
+
+#[cfg(test)]
+mod debug_test {
+    use apollo_compiler::Schema;
+
+    #[test]
+    fn debug_ranges() {
+        let sdl = "type Q {\na: String\n}";
+        let schema = Schema::builder()
+            .adopt_orphan_extensions()
+            .ignore_builtin_redefinitions()
+            .parse(sdl, "<subgraph>")
+            .build()
+            .unwrap();
+        let sources = &schema.sources;
+        for (type_name, ext_type) in &schema.types {
+            if ext_type.is_built_in() {
+                continue;
+            }
+            if let apollo_compiler::schema::ExtendedType::Object(obj) = ext_type {
+                for (field_name, fc) in &obj.fields {
+                    if let Some(range) = fc.node.line_column_range(sources) {
+                        eprintln!(
+                            "Field '{}' on '{}': ({},{}) -> ({},{})",
+                            field_name,
+                            type_name,
+                            range.start.line,
+                            range.start.column,
+                            range.end.line,
+                            range.end.column
+                        );
+                    }
+                }
+                if let Some(range) = obj.line_column_range(sources) {
+                    eprintln!(
+                        "Type '{}': ({},{}) -> ({},{})",
+                        type_name,
+                        range.start.line,
+                        range.start.column,
+                        range.end.line,
+                        range.end.column
+                    );
+                }
+            }
+        }
+    }
+}

@@ -43,7 +43,7 @@ pub fn node_at_position(sdl: &str, line: u32, col: u32) -> Value {
         if line == start_line && col < start_col {
             return false;
         }
-        if line == end_line && col > end_col {
+        if line == end_line && col >= end_col {
             return false;
         }
         true
@@ -281,5 +281,25 @@ type Review {\n\
             "position (1,1) should land inside a type definition, got null"
         );
         assert_eq!(result["typeName"].as_str().unwrap(), "Query");
+    }
+
+    #[test]
+    fn exclusive_end_column_does_not_match_field() {
+        // AC#1: a cursor at the exclusive end column of a field should not match that field.
+        // apollo-compiler's LineColumn.end is exclusive (one past the last character),
+        // so a cursor at exactly end_col must not resolve to the field.
+        //
+        // Field `a` on line 2 has range (2,1) -> (2,10) in 1-indexed coords.
+        // Position (2, 10) is exactly at the exclusive end — should not match field `a`.
+        let sdl = "type Q {\na: String\n}";
+        let result = node_at_position(sdl, 2, 10);
+        // Position (2, 10) is past the field's exclusive end.
+        // With the fix (col >= end_col), it correctly does not match the field.
+        // It may match the enclosing type or return null, but not the field.
+        assert_eq!(
+            result.get("fieldName"),
+            None,
+            "cursor at exclusive end column must not match the field"
+        );
     }
 }
