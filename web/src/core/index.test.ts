@@ -115,10 +115,11 @@ describe("loadCore", () => {
     expect(typeof composeResult).toBe("object");
     expect(composeResult.ok).toBeDefined();
 
-    // validateQuery: strings -> object with diagnostics array
+    // validateQuery: strings -> object with diagnostics array (no schemaError)
     const queryDiag = core.validateQuery("type Query { x: ID }", "{ x }");
     expect(typeof queryDiag).toBe("object");
-    expect(Array.isArray(queryDiag.diagnostics)).toBe(true);
+    expect("schemaError" in queryDiag).toBe(false);
+    expect("diagnostics" in queryDiag && Array.isArray(queryDiag.diagnostics)).toBe(true);
 
     // plan: strings -> object (NOT a raw string)
     const planResult = core.plan("type Query { x: ID }", "{ x }");

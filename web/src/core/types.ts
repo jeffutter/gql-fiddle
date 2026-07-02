@@ -14,6 +14,21 @@ export interface Diagnostic {
   len: number;
 }
 
+/**
+ * Result of validating an operation against a composed supergraph.
+ *
+ * `validateQuery` has two independent failure sources with two distinct
+ * shapes — callers MUST discriminate on `schemaError` before treating the
+ * result as query diagnostics:
+ *
+ * - `{ schemaError }` — the supergraph/API schema itself could not be
+ *   derived or parsed. The fault is in the *schema*, not the operation, so
+ *   there is no meaningful query position to underline.
+ * - `{ diagnostics }` — the schema derived fine; these are the operation's
+ *   own diagnostics (empty array means the operation is valid).
+ */
+export type ValidateQueryResult = { diagnostics: Diagnostic[] } | { schemaError: string };
+
 export interface SubgraphInput {
   name: string;
   sdl: string;
@@ -172,7 +187,7 @@ export type PlanResult =
 export interface GqlCore {
   validateSubgraph(sdl: string): { diagnostics: Diagnostic[] };
   compose(subgraphs: SubgraphInput[]): ComposeResult;
-  validateQuery(supergraphSdl: string, operation: string): { diagnostics: Diagnostic[] };
+  validateQuery(supergraphSdl: string, operation: string): ValidateQueryResult;
   plan(supergraphSdl: string, operation: string, opName?: string): PlanResult;
   /**
    * Mock-execute an operation. `mockConfig` is a JSON string (not YAML) mapping

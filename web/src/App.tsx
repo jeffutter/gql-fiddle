@@ -611,11 +611,17 @@ export default function App() {
         );
         const model = monacoInstance.editor.getModel(uri);
         if (model) {
-          monacoInstance.editor.setModelMarkers(
-            model,
-            "query-validation",
-            result.diagnostics.map((d) => diagnosticToMarker(d, monacoInstance)),
-          );
+          // A schemaError means the fault is in the schema/supergraph, not
+          // this query — don't paint it onto the query editor. Just clear
+          // any stale query-validation markers (TASK-104).
+          if ("schemaError" in result) {
+            console.debug("validateQuery: schema error, not a query fault:", result.schemaError);
+          }
+          const markers =
+            "schemaError" in result
+              ? []
+              : result.diagnostics.map((d) => diagnosticToMarker(d, monacoInstance));
+          monacoInstance.editor.setModelMarkers(model, "query-validation", markers);
         }
       })();
     }, 300);

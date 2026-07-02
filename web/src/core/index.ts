@@ -9,6 +9,7 @@ import type {
   PlanResult,
   QueryShapeTree,
   SubgraphInput,
+  ValidateQueryResult,
 } from "./types";
 
 let corePromise: Promise<GqlCore> | null = null;
@@ -31,8 +32,15 @@ function wrap(ns: typeof wasm): GqlCore {
     compose(subgraphs: SubgraphInput[]): ComposeResult {
       return json(ns.compose(JSON.stringify(subgraphs)));
     },
-    validateQuery(supergraphSdl: string, operation: string): { diagnostics: Diagnostic[] } {
-      return json(ns.validate_query(supergraphSdl, operation));
+    validateQuery(supergraphSdl: string, operation: string): ValidateQueryResult {
+      // The wire shape is a discriminated union — check for schema_error
+      // before assuming the payload is query diagnostics (TASK-104).
+      const raw = json<{ diagnostics?: Diagnostic[]; schema_error?: { message: string } }>(
+        ns.validate_query(supergraphSdl, operation),
+      );
+      return raw.schema_error
+        ? { schemaError: raw.schema_error.message }
+        : { diagnostics: raw.diagnostics ?? [] };
     },
     plan(supergraphSdl: string, operation: string, opName?: string): PlanResult {
       return json(ns.plan(supergraphSdl, operation, opName ?? ""));

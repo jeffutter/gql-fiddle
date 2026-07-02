@@ -9,6 +9,29 @@
 //! `serde_json::Value`; the `#[wasm_bindgen]` functions below are thin wrappers
 //! that parse input and stringify output, so native `cargo test` can exercise
 //! the real logic without a browser.
+//!
+//! ## Envelope conventions
+//!
+//! The six exports below use three deliberately different failure shapes,
+//! chosen per export based on whether callers need to *act* on a failure
+//! (retry, surface an error) or just get an empty/best-effort result:
+//!
+//! 1. **Result envelope** ([`compose()`], [`plan()`]): `{ ok: true, ... }` on
+//!    success, `{ ok: false, errors: [...] }` on failure. These are
+//!    all-or-nothing operations — there's no partial result worth returning.
+//! 2. **Diagnostics envelope** ([`validate_subgraph`], [`validate_query`]):
+//!    `{ diagnostics: [...] }`, where an empty array means the input is
+//!    valid and each entry carries a `(line, col, len)` position for editor
+//!    underlining. [`validate_query`] additionally returns
+//!    `{ schema_error: { message } }` when the fault is in the
+//!    supergraph/schema rather than in the operation being validated (see
+//!    `validate::validate_query` for why the two failure sources can't share
+//!    one diagnostic shape). Callers MUST check for `schema_error` before
+//!    treating the payload as query diagnostics.
+//! 3. **Silent-default envelope** ([`query_shape()`], [`node_at_position`]):
+//!    return an empty/null result for invalid input rather than an error.
+//!    These are view-only conveniences (editor hover/tree), not diagnostic
+//!    surfaces, so there's nothing meaningful to report back to the caller.
 
 mod api_schema;
 mod compose;
@@ -56,6 +79,11 @@ pub fn compose(subgraphs_json: &str) -> String {
 }
 
 /// Validate an operation against the composed API schema.
+///
+/// Returns `{ schema_error: { message } }` if the supergraph/API schema
+/// itself is unusable, or `{ diagnostics: [...] }` for the operation's own
+/// diagnostics (empty array if valid). See the module-level "Envelope
+/// conventions" doc and `validate::validate_query` for details.
 #[wasm_bindgen]
 pub fn validate_query(supergraph_sdl: &str, operation: &str) -> String {
     validate::validate_query(supergraph_sdl, operation).to_string()

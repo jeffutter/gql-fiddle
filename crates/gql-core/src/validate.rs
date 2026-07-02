@@ -148,16 +148,26 @@ fn extract_executable_diagnostics(with_errors: &WithErrors<ExecutableDocument>) 
 }
 
 /// Validate an operation against the composed API schema.
+///
+/// Returns one of two shapes, and callers MUST check for `schema_error`
+/// before treating the payload as query diagnostics:
+///
+/// - `{ "schema_error": { "message": <text> } }` — the fault is in the
+///   *schema/supergraph*, not the operation: either the client-facing API
+///   schema could not be derived from `supergraph_sdl`, or the derived API
+///   schema itself failed to parse. There is no meaningful query position to
+///   report here, so no diagnostic is fabricated — a caller must not paint
+///   this onto the query editor.
+/// - `{ "diagnostics": [...] }` — the API schema derived and parsed fine, and
+///   this is the result of validating `operation` against it (empty array
+///   means the operation is valid). Every diagnostic carries a real position
+///   from the operation document.
 pub fn validate_query(supergraph_sdl: &str, operation: &str) -> Value {
     // Derive the client-facing API schema from the supergraph SDL.
     let api_sdl = match crate::api_schema::derive_api_schema(supergraph_sdl) {
         Ok(sdl) => sdl,
         Err(e) => {
-            return json!({ "diagnostics": [{
-                "severity": "error",
-                "message": e.to_string(),
-                "line": 1, "col": 1, "len": 0,
-            }] });
+            return json!({ "schema_error": { "message": e.to_string() } });
         }
     };
 
@@ -165,21 +175,16 @@ pub fn validate_query(supergraph_sdl: &str, operation: &str) -> Value {
     let valid_schema = match Schema::parse_and_validate(&api_sdl, "<api-schema>") {
         Ok(s) => s,
         Err(we) => {
-            // Schema-level parse errors — report message text with fallback positions.
-            let diagnostics: Vec<Value> = we
+            // Schema-level parse errors — the derived API schema itself is
+            // broken, not the operation. Join all error messages so nothing
+            // is silently dropped.
+            let message = we
                 .errors
                 .iter()
-                .map(|d| {
-                    json!({
-                        "severity": "error",
-                        "message": d.to_string(),
-                        "line": 1,
-                        "col": 1,
-                        "len": 0,
-                    })
-                })
-                .collect();
-            return json!({ "diagnostics": diagnostics });
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            return json!({ "schema_error": { "message": message } });
         }
     };
 
@@ -458,6 +463,27 @@ type Query {
                 "diagnostic[{i}] 'len' should be a number"
             );
         }
+    }
+
+    #[test]
+    fn malformed_supergraph_sdl_returns_schema_error_not_fake_diagnostic() {
+        // AC#1: A malformed *supergraph* SDL must not be reported as a query
+        // diagnostic at (1,1) — the fault is in the schema, not the operation.
+        let result = validate_query("not valid sdl", "{ __typename }");
+        assert!(
+            result.get("diagnostics").is_none(),
+            "schema-derivation failure must not surface as a diagnostics envelope, got {result:?}"
+        );
+        let schema_error = result
+            .get("schema_error")
+            .expect("expected a schema_error envelope");
+        let message = schema_error["message"]
+            .as_str()
+            .expect("schema_error.message should be a string");
+        assert!(
+            !message.is_empty(),
+            "schema_error message should not be empty"
+        );
     }
 
     #[test]
