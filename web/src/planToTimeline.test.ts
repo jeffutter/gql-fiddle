@@ -23,6 +23,13 @@ const FETCH_PRODUCTS: PlanNode = {
   operation_kind: "query",
 };
 
+const FETCH_INVENTORY: PlanNode = {
+  kind: "Fetch",
+  service: "inventory",
+  operation: "{ inventory { sku } }",
+  operation_kind: "query",
+};
+
 describe("planToTimeline", () => {
   it("single Fetch — one item at depth 0, maxDepth 1, on critical path", () => {
     const data = planToTimeline(FETCH_USERS);
@@ -73,7 +80,9 @@ describe("planToTimeline", () => {
     // Sequence: [users, Parallel([reviews, products])]
     // Depths: users=0, reviews=1, products=1; maxDepth=2
     // Column 0 has 1 occupant (sequential), column 1 has 2 (parallel).
-    // The sequential chain breaks at column 1, so criticalEnd=1 but maxDepth=2 → no item is on path.
+    // The sequential chain from depth 0 stops before the parallel column, so
+    // criticalEnd=1: users (the sole sequential-prefix occupant) is critical
+    // even though the plan ends with a parallel tail.
     const node: PlanNode = {
       kind: "Sequence",
       nodes: [FETCH_USERS, { kind: "Parallel", nodes: [FETCH_REVIEWS, FETCH_PRODUCTS] }],
@@ -87,10 +96,35 @@ describe("planToTimeline", () => {
     expect(users.depthStart).toBe(0);
     expect(reviews.depthStart).toBe(1);
     expect(products.depthStart).toBe(1);
-    // The chain from 0 reaches depth 1 which is parallel, so criticalEnd < maxDepth → false
-    expect(users.isOnCriticalPath).toBe(false);
+    // users is the sequential prefix — critical regardless of the parallel tail
+    expect(users.isOnCriticalPath).toBe(true);
     expect(reviews.isOnCriticalPath).toBe(false);
     expect(products.isOnCriticalPath).toBe(false);
+  });
+
+  it("sequential prefix then parallel tail — A -> B -> (C || D) marks A and B critical", () => {
+    // Sequence: [users, reviews, Parallel([products, inventory])]
+    // Depths: users=0, reviews=1, products=2, inventory=2; maxDepth=3
+    // Columns 0 and 1 have 1 occupant each (sequential), column 2 has 2 (parallel).
+    const node: PlanNode = {
+      kind: "Sequence",
+      nodes: [
+        FETCH_USERS,
+        FETCH_REVIEWS,
+        { kind: "Parallel", nodes: [FETCH_PRODUCTS, FETCH_INVENTORY] },
+      ],
+    };
+    const data = planToTimeline(node);
+    expect(data.items).toHaveLength(4);
+    expect(data.maxDepth).toBe(3);
+    const users = data.items.find((i) => i.service === "users")!;
+    const reviews = data.items.find((i) => i.service === "reviews")!;
+    const products = data.items.find((i) => i.service === "products")!;
+    const inventory = data.items.find((i) => i.service === "inventory")!;
+    expect(users.isOnCriticalPath).toBe(true);
+    expect(reviews.isOnCriticalPath).toBe(true);
+    expect(products.isOnCriticalPath).toBe(false);
+    expect(inventory.isOnCriticalPath).toBe(false);
   });
 
   it("fully sequential chain of three — all on critical path", () => {

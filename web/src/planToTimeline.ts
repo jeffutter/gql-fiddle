@@ -125,12 +125,16 @@ export function planToTimeline(root: PlanNode): TimelineData {
   // Critical path detection:
   // A depth column is "sequential" (not parallel) when it has exactly one
   // occupant. Items at such columns form the longest sequential chain.
-  // An item is on the critical path when every column from 0 to its depthEnd-1
-  // is sequential, and the item's depthEnd reaches the global maxDepth via
-  // sequential steps.
+  // An item is on the critical path when it lies within the sequential
+  // prefix that starts at depth 0 — i.e. every column from 0 up to (but not
+  // including) the first parallel column is sequential. This prefix is
+  // critical regardless of whether it reaches maxDepth: a plan shaped
+  // A -> B -> (C || D) still has A and B unambiguously on the critical
+  // path even though the final column is parallel.
   //
-  // This heuristic is exact for all real query plan shapes (Sequence-of-Parallels)
-  // and avoids needing parent links after the flat walk.
+  // Note: this intentionally does not mark a sequential suffix that follows
+  // a parallel prefix (e.g. (A||B) -> C) as critical — that's a separate,
+  // out-of-scope concern.
   const depthCount = new Map<number, number>();
   for (const item of items) {
     depthCount.set(item.depthStart, (depthCount.get(item.depthStart) ?? 0) + 1);
@@ -151,8 +155,7 @@ export function planToTimeline(root: PlanNode): TimelineData {
   const finalItems: TimelineItem[] = items.map((item) => ({
     ...item,
     isOnCriticalPath:
-      criticalEnd === maxDepth &&
-      maxDepth > 0 &&
+      criticalEnd > 0 &&
       (depthCount.get(item.depthStart) ?? 0) === 1 &&
       item.depthEnd <= criticalEnd,
   }));
