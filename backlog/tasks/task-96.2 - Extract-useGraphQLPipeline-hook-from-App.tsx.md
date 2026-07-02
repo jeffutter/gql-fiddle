@@ -1,10 +1,10 @@
 ---
 id: TASK-96.2
 title: Extract useGraphQLPipeline() hook from App.tsx
-status: Dev Ready
+status: Blocked
 assignee: []
 created_date: '2026-07-01 00:29'
-updated_date: '2026-07-01 21:00'
+updated_date: '2026-07-01 21:01'
 labels:
   - review
   - planned
