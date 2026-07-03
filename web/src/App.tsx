@@ -1195,6 +1195,24 @@ export default function App() {
     </header>
   );
 
+  // Modals reachable from globalHeader buttons — rendered in both the mobile
+  // and desktop layouts since globalHeader itself is shared between them.
+  const globalModals = (
+    <>
+      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
+      {exportDialogOpen && (
+        <ExportImageDialog
+          onClose={() => setExportDialogOpen(false)}
+          onChoose={handleExportSequence}
+        />
+      )}
+      {workspaceExportOpen && (
+        <ExportDialog workspaces={workspaces} onClose={() => setWorkspaceExportOpen(false)} />
+      )}
+      {workspaceImportOpen && <ImportDialog onClose={() => setWorkspaceImportOpen(false)} />}
+    </>
+  );
+
   // Creates a new workspace from the playback tour's base + tourDraft, exits playback.
   function handleOpenInWorkspace() {
     if (!playbackTour) return;
@@ -1498,6 +1516,7 @@ export default function App() {
             />
           </div>
         )}
+        {globalModals}
       </>
     );
   }
@@ -1788,17 +1807,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
-      {exportDialogOpen && (
-        <ExportImageDialog
-          onClose={() => setExportDialogOpen(false)}
-          onChoose={handleExportSequence}
-        />
-      )}
-      {workspaceExportOpen && (
-        <ExportDialog workspaces={workspaces} onClose={() => setWorkspaceExportOpen(false)} />
-      )}
-      {workspaceImportOpen && <ImportDialog onClose={() => setWorkspaceImportOpen(false)} />}
+      {globalModals}
     </>
   );
 }
