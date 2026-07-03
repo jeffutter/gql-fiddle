@@ -965,21 +965,27 @@ export default function App() {
   );
 
   const workspaceTabStrip = (
-    <nav className="workspace-tab-strip" aria-label="Workspaces" data-testid="workspace-tab-strip">
-      {workspaces.map((ws, i) => (
-        <EditableTab
-          key={i}
-          name={ws.name}
-          active={i === activeWorkspaceIndex}
-          onSelect={() => setActiveWorkspace(i)}
-          onRename={(newName) => renameWorkspace(i, newName)}
-          onRemove={() => removeWorkspace(i)}
-          canRename={i === activeWorkspaceIndex}
-          testId={`workspace-tab-${i}`}
-          removeAriaLabel={`Remove ${ws.name}`}
-          removeTestId={`workspace-remove-${i}`}
-        />
-      ))}
+    <div className="workspace-tab-strip-wrapper">
+      <nav
+        className="workspace-tab-strip"
+        aria-label="Workspaces"
+        data-testid="workspace-tab-strip"
+      >
+        {workspaces.map((ws, i) => (
+          <EditableTab
+            key={i}
+            name={ws.name}
+            active={i === activeWorkspaceIndex}
+            onSelect={() => setActiveWorkspace(i)}
+            onRename={(newName) => renameWorkspace(i, newName)}
+            onRemove={() => removeWorkspace(i)}
+            canRename={i === activeWorkspaceIndex}
+            testId={`workspace-tab-${i}`}
+            removeAriaLabel={`Remove ${ws.name}`}
+            removeTestId={`workspace-remove-${i}`}
+          />
+        ))}
+      </nav>
       <button
         className="btn btn--icon"
         onClick={() => cloneWorkspace()}
@@ -1009,7 +1015,7 @@ export default function App() {
       >
         +
       </button>
-    </nav>
+    </div>
   );
 
   const globalHeader = (
