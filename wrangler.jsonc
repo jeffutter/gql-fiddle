@@ -14,7 +14,7 @@
     // custom domain (or *.pages.dev subdomain) once known, and register the
     // matching callback URL (`${APP_ORIGIN}/api/auth/github/callback`) in the
     // GitHub OAuth App settings.
-    "APP_ORIGIN": "https://gql-fiddle.pages.dev"
+    "APP_ORIGIN": "https://gqlfiddle.dev"
   },
 
   // D1 SQLite database for workspace persistence (TASK-88.2 adds the schema).
