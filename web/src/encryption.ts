@@ -194,7 +194,7 @@ export async function decrypt(key: CryptoKey, value: string): Promise<string> {
   if (value.startsWith(COMPRESSED_PREFIX)) {
     const bytes = await aesGcmDecrypt(key, value.slice(COMPRESSED_PREFIX.length));
     if (bytes === null) throw new DecryptionError();
-    return pako.inflate(bytes, { to: "string" });
+    return pako.inflate(bytes, { toText: true });
   }
   if (value.startsWith(PREFIX)) {
     const bytes = await aesGcmDecrypt(key, value.slice(PREFIX.length));

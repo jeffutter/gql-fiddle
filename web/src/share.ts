@@ -95,7 +95,7 @@ export function decode(hash: string): WorkspacePayload {
     throw new Error("Invalid share hash: empty payload");
   }
   const bytes = base64urlToUint8(b64url);
-  const json = pako.inflate(bytes, { to: "string" });
+  const json = pako.inflate(bytes, { toText: true });
   const parsed = JSON.parse(json) as Record<string, unknown>;
 
   // Backward compat: URLs encoded before TASK-30 had flat `query`/`variables`
@@ -133,7 +133,7 @@ export function decodeTour(hash: string): Tour {
   }
   const encoded = hash.slice(TOUR_HASH_PREFIX.length);
   const bytes = base64urlToUint8(encoded);
-  const json = pako.inflate(bytes, { to: "string" });
+  const json = pako.inflate(bytes, { toText: true });
   return JSON.parse(json) as Tour;
 }
 
@@ -226,7 +226,7 @@ export function decodeExport(bytes: Uint8Array): DecodedExport {
   const isGzip = bytes[0] === GZIP_MAGIC_0 && bytes[1] === GZIP_MAGIC_1;
   let json: string;
   try {
-    json = isGzip ? pako.inflate(bytes, { to: "string" }) : new TextDecoder().decode(bytes);
+    json = isGzip ? pako.inflate(bytes, { toText: true }) : new TextDecoder().decode(bytes);
   } catch {
     throw new Error("Invalid export file: not valid JSON");
   }
