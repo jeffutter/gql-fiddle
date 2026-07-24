@@ -33,6 +33,9 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-resizable-panels": "^4.12.1",
+    "y-monaco": "^0.1.6",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.21",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

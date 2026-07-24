@@ -95,6 +95,15 @@ vi.mock("monaco-editor", () => ({
   },
 }));
 
+// Mock y-monaco (live collaborative editing) — the mock above only covers the bare
+// "monaco-editor" specifier, but y-monaco internally imports the deep ESM path
+// "monaco-editor/esm/vs/editor/editor.api.js" directly, which Vitest doesn't match
+// against that mock and falls through to the real module. That real module statically
+// imports a .css file, which Node's ESM loader can't resolve outside a bundler.
+vi.mock("y-monaco", () => ({
+  MonacoBinding: vi.fn().mockImplementation(() => ({ destroy: vi.fn() })),
+}));
+
 declare global {
   var __editorTestHarness: {
     /** onMount for the subgraph editor (path starts with "sg-"). Kept for
