@@ -97,7 +97,7 @@ export const DEFAULT_QUERY = `query {
   }
 }
 `;
-const DEFAULT_SEED = 42;
+export const DEFAULT_SEED = 42;
 
 export const DEFAULT_QUERY_TABS: QueryTab[] = [{ name: "Query 1", query: DEFAULT_QUERY }];
 
@@ -131,6 +131,15 @@ export function makeDefaultWorkspace(name: string): WorkspaceEntry {
 // State interface
 // ──────────────────────────────────────────────────────────────────────────────
 
+export interface LiveSessionState {
+  /** WebSocket URL from POST /api/live-session, or null for solo mode. */
+  wsUrl: string | null;
+  /** Session ID for UI display. */
+  sessionId: string | null;
+  /** Whether live sync is active and connected. */
+  isActive: boolean;
+}
+
 export interface WorkspaceState {
   /** All named workspaces. At least one entry is always present. */
   workspaces: WorkspaceEntry[];
@@ -149,6 +158,10 @@ export interface WorkspaceState {
   // Session-only tour authoring state — NOT persisted.
   tourActiveStep: number | null;
   setTourActiveStep: (i: number | null) => void;
+
+  // Live collaboration session — session-only (not persisted, not synced).
+  liveSession: LiveSessionState;
+  setLiveSessionWsUrl: (wsUrl: string | null, sessionId?: string) => void;
 
   // ── Workspace CRUD ──────────────────────────────────────────────────────────
 
@@ -266,6 +279,21 @@ export const useWorkspace = create<WorkspaceState>()(
       // Session-only authoring state — not in partialize.
       tourActiveStep: null,
       setTourActiveStep: (i) => set({ tourActiveStep: i }),
+
+      // Live collaboration session — session-only (not persisted, not synced).
+      liveSession: {
+        wsUrl: null,
+        sessionId: null,
+        isActive: false,
+      },
+      setLiveSessionWsUrl: (wsUrl, sessionId) =>
+        set({
+          liveSession: {
+            wsUrl,
+            sessionId: sessionId ?? null,
+            isActive: !!wsUrl,
+          },
+        }),
 
       // Composition results — session-only.
       supergraphSdl: null,

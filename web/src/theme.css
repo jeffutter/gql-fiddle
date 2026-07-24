@@ -411,10 +411,21 @@ body {
   border-radius: var(--radius);
   font-size: 13px;
 }
+.callout--inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .callout--error {
   color: var(--text);
   background: var(--danger-soft);
   border: 1px solid var(--danger-border);
+  border-left-width: 3px;
+}
+.callout--warning {
+  color: var(--text);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
   border-left-width: 3px;
 }
 
@@ -445,6 +456,11 @@ body {
   color: var(--text-muted);
   background: var(--surface-2);
   border-color: var(--border);
+}
+.badge--success {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success-border);
 }
 
 /* Muted helper text and empty-state placeholders. */
@@ -1694,6 +1710,45 @@ body {
 
 .sync-status--error {
   background: var(--danger);
+}
+
+/* Live collaboration status indicator (TASK-119.2) */
+.sync-status--live {
+  border: 1px solid var(--border);
+}
+
+.sync-status--live-connected {
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+}
+
+.sync-status--live-connecting {
+  background: var(--warning);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.sync-status--live-disconnected {
+  background: var(--text-faint);
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ========================================================================== *
+ * Live session controls (TASK-119.3)
+ * ========================================================================== */
+
+.live-session-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 /* ========================================================================== *

@@ -4,7 +4,14 @@ import { useMobile } from "./hooks";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import * as _monaco from "monaco-editor";
 import Editor from "@monaco-editor/react";
-import { useWorkspace, activeWorkspace, DEFAULT_SUBGRAPHS, DEFAULT_QUERY_TABS } from "./store";
+import {
+  useWorkspace,
+  activeWorkspace,
+  DEFAULT_SUBGRAPHS,
+  DEFAULT_QUERY_TABS,
+  DEFAULT_SEED,
+  generateUUID,
+} from "./store";
 import { useAuth, fetchCurrentUser, login, logout } from "./auth";
 import { initSync } from "./sync";
 import { loadCore } from "./core";
@@ -30,6 +37,8 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { EditableTab } from "./EditableTab";
 import { TabStrip } from "./TabStrip";
 import type { TabStripTab } from "./TabStrip";
+import { useLiveSession } from "./useLiveSession";
+import { useRemoteCursors } from "./useRemoteCursors";
 import { schemaToEntityGraph } from "./schemaToEntityGraph";
 import { EntityOwnershipGraph } from "./EntityOwnershipGraph";
 import { TypeGraph } from "./TypeGraph";
@@ -205,6 +214,8 @@ export default function App() {
     renameSubgraph,
     setTourDraft,
     setMockConfig,
+    liveSession,
+    setLiveSessionWsUrl: _setLiveSessionWsUrl, // used by TASK-119.3 (share link UI)
   } = useWorkspace();
 
   // Active workspace fields via selector
@@ -246,6 +257,10 @@ export default function App() {
   const [copiedLLM, copyLLM] = useCopyToClipboard();
   const [copiedShare, copyShare] = useCopyToClipboard();
   const [copiedTourShare, copyTourShare] = useCopyToClipboard();
+  const [copiedLiveLink, copyLiveLink] = useCopyToClipboard();
+  // Live session share-link state (TASK-119.3)
+  const [liveSessionError, setLiveSessionError] = useState<string | null>(null);
+  const [userEndedSession, setUserEndedSession] = useState(false);
   const editorRef = useState<_monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useState<typeof _monaco | null>(null);
   const [editor, setEditor] = editorRef;
@@ -307,6 +322,11 @@ export default function App() {
 
   // Initialize cloud sync engine — subscribes to auth + workspace changes.
   useEffect(() => initSync(), []);
+
+  // Live collaboration session — activates when wsUrl is set (via share link).
+  const liveSessionHook = useLiveSession(liveSession.wsUrl);
+  // Render remote cursors based on awareness state.
+  useRemoteCursors(liveSessionHook.awareness);
   const [viewSource, setViewSource] = useState<{
     title: string;
     value: string;
@@ -403,6 +423,56 @@ export default function App() {
     } catch (err) {
       console.warn("Failed to restore workspace from URL hash:", err);
     }
+  }, []);
+
+  // Join a live session from ?ls=<sessionId> query param (TASK-119.3).
+  // Creates a minimal "(collaboration)" workspace and connects via WebSocket.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ls = params.get("ls");
+    if (!ls || !/^[0-9a-f]{8}-/.test(ls)) return;
+
+    // Create a blank workspace for the collaboration session
+    const collabEntry: WorkspaceEntry = {
+      name: "(collaboration)",
+      id: generateUUID(),
+      version: 1,
+      subgraphs: [{ name: "subgraph", sdl: "" }],
+      activeSubgraph: 0,
+      queryTabs: [{ name: "Query 1", query: "" }],
+      activeQueryTab: 0,
+      seed: DEFAULT_SEED,
+      mockConfig: "",
+      tourDraft: null,
+    };
+
+    useWorkspace.setState({
+      workspaces: [collabEntry],
+      activeWorkspaceIndex: 0,
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+    });
+
+    // Fetch session metadata and connect
+    fetch(`/api/live-session?ls=${encodeURIComponent(ls)}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error("Session not found or expired");
+          }
+          throw new Error(`Failed to join session (${res.status})`);
+        }
+        const data = await res.json();
+        _setLiveSessionWsUrl(data.wsUrl, data.sessionId);
+      })
+      .catch((err) => {
+        setLiveSessionError(err instanceof Error ? err.message : String(err));
+      });
+
+    // Clear the query param so a page reload doesn't re-join
+    window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Inject CSS classes for Monaco inline decoration highlighting (once on mount).
@@ -599,6 +669,40 @@ export default function App() {
     copyTourShare(shareUrl);
   }
 
+  // ── Live session share-link actions (TASK-119.3) ─────────────────────────
+
+  /** Start a live collaboration session for the current workspace. */
+  async function startCollaboration() {
+    setLiveSessionError(null);
+    try {
+      const res = await fetch("/api/live-session", { method: "POST" });
+      if (!res.ok) throw new Error(`Failed to create session (${res.status})`);
+      const data = await res.json();
+      _setLiveSessionWsUrl(data.wsUrl, data.sessionId);
+    } catch (err) {
+      setLiveSessionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** End the live session and disconnect. */
+  function endLiveSession() {
+    setUserEndedSession(true);
+    liveSessionHook.destroy();
+    _setLiveSessionWsUrl(null);
+  }
+
+  /** Copy the live-session share URL to clipboard. */
+  function copyLiveSessionUrl() {
+    if (!liveSession.sessionId) return;
+    const loc = window.location;
+    const hostname =
+      typeof loc.hostname === "string" && loc.hostname.length > 0 ? loc.hostname : "localhost";
+    const port = typeof loc.port === "string" && loc.port.length > 0 ? loc.port : "";
+    const origin = loc.origin || `http://${hostname}${port ? `:${port}` : ""}`;
+    const url = `${origin}${window.location.pathname}?ls=${liveSession.sessionId}`;
+    copyLiveLink(url);
+  }
+
   // Shared JSX fragments used by both layouts.
   const subgraphTabStrip = (
     <nav className="tab-strip">
@@ -640,6 +744,11 @@ export default function App() {
         onMount={(ed, m) => {
           setEditor(ed);
           setMonacoInstance(m);
+          // Bind to Yjs when in live session
+          if (liveSession.wsUrl && m) {
+            const field = `sg-${activeSubgraph}`;
+            liveSessionHook.bindEditor(ed, m, field);
+          }
         }}
       />
     </div>
@@ -1139,12 +1248,33 @@ export default function App() {
           </>
         ) : (
           <>
-            <button onClick={copyShareUrl} className={copiedShare ? "btn is-success" : "btn"}>
-              {copiedShare ? "Copied!" : "Share"}
-            </button>
-            <button onClick={createTour} className="btn">
-              Create Tour
-            </button>
+            {/* Share (static snapshot) + Collaborate (live session) */}
+            {!liveSession.wsUrl ? (
+              <>
+                <button onClick={copyShareUrl} className={copiedShare ? "btn is-success" : "btn"}>
+                  {copiedShare ? "Copied!" : "Share"}
+                </button>
+                <button onClick={startCollaboration} className="btn btn--primary">
+                  Collaborate
+                </button>
+                <button onClick={createTour} className="btn">
+                  Create Tour
+                </button>
+              </>
+            ) : (
+              <div className="live-session-controls">
+                <span className="badge badge--success">Live</span>
+                <button
+                  onClick={copyLiveSessionUrl}
+                  className={copiedLiveLink ? "btn is-success" : "btn"}
+                >
+                  {copiedLiveLink ? "Copied!" : "Copy link"}
+                </button>
+                <button onClick={endLiveSession} className="btn">
+                  End session
+                </button>
+              </div>
+            )}
           </>
         )}
         <button
@@ -1171,6 +1301,38 @@ export default function App() {
             }
             aria-label={`Sync: ${syncStatus}`}
           />
+        )}
+        {/* Live collaboration status indicator */}
+        {liveSession.wsUrl && (
+          <span
+            className={`sync-status sync-status--live sync-status--live-${liveSessionHook.status}`}
+            title={
+              liveSessionHook.status === "connected"
+                ? `Live: ${liveSession.sessionId ?? "active"}`
+                : liveSessionHook.status === "connecting"
+                  ? "Connecting…"
+                  : "Disconnected"
+            }
+            aria-label={`Live sync: ${liveSessionHook.status}`}
+          />
+        )}
+        {/* Session disconnected warning (host left, user didn't end it) */}
+        {liveSession.wsUrl && liveSessionHook.status === "disconnected" && !userEndedSession && (
+          <div className="callout callout--warning callout--inline">
+            Session disconnected — the host may have left.
+            <button onClick={endLiveSession} className="btn">
+              End session
+            </button>
+          </div>
+        )}
+        {/* Session join error banner */}
+        {liveSessionError && (
+          <div className="callout callout--error callout--inline">
+            {liveSessionError}
+            <button onClick={() => setLiveSessionError(null)} className="btn">
+              Dismiss
+            </button>
+          </div>
         )}
         {authStatus !== "loading" &&
           (authStatus === "anonymous" ? (
@@ -1362,10 +1524,13 @@ export default function App() {
                       options={MOCK_CONFIG_EDITOR_OPTIONS}
                       theme={MONACO_THEME}
                       beforeMount={(m) => defineMonacoTheme(m)}
-                      onMount={(ed) => {
+                      onMount={(ed, m) => {
                         mockConfigEditorRef.current = ed;
                         queryEditorRef.current = null; // the other editor just unmounted
                         attachVimOnMount(ed);
+                        if (liveSession.wsUrl && m) {
+                          liveSessionHook.bindEditor(ed, m, "mock-config");
+                        }
                       }}
                     />
                   </div>
@@ -1384,10 +1549,14 @@ export default function App() {
                       options={QUERY_EDITOR_OPTIONS}
                       theme={MONACO_THEME}
                       beforeMount={(m) => defineMonacoTheme(m)}
-                      onMount={(ed) => {
+                      onMount={(ed, m) => {
                         queryEditorRef.current = ed;
                         mockConfigEditorRef.current = null; // the other editor just unmounted
                         attachVimOnMount(ed);
+                        if (liveSession.wsUrl && m) {
+                          const field = `query-${activeQueryTab}`;
+                          liveSessionHook.bindEditor(ed, m, field);
+                        }
                       }}
                     />
                   </div>
@@ -1644,10 +1813,13 @@ export default function App() {
                           options={MOCK_CONFIG_EDITOR_OPTIONS}
                           theme={MONACO_THEME}
                           beforeMount={(m) => defineMonacoTheme(m)}
-                          onMount={(ed) => {
+                          onMount={(ed, m) => {
                             mockConfigEditorRef.current = ed;
                             queryEditorRef.current = null; // the other editor just unmounted
                             attachVimOnMount(ed);
+                            if (liveSession.wsUrl && m) {
+                              liveSessionHook.bindEditor(ed, m, "mock-config");
+                            }
                           }}
                         />
                       </div>
@@ -1662,10 +1834,14 @@ export default function App() {
                           options={QUERY_EDITOR_OPTIONS}
                           theme={MONACO_THEME}
                           beforeMount={(m) => defineMonacoTheme(m)}
-                          onMount={(ed) => {
+                          onMount={(ed, m) => {
                             queryEditorRef.current = ed;
                             mockConfigEditorRef.current = null; // the other editor just unmounted
                             attachVimOnMount(ed);
+                            if (liveSession.wsUrl && m) {
+                              const field = `query-${activeQueryTab}`;
+                              liveSessionHook.bindEditor(ed, m, field);
+                            }
                           }}
                         />
                       </div>
