@@ -14,7 +14,11 @@
     // custom domain (or *.pages.dev subdomain) once known, and register the
     // matching callback URL (`${APP_ORIGIN}/api/auth/github/callback`) in the
     // GitHub OAuth App settings.
-    "APP_ORIGIN": "https://gqlfiddle.dev"
+    "APP_ORIGIN": "https://gqlfiddle.dev",
+    // Origin of the live-sync Worker (TASK-119.1). Used by the Pages Function
+    // at /api/live-session to build the WebSocket URL returned to clients.
+    // For local dev, set to http://localhost:8789 in .dev.vars.
+    "LIVE_SYNC_URL": "https://live-sync.gqlfiddle.dev"
   },
 
   // D1 SQLite database for workspace persistence (TASK-88.2 adds the schema).

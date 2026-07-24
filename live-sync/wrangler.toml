@@ -1,0 +1,30 @@
+// Live sync worker — standalone Cloudflare Worker with Durable Object.
+// Deploy: npx wrangler deploy --config live-sync/wrangler.toml
+// Dev:   npx wrangler dev --config live-sync/wrangler.toml
+
+name = "gql-fiddle-live-sync"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# Durable Object class — one instance per session
+[durable_objects]
+bindings = [
+  { name = "LiveSession", class_name = "LiveSession" },
+]
+
+# Migrations — track DO class versions
+[[migrations]]
+tag = "v1"
+new_classes = ["LiveSession"]
+
+# D1 database — same instance as the main Pages project
+# Use the same database_id so both services share the live_sessions table.
+# Local dev uses a separate SQLite file in .wrangler/state/v3/d1/.
+[[d1_databases]]
+binding = "DB"
+database_name = "gql-fiddle-db"
+database_id = "b52a7c08-99dd-41b0-9c5f-0baf5e796362"
+
+# For local dev, use a shared SQLite file path so the Pages Functions and
+# this Worker can access the same database.
+local_binding_dir = "../.wrangler/state/v3/d1/minimal/"

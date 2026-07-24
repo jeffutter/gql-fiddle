@@ -94,6 +94,7 @@ Migration files live in `migrations/` and are numbered sequentially:
 | `0001_initial.sql` | `users` and `workspaces` tables |
 | `0002_users_wrapped_dek.sql` | Adds `wrapped_dek TEXT` column to `users` (stores the client-generated DEK wrapped with the server KWK) |
 | `0003_users_kwk.sql` | Adds `kwk TEXT` column to `users` (moves the KWK out of KV so its first-write is race-safe; see TASK-118) |
+| `0004_live_sessions.sql` | `live_sessions` table for real-time collaborative editing (TASK-119.1) |
 
 Each migration is applied exactly once; wrangler tracks applied migrations in a
 `d1_migrations` metadata table.
@@ -131,6 +132,8 @@ functions/
     workspaces/
       index.ts        GET /api/workspaces[?since=<cursor>] — list user's workspaces
       [id].ts         PUT /api/workspaces/:id — upsert; DELETE /api/workspaces/:id — soft-delete
+    live-session/
+      index.ts        POST /api/live-session — create session; GET ?ls=<id> — fetch session info for joiners (TASK-119.3)
   _lib/
     db.ts             D1 data-access helpers (getOrCreateUser, listWorkspaces, upsertWorkspace,
                         softDeleteWorkspace, getWrappedDek, setWrappedDek)
@@ -144,6 +147,14 @@ functions/
     workspaces.test.ts Unit tests for workspace REST API
     tsconfig.json     Test-only TypeScript config (adds node + better-sqlite3 types)
   tsconfig.json       Workers-runtime TypeScript config (excludes __tests__)
+live-sync/            Standalone Cloudflare Worker with Durable Object for live collaboration (TASK-119.1)
+  src/
+    index.ts          Worker entry point — routes /ws/:sessionId to DO, /api/sessions for CRUD
+    session.ts        LiveSession Durable Object — Yjs CRDT document, WebSocket relay, D1 persistence
+  tests/
+    session.test.ts   Yjs convergence + reconnect + D1 persistence tests
+    live-session.test.ts  Pages Function POST + GET endpoint tests
+  wrangler.toml       Worker config (DO binding + shared D1 database)
 migrations/
   0001_initial.sql    Creates users and workspaces tables
   0002_users_wrapped_dek.sql  Adds wrapped_dek column to users

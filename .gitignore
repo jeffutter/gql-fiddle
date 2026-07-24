@@ -11,6 +11,9 @@ node_modules/
 web/dist/*
 !web/dist/.gitkeep
 web/node_modules/
+# live-sync is an npm project — ignore pnpm artifacts if pnpm is invoked there by mistake
+live-sync/pnpm-lock.yaml
+live-sync/pnpm-workspace.yaml
 
 # direnv / nix
 .direnv/
