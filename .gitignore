@@ -37,4 +37,5 @@ worker-configuration.d.ts
 # overnight backlog loop logs
 loop-logs/
 
-tests/__pycache__/
+__pycache__/
+*.pyc
