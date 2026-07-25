@@ -74,7 +74,7 @@ const MAX_CONSECUTIVE_FAILURES = 2;
 
 type RalphStatus = "running" | "stopping" | "stopped" | "done";
 
-type StepKind = "execute" | "plan" | "choose" | "review" | "promote";
+type StepKind = "execute" | "plan" | "choose" | "review" | "promote" | "squash";
 
 type RalphHistoryEntry = {
   at: string;
@@ -497,6 +497,50 @@ async function currentHeadSha(pi: ExtensionAPI, cwd: string): Promise<string | n
   return ok ? stdout.trim() : null;
 }
 
+/**
+ * Folds any pending `fixup!` commits made since `runStartSha` into the commits they target,
+ * via git's own --autosquash convention (a commit whose subject is `fixup! <original subject>`
+ * is git's standard marker for "squash me into that commit"). This is how review-time findings
+ * that are small enough to patch directly land without a full choose/plan/execute cycle and
+ * without leaving a trail of "fix:" commits that later need manual squashing — review-pi-work
+ * creates the fixup commit; this is what folds it back in.
+ *
+ * Only ever touches commits made since `runStartSha`, captured before this run did any work —
+ * so this can never reach into history the run didn't create itself. On any failure (most
+ * likely a real conflict), aborts and leaves the fixup as a separate commit rather than leaving
+ * a rebase half-done; a stray fixup commit is a minor annoyance, a stuck rebase blocks the
+ * entire loop.
+ */
+async function autosquashFixups(
+  pi: ExtensionAPI,
+  cwd: string,
+  runStartSha: string | null,
+): Promise<{ ok: boolean; summary: string }> {
+  if (!runStartSha) return { ok: true, summary: "skipped (no run-start SHA recorded)" };
+
+  const { stdout: log } = await execCapture(
+    pi,
+    "git",
+    ["log", "--oneline", `${runStartSha}..HEAD`],
+    { cwd, timeout: 15_000 },
+  );
+  if (!/\bfixup! /.test(log)) return { ok: true, summary: "no pending fixups" };
+
+  const rebase = await execCapture(
+    pi,
+    "git",
+    ["-c", "sequence.editor=true", "rebase", "--autosquash", "-i", runStartSha],
+    { cwd, timeout: 60_000 },
+  );
+  if (rebase.ok) return { ok: true, summary: "folded pending fixup commit(s) into their targets" };
+
+  await execCapture(pi, "git", ["rebase", "--abort"], { cwd, timeout: 15_000 });
+  return {
+    ok: false,
+    summary: `autosquash failed, likely a conflict — aborted; fixup commit(s) left unsquashed: ${tailSummary(rebase.stderr || rebase.stdout, 200)}`,
+  };
+}
+
 async function doExecute(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
@@ -838,6 +882,30 @@ function stoppedByRepeatedChoice(
 }
 
 /**
+ * Runs a review, then folds any `fixup!` commits it created back into their targets via
+ * autosquashFixups. A squash failure is recorded but doesn't affect the review's own
+ * outcome or feed the "review" failure streak — it's a real but non-blocking problem (the
+ * fixup just stays as a separate commit instead of a stuck loop), tracked separately from
+ * review pipeline health.
+ */
+async function doReviewAndSquash(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  cwd: string,
+  state: RalphState,
+  runStartSha: string | null,
+): Promise<boolean> {
+  const ok = await doReview(pi, ctx, cwd, state);
+  const squash = await autosquashFixups(pi, cwd, runStartSha);
+  await recordHistory(cwd, state, {
+    kind: "squash",
+    outcome: squash.ok ? "ok" : "failed",
+    summary: squash.summary,
+  });
+  return ok;
+}
+
+/**
  * Runs one courtesy review after the loop has already decided to exit, if any executed
  * tickets since the last review haven't been covered by one yet. Skipped when the loop is
  * exiting *because* review itself just hit the failure streak cap — a broken review
@@ -850,6 +918,7 @@ async function runFinalReviewIfNeeded(
   ctx: ExtensionCommandContext,
   cwd: string,
   state: RalphState,
+  runStartSha: string | null,
 ): Promise<void> {
   if (state.executedSinceReview <= 0) return;
   if (state.failureStreak?.key === "review") return;
@@ -858,7 +927,7 @@ async function runFinalReviewIfNeeded(
   const exitStep = state.currentStep;
   const exitStepStartedAt = state.currentStepStartedAt;
   const exitStepTimeoutMs = state.currentStepTimeoutMs;
-  await doReview(pi, ctx, cwd, state);
+  await doReviewAndSquash(pi, ctx, cwd, state, runStartSha);
   state.status = exitStatus;
   state.currentStep = exitStep;
   state.currentStepStartedAt = exitStepStartedAt;
@@ -920,6 +989,12 @@ async function buildFinalSummary(cwd: string, state: RalphState): Promise<string
       ? `New tickets filed by review (${createdByReview.length}): ${createdByReview.join(", ")}`
       : "New tickets filed by review: none",
   );
+  const squashFailures = thisRun.filter((e) => e.kind === "squash" && e.outcome === "failed");
+  if (squashFailures.length) {
+    lines.push(
+      `Fixup squash failed ${squashFailures.length}x — left as separate commit(s), check history.jsonl`,
+    );
+  }
   return lines.join("\n");
 }
 
@@ -974,6 +1049,7 @@ async function runLoop(
   cwd: string,
   state: RalphState,
 ): Promise<void> {
+  const runStartSha = await currentHeadSha(pi, cwd);
   try {
     while (true) {
       if (state.stopRequested) {
@@ -986,7 +1062,7 @@ async function runLoop(
       }
 
       if (state.executedSinceReview >= state.reviewEvery) {
-        const ok = await doReview(pi, ctx, cwd, state);
+        const ok = await doReviewAndSquash(pi, ctx, cwd, state, runStartSha);
         state.loopCount += 1;
         await persist(cwd, state);
         renderWidget(ctx, state);
@@ -1035,7 +1111,7 @@ async function runLoop(
       if (stoppedByRepeatedChoice(state, chosenTicketId)) break;
     }
 
-    await runFinalReviewIfNeeded(pi, ctx, cwd, state);
+    await runFinalReviewIfNeeded(pi, ctx, cwd, state, runStartSha);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     finish(state, "stopped", `unexpected error: ${message}`);
