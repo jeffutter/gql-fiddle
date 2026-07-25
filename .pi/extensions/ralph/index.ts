@@ -419,9 +419,19 @@ async function runHeadless(
   pi: ExtensionAPI,
   cwd: string,
   prompt: string,
-  opts: { timeout: number; model?: string; extensions?: string[] },
+  opts: { timeout: number; model?: string; extensions?: string[]; noSkills?: boolean },
 ): Promise<{ ok: boolean; killed: boolean; output: string }> {
   const args = ["-p", "--no-session", "--no-extensions"];
+  // Steps that only read a ticket and make a judgment call (triage, choose) don't need any
+  // project or global skill — but headless calls inherit the user's full global skill set by
+  // default, and a skill can trigger on trigger words in the prompt that have nothing to do
+  // with its real purpose. Confirmed live: a "choose the next ticket" prompt listing candidate
+  // tickets tripped a globally-mandated Jira/acli skill (triggered by the word "ticket"), which
+  // sent the chooser down an irrelevant investigation and burned enough of its turn that it
+  // named a winner without ever running the status-edit command it was asked to. Steps that
+  // genuinely need a skill (backlog-planner for planning, project skills for implementation)
+  // must not pass this — they call runHeadless with noSkills left unset.
+  if (opts.noSkills) args.push("--no-skills");
   for (const ext of opts.extensions ?? []) args.push("-e", ext);
   if (opts.model) args.push("--model", opts.model);
   args.push(prompt);
@@ -477,6 +487,16 @@ function setCurrentStep(
   renderWidget(ctx, state);
 }
 
+/** `git rev-parse HEAD`, or null if the command itself failed (not "no commits yet" — this
+ * repo always has history; a null here means something is wrong with git itself). */
+async function currentHeadSha(pi: ExtensionAPI, cwd: string): Promise<string | null> {
+  const { ok, stdout } = await execCapture(pi, "git", ["rev-parse", "HEAD"], {
+    cwd,
+    timeout: 10_000,
+  });
+  return ok ? stdout.trim() : null;
+}
+
 async function doExecute(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
@@ -485,17 +505,33 @@ async function doExecute(
   ticket: Ticket,
 ): Promise<boolean> {
   setCurrentStep(ctx, state, `executing ${ticket.id}`, EXECUTE_TIMEOUT_MS);
+  const shaBefore = await currentHeadSha(pi, cwd);
   const result = await runHeadless(pi, cwd, `/backlog-execute ${ticket.id}`, {
     timeout: EXECUTE_TIMEOUT_MS,
   });
-  if (result.ok) state.executedSinceReview += 1;
+
+  // A subprocess reporting success — even a Final Summary claiming every AC is met — isn't
+  // proof anything actually landed. Confirmed live: a first attempt hit EXECUTE_TIMEOUT_MS and
+  // got killed mid-flight; the retry was a fresh subprocess with no memory of that, found the
+  // half-finished files already on disk, treated them as "prior work" to build on, and wrote a
+  // complete implementation summary with every AC checked off — without the run ever reaching
+  // a commit. HEAD not moving is unambiguous, so a "successful" run that leaves it where it
+  // started is treated as a failure here regardless of what the subprocess claimed.
+  const shaAfter = result.ok ? await currentHeadSha(pi, cwd) : shaBefore;
+  const committed = shaBefore !== null && shaAfter !== null && shaBefore !== shaAfter;
+  const ok = result.ok && committed;
+
+  if (ok) state.executedSinceReview += 1;
   await recordHistory(cwd, state, {
     kind: "execute",
     ticket: ticket.id,
-    outcome: result.ok ? "ok" : "failed",
-    summary: summarize(result),
+    outcome: ok ? "ok" : "failed",
+    summary:
+      result.ok && !committed
+        ? `claimed success but no commit landed (HEAD still ${shaBefore?.slice(0, 8) ?? "unknown"}) — ${summarize(result)}`
+        : summarize(result),
   });
-  return result.ok;
+  return ok;
 }
 
 /**
@@ -522,7 +558,10 @@ async function classifyTrivial(
 
     End your final message with a line containing exactly one word and nothing else: TRIVIAL or NORMAL.
   `;
-  const result = await runHeadless(pi, cwd, prompt, { timeout: TRIAGE_TIMEOUT_MS });
+  const result = await runHeadless(pi, cwd, prompt, {
+    timeout: TRIAGE_TIMEOUT_MS,
+    noSkills: true,
+  });
   const verdict = extractMarkerLine(result.output, ["TRIVIAL", "NORMAL"]);
   await recordHistory(cwd, state, {
     kind: "plan",
@@ -637,6 +676,7 @@ async function doChoose(
   const result = await runHeadless(pi, cwd, prompt, {
     timeout: CHOOSE_TIMEOUT_MS,
     model: "chat-fast",
+    noSkills: true,
   });
   const chosenId = extractMarkerLine(
     result.output,
@@ -716,6 +756,7 @@ async function doReview(
   `;
   const result = await runHeadless(pi, cwd, prompt, {
     timeout: REVIEW_TIMEOUT_MS,
+    noSkills: true,
   });
 
   // Don't trust the model to have actually run step 5 — close the pane ourselves as a
