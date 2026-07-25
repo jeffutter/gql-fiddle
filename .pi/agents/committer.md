@@ -44,15 +44,40 @@ After staging, confirm with `git status --short` before committing.
 
 ### Step 3: Commit
 
-Write a message in the form `<task-id>: <short description>`. Keep the subject line under 72 characters. Add a body if the change warrants explanation.
+Write a concise, descriptive subject line (any house style — `<task-id>: ...`, conventional-commit
+`feat(scope): ...`, whatever this repo already uses; check `git log --oneline -5` if unsure). Keep
+it under 72 characters. Add a body if the change warrants explanation.
+
+**Always end the commit message with a `Task-Id:` trailer**, even if the task ID also appears in
+the subject line. Reviewers and tooling (e.g. review-pi-work) correlate commits to tickets via
+this trailer, not by parsing the subject — a subject-line convention that isn't followed
+consistently (it won't be; real history in this repo already mixes several styles) silently
+breaks that correlation, which is worse than a slightly redundant trailer.
 
 ```bash
-git commit -m "<task-id>: <short description of what was implemented>"
+git commit -m "$(cat <<'EOF'
+<short description of what was implemented>
+
+Task-Id: <task-id>
+EOF
+)"
 ```
+
+### Step 4: Verify the commit actually landed
+
+```bash
+git log -1 --oneline
+git status --short
+```
+
+Confirm `git log -1` shows your new commit (not the one you started from) and `git status` is
+clean of anything you meant to include. A commit that silently failed (a hook rejected it, the
+command errored) must not be reported as done — if this happens, fix the underlying issue and
+recommit; do not report success without a landed commit.
 
 ## Guidelines
 
 - Never use `git add .` or `git add -A` — be explicit about what you stage
 - Do not stage secrets, build artefacts, or files unrelated to the task
-- Reference the task ID so the commit is traceable to the backlog
+- Always include a `Task-Id:` trailer, regardless of subject-line style
 - One commit per task is the norm; split only if the changes are genuinely independent
