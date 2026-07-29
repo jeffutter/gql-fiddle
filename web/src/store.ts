@@ -138,6 +138,15 @@ export interface LiveSessionState {
   sessionId: string | null;
   /** Whether live sync is active and connected. */
   isActive: boolean;
+  /**
+   * id of the workspace this session is for, captured when the session
+   * started/was joined. Sync must stay pinned to this workspace regardless
+   * of which one the user later switches to or creates — otherwise
+   * switching workspaces mid-session bleeds unrelated content into the
+   * shared one (they share Y.Text field names like "sg-0", scoped only by
+   * index, not by workspace).
+   */
+  workspaceId: string | null;
 }
 
 export interface WorkspaceState {
@@ -263,6 +272,22 @@ function updateActive(
   return { workspaces: updated };
 }
 
+/**
+ * Update a specific workspace by id, regardless of which one is active.
+ * Used by live-session sync (useLiveSession.ts): incoming remote edits must
+ * land on the workspace the session is pinned to, not whatever the user
+ * currently has open — those can differ once they switch away or create a
+ * new one while a session runs in the background.
+ */
+export function updateWorkspaceById(
+  state: WorkspaceState,
+  id: string,
+  patch: Partial<WorkspaceEntry>,
+): Pick<WorkspaceState, "workspaces"> {
+  const updated = state.workspaces.map((ws) => (ws.id === id ? { ...ws, ...patch } : ws));
+  return { workspaces: updated };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Store
 // ──────────────────────────────────────────────────────────────────────────────
@@ -285,15 +310,21 @@ export const useWorkspace = create<WorkspaceState>()(
         wsUrl: null,
         sessionId: null,
         isActive: false,
+        workspaceId: null,
       },
       setLiveSessionWsUrl: (wsUrl, sessionId) =>
-        set({
+        set((state) => ({
           liveSession: {
             wsUrl,
             sessionId: sessionId ?? null,
             isActive: !!wsUrl,
+            // Pin to whichever workspace is active right now — the caller
+            // (starting a session, or having just created the "(collaboration)"
+            // workspace for a join) has already made the right one active by
+            // the time this is called. Cleared along with wsUrl on disconnect.
+            workspaceId: wsUrl ? (activeWorkspace(state).id ?? null) : null,
           },
-        }),
+        })),
 
       // Composition results — session-only.
       supergraphSdl: null,

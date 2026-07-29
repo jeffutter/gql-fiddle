@@ -124,17 +124,22 @@ describe("LiveSyncProvider", () => {
     const mockWs = provider.ws as unknown as MockWebSocket;
     expect(mockWs.readyState).toBe(1); // OPEN
 
+    // On open, the client proactively sends its own SYNC init too (so the
+    // server learns what the client has that it doesn't — e.g. content
+    // seeded locally before ever connecting).
+    expect(mockWs.sentMessages.length).toBeGreaterThan(0);
+    expect(mockWs.sentMessages[0][0]).toBe(0x00); // Y_SYNC
+    expect(mockWs.sentMessages[0][1]).toBe(0x00); // step = init
+
     // Server sends SYNC init: [0x00, 0x00]
     mockWs.receive(new Uint8Array([0x00, 0x00]));
 
     // Give time for async processing (multiple microtasks)
     await new Promise((r) => setTimeout(r, 100));
 
-    // Client should have sent SYNC_ACK + state vector
-    expect(mockWs.sentMessages.length).toBeGreaterThan(0);
-    const msg = mockWs.sentMessages[0];
-    expect(msg[0]).toBe(0x00); // Y_SYNC
-    expect(msg[1]).toBe(0x01); // step = SV response
+    // Client should have sent SYNC_ACK + state vector in reply
+    const msg = mockWs.sentMessages.find((m) => m[0] === 0x00 && m[1] === 0x01);
+    expect(msg).toBeDefined();
 
     provider.destroy();
     doc.destroy();

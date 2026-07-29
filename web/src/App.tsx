@@ -327,6 +327,59 @@ export default function App() {
   const liveSessionHook = useLiveSession(liveSession.wsUrl);
   // Render remote cursors based on awareness state.
   useRemoteCursors(liveSessionHook.awareness);
+
+  // Whether it's safe to let Yjs own this workspace's editors right now.
+  // Two conditions, both required:
+  //   - The workspace currently on screen is the one this session is pinned
+  //     to — NOT just "is a session active." A session stays pinned to
+  //     whichever workspace was active when it started/was joined; switching
+  //     to or creating another workspace must not feed that workspace's
+  //     content into the shared one (Y.Text fields are named by index, e.g.
+  //     "sg-0", not by workspace, so nothing else stops them from colliding).
+  //   - liveSessionHook.synced: the initial sync handshake has completed.
+  //     MonacoBinding's constructor forcibly overwrites the model to match
+  //     Y.Text if they differ — binding before sync completes means Y.Text
+  //     is still empty, so it wipes out whatever content the model already
+  //     had. Some fields never get a second chance to recover this (see
+  //     UseLiveSessionResult.synced's doc comment for why).
+  // Editing while either condition is false behaves like normal solo
+  // editing (onChange writes straight to the store, same as this whole flag
+  // being false).
+  const isSharedWorkspaceActive =
+    !!liveSession.wsUrl && activeWs.id === liveSession.workspaceId && liveSessionHook.synced;
+
+  // Bind the subgraph editor to Yjs whenever the shared workspace becomes
+  // active or the active tab changes; unbind (via this effect's own cleanup
+  // returned from bindEditor) the moment it stops being the one on screen.
+  // onMount's own bindEditor call (below) only fires once per editor mount —
+  // for the session's creator, this editor is typically already open with
+  // liveSession.wsUrl still null at that point, so onMount alone would never
+  // bind it. This effect re-runs on every condition under which the editor
+  // needs to be (re)bound or unbound: session start/end, tab/workspace
+  // switches in either direction.
+  useEffect(() => {
+    if (!isSharedWorkspaceActive || !editor) return;
+    const model = editor.getModel();
+    if (!model) return;
+    return liveSessionHook.bindEditor(editor, model, `sg-${activeSubgraph}`);
+  }, [isSharedWorkspaceActive, editor, activeSubgraph, liveSessionHook]);
+
+  // Same, for whichever of the query/mock-config editors is currently
+  // mounted (they're refs, not state, since only one renders at a time —
+  // see queryEditorRef/mockConfigEditorRef below — so this reads .current
+  // directly rather than depending on the ref itself).
+  useEffect(() => {
+    if (!isSharedWorkspaceActive) return;
+    if (showMockConfig) {
+      const ed = mockConfigEditorRef.current;
+      const model = ed?.getModel();
+      if (ed && model) return liveSessionHook.bindEditor(ed, model, "mock-config");
+    } else {
+      const ed = queryEditorRef.current;
+      const model = ed?.getModel();
+      if (ed && model) return liveSessionHook.bindEditor(ed, model, `query-${activeQueryTab}`);
+    }
+  }, [isSharedWorkspaceActive, showMockConfig, activeQueryTab, liveSessionHook]);
   const [viewSource, setViewSource] = useState<{
     title: string;
     value: string;
@@ -740,14 +793,31 @@ export default function App() {
         theme={MONACO_THEME}
         beforeMount={(m) => defineMonacoTheme(m)}
         options={EDITOR_OPTIONS}
-        onChange={(value) => setSubgraphSdl(activeSubgraph, value ?? "")}
+        onChange={(value) => {
+          // While this editor's workspace is the one a live session owns,
+          // MonacoBinding writes edits into Yjs and observeHandler
+          // (useLiveSession.ts) mirrors Yjs back into the store — that's the
+          // only sync path while live. Also writing here would race it: this
+          // fires synchronously on every keystroke, independent of and often
+          // ahead of Yjs's own propagation, so the store and yText briefly
+          // disagree and the re-seed effect "fixes" it with a destructive
+          // delete+reinsert that collides with MonacoBinding's own in-flight
+          // update — producing duplicated content. Editing any OTHER
+          // workspace while a session runs elsewhere behaves normally.
+          if (isSharedWorkspaceActive) return;
+          setSubgraphSdl(activeSubgraph, value ?? "");
+        }}
         onMount={(ed, m) => {
           setEditor(ed);
           setMonacoInstance(m);
-          // Bind to Yjs when in live session
-          if (liveSession.wsUrl && m) {
+          // Bind to Yjs if this is already the shared workspace at mount
+          // time (e.g. a fresh tour/tab opened while a session is active) —
+          // the effect above handles the more common case of the session
+          // starting after this editor already exists.
+          const model = ed.getModel();
+          if (isSharedWorkspaceActive && model) {
             const field = `sg-${activeSubgraph}`;
-            liveSessionHook.bindEditor(ed, m, field);
+            liveSessionHook.bindEditor(ed, model, field);
           }
         }}
       />
@@ -1509,6 +1579,15 @@ export default function App() {
                     style={{ flex: 1, minHeight: 0 }}
                   >
                     <Editor
+                      // Both branches of this ternary render an <Editor/> at
+                      // the same tree position — without distinct keys React
+                      // reconciles them as the SAME component instance
+                      // (just updating the `path` prop), so onMount only
+                      // ever fires for whichever one happens to render
+                      // first. This key forces a real unmount/remount when
+                      // switching between query and mock-config, so onMount
+                      // (and therefore live-session binding) fires for both.
+                      key="mock-config"
                       language="yaml"
                       path={`ws-${activeWorkspaceIndex}-mock-config.yaml`}
                       value={mockConfig}
@@ -1519,17 +1598,23 @@ export default function App() {
                         "# User.name:",
                         "#   enum: [Alice, Bob, Carol]",
                       ].join("\n")}
-                      onChange={(v) => setMockConfig(v ?? "")}
+                      onChange={(v) => {
+                        // Live session owns store sync via Yjs while active — see the
+                        // subgraph editor's onChange for why writing here too would race it.
+                        if (isSharedWorkspaceActive) return;
+                        setMockConfig(v ?? "");
+                      }}
                       height="100%"
                       options={MOCK_CONFIG_EDITOR_OPTIONS}
                       theme={MONACO_THEME}
                       beforeMount={(m) => defineMonacoTheme(m)}
-                      onMount={(ed, m) => {
+                      onMount={(ed) => {
                         mockConfigEditorRef.current = ed;
                         queryEditorRef.current = null; // the other editor just unmounted
                         attachVimOnMount(ed);
-                        if (liveSession.wsUrl && m) {
-                          liveSessionHook.bindEditor(ed, m, "mock-config");
+                        const model = ed.getModel();
+                        if (isSharedWorkspaceActive && model) {
+                          liveSessionHook.bindEditor(ed, model, "mock-config");
                         }
                       }}
                     />
@@ -1541,21 +1626,31 @@ export default function App() {
                     style={{ flex: 1, minHeight: 0 }}
                   >
                     <Editor
+                      // See the mock-config Editor's `key` above for why this
+                      // is needed — without it, this branch never gets its own
+                      // onMount call if mock-config happened to mount first.
+                      key="query"
                       language="graphql"
                       path={`ws-${activeWorkspaceIndex}-query-${activeQueryTab}.graphql`}
                       value={currentQuery}
-                      onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
+                      onChange={(v) => {
+                        // Live session owns store sync via Yjs while active — see the
+                        // subgraph editor's onChange for why writing here too would race it.
+                        if (isSharedWorkspaceActive) return;
+                        setQueryTabQuery(activeQueryTab, v ?? "");
+                      }}
                       height="100%"
                       options={QUERY_EDITOR_OPTIONS}
                       theme={MONACO_THEME}
                       beforeMount={(m) => defineMonacoTheme(m)}
-                      onMount={(ed, m) => {
+                      onMount={(ed) => {
                         queryEditorRef.current = ed;
                         mockConfigEditorRef.current = null; // the other editor just unmounted
                         attachVimOnMount(ed);
-                        if (liveSession.wsUrl && m) {
+                        const model = ed.getModel();
+                        if (isSharedWorkspaceActive && model) {
                           const field = `query-${activeQueryTab}`;
-                          liveSessionHook.bindEditor(ed, m, field);
+                          liveSessionHook.bindEditor(ed, model, field);
                         }
                       }}
                     />
@@ -1789,6 +1884,12 @@ export default function App() {
                     {showMockConfig ? (
                       <div data-testid="mock-config-editor" className="editor">
                         <Editor
+                          // See the desktop layout's mock-config Editor for
+                          // why this key is needed (React reuses the same
+                          // instance across the query/mock-config ternary
+                          // without it, so onMount never fires for whichever
+                          // one didn't render first).
+                          key="mock-config"
                           language="yaml"
                           path={`ws-${activeWorkspaceIndex}-mock-config.yaml`}
                           value={mockConfig}
@@ -1808,17 +1909,23 @@ export default function App() {
                             "# User.deletedAt:",
                             "#   null: true",
                           ].join("\n")}
-                          onChange={(v) => setMockConfig(v ?? "")}
+                          onChange={(v) => {
+                            // Live session owns store sync via Yjs while active — see the
+                            // subgraph editor's onChange for why writing here too would race it.
+                            if (isSharedWorkspaceActive) return;
+                            setMockConfig(v ?? "");
+                          }}
                           height="100%"
                           options={MOCK_CONFIG_EDITOR_OPTIONS}
                           theme={MONACO_THEME}
                           beforeMount={(m) => defineMonacoTheme(m)}
-                          onMount={(ed, m) => {
+                          onMount={(ed) => {
                             mockConfigEditorRef.current = ed;
                             queryEditorRef.current = null; // the other editor just unmounted
                             attachVimOnMount(ed);
-                            if (liveSession.wsUrl && m) {
-                              liveSessionHook.bindEditor(ed, m, "mock-config");
+                            const model = ed.getModel();
+                            if (isSharedWorkspaceActive && model) {
+                              liveSessionHook.bindEditor(ed, model, "mock-config");
                             }
                           }}
                         />
@@ -1826,21 +1933,28 @@ export default function App() {
                     ) : (
                       <div data-testid="query-editor" className="editor">
                         <Editor
+                          key="query"
                           language="graphql"
                           path={`ws-${activeWorkspaceIndex}-query-${activeQueryTab}.graphql`}
                           value={currentQuery}
-                          onChange={(v) => setQueryTabQuery(activeQueryTab, v ?? "")}
+                          onChange={(v) => {
+                            // Live session owns store sync via Yjs while active — see the
+                            // subgraph editor's onChange for why writing here too would race it.
+                            if (isSharedWorkspaceActive) return;
+                            setQueryTabQuery(activeQueryTab, v ?? "");
+                          }}
                           height="100%"
                           options={QUERY_EDITOR_OPTIONS}
                           theme={MONACO_THEME}
                           beforeMount={(m) => defineMonacoTheme(m)}
-                          onMount={(ed, m) => {
+                          onMount={(ed) => {
                             queryEditorRef.current = ed;
                             mockConfigEditorRef.current = null; // the other editor just unmounted
                             attachVimOnMount(ed);
-                            if (liveSession.wsUrl && m) {
+                            const model = ed.getModel();
+                            if (isSharedWorkspaceActive && model) {
                               const field = `query-${activeQueryTab}`;
-                              liveSessionHook.bindEditor(ed, m, field);
+                              liveSessionHook.bindEditor(ed, model, field);
                             }
                           }}
                         />

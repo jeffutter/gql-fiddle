@@ -28,10 +28,20 @@ export type SyncStatus = "connecting" | "connected" | "disconnected";
 
 export interface LiveSyncProviderEvents {
   status: (data: { status: SyncStatus }) => void;
+  /**
+   * Fires once, the first time the server has told us definitively what it
+   * already had for this session (even if that was nothing). Seeding
+   * default content is only safe to do after this — seeding before it, into
+   * a session another client already populated, produces two independent
+   * concurrent insertions that Yjs can't recognize as "the same" content and
+   * merges as a duplicate instead of a no-op.
+   */
+  synced: () => void;
 }
 
 export interface LiveSyncProvider {
   status: SyncStatus;
+  synced: boolean;
   awareness: Awareness;
   doc: Y.Doc;
   on(event: keyof LiveSyncProviderEvents, callback: LiveSyncProviderEvents[typeof event]): void;
@@ -44,6 +54,7 @@ export interface LiveSyncProvider {
 
 export class LiveSyncProviderImpl implements LiveSyncProvider {
   status: SyncStatus = "connecting";
+  synced = false;
   awareness: Awareness;
   doc: Y.Doc;
 
@@ -67,6 +78,15 @@ export class LiveSyncProviderImpl implements LiveSyncProvider {
     this.doc = doc ?? new Y.Doc();
     this.awareness = new Awareness(this.doc);
 
+    // Broadcast local edits to the server. Updates applied from an incoming
+    // network message (see handleMessage) are tagged with origin = this, so
+    // they're recognized here and not immediately echoed back out.
+    this.doc.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin === this) return;
+      const msg = concatArrays(new Uint8Array([Y_UPDATE]), update);
+      this.send(msg);
+    });
+
     // Connect immediately
     this.connect();
   }
@@ -88,7 +108,12 @@ export class LiveSyncProviderImpl implements LiveSyncProvider {
     event: keyof LiveSyncProviderEvents,
     data: Parameters<LiveSyncProviderEvents[typeof event]>[0],
   ): void {
-    this.listeners.get(event)?.forEach((cb) => cb(data));
+    // TS can't correlate `event` with the matching member of the callback
+    // union across this Map-based dispatch (a known limitation for this
+    // pattern) — the invariant that `data` always matches `event`'s own
+    // signature is enforced by every call site being individually typed
+    // against LiveSyncProviderEvents.
+    this.listeners.get(event)?.forEach((cb) => (cb as (data: unknown) => void)(data));
   }
 
   // ── Awareness ────────────────────────────────────────────────────────────
@@ -113,8 +138,16 @@ export class LiveSyncProviderImpl implements LiveSyncProvider {
       this.setStatus("connected");
       this.reconnectDelay = 1_000; // reset backoff on success
 
-      // Wait for server's SYNC init message, then respond
-      // (handled in message handler below)
+      // The server sends its own SYNC init (step 0x00) on accept, which our
+      // step-0x00 handler below answers with our state vector — that tells
+      // the server what WE'RE missing (server → client). To also replicate
+      // what the server is missing (e.g. content this client seeded before
+      // ever connecting), proactively send the same SYNC init back. The
+      // server's own SYNC handler (session.ts) already answers step 0x00
+      // with its state vector, our step-0x01 handler computes our diff
+      // against it and sends that as an UPDATE — no new message types
+      // needed, just triggering the existing reciprocal path from our side.
+      this.send(new Uint8Array([Y_SYNC, 0x00]));
     });
 
     this.syncHandler = async (event: MessageEvent) => {
@@ -171,11 +204,19 @@ export class LiveSyncProviderImpl implements LiveSyncProvider {
             this.send(msg);
           }
         } else if (step === 0x02) {
-          // Server sent a diff update
+          // Server's answer to our step-0x01 reply: whatever it already had
+          // that we didn't (possibly nothing). The server always sends this
+          // (see session.ts), so its arrival is our deterministic "initial
+          // sync done" signal — safe to seed default content after this,
+          // since we now know for certain whether the session was empty.
           const updateStart = 2;
           const update = new Uint8Array(data, updateStart);
           if (update.byteLength > 0) {
-            applyUpdate(this.doc, update);
+            applyUpdate(this.doc, update, this);
+          }
+          if (!this.synced) {
+            this.synced = true;
+            this.emit("synced", undefined);
           }
         }
         break;
@@ -185,7 +226,7 @@ export class LiveSyncProviderImpl implements LiveSyncProvider {
         const updateStart = 1;
         const update = new Uint8Array(data, updateStart);
         if (update.byteLength > 0) {
-          applyUpdate(this.doc, update);
+          applyUpdate(this.doc, update, this);
         }
         break;
       }
@@ -200,7 +241,12 @@ export class LiveSyncProviderImpl implements LiveSyncProvider {
 
   private send(data: Uint8Array): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(data.buffer as ArrayBuffer);
+      // Send the view directly (not data.buffer) so only its own
+      // byteOffset/byteLength go over the wire, not the whole backing
+      // buffer. TS's BufferSource type is overly strict about the backing
+      // buffer's generic type (rejects SharedArrayBuffer-backed views, which
+      // this never is) — cast, not a runtime concern.
+      this.ws.send(data as BufferSource);
     }
   }
 
