@@ -25,3 +25,14 @@ DEV_USER_ID=dev-user-1
 # Required only when ENVIRONMENT=production or for real OAuth testing:
 GITHUB_CLIENT_ID=your_client_id_here
 GITHUB_CLIENT_SECRET=your_client_secret_here
+
+# Origin the browser uses to reach the live-sync Worker (run via
+# `live-sync`'s own `npm run dev`, on 8789; included in `pnpm dev:full`).
+# Without this, /api/live-session falls back to the production vars value in
+# wrangler.jsonc and the browser tries to reach the real
+# live-sync.gqlfiddle.dev worker, which fails locally.
+#
+# Points at 8001 (Vite), not 8789 directly — vite.config.ts proxies /ws
+# through to the live-sync worker, so the whole app is reachable from one
+# origin in local dev.
+LIVE_SYNC_URL=http://localhost:8001

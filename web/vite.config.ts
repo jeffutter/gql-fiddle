@@ -101,6 +101,16 @@ export default defineConfig({
         autoRewrite: true,
         ws: true,
       },
+      // Live-sync worker's WebSocket relay (live-sync/, wrangler dev on
+      // 8789). Proxied here too so the whole app — page, /api, and the
+      // live-sync socket — is reachable from a single origin (8001) in
+      // local dev. LIVE_SYNC_URL in .dev.vars must point at this origin
+      // for that to actually be the URL the browser connects to.
+      "/ws": {
+        target: "http://localhost:8789",
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
   test: {

@@ -1,10 +1,15 @@
-// Live sync worker — standalone Cloudflare Worker with Durable Object.
-// Deploy: npx wrangler deploy --config live-sync/wrangler.toml
-// Dev:   npx wrangler dev --config live-sync/wrangler.toml
+# Live sync worker — standalone Cloudflare Worker with Durable Object.
+# Deploy: npx wrangler deploy --config live-sync/wrangler.toml
+# Dev:   npx wrangler dev --config live-sync/wrangler.toml
 
 name = "gql-fiddle-live-sync"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
+
+# Fixed port so LIVE_SYNC_URL=http://localhost:8789 in the main project's
+# .dev.vars stays correct without passing --port by hand.
+[dev]
+port = 8789
 
 # Durable Object class — one instance per session
 [durable_objects]
@@ -17,14 +22,12 @@ bindings = [
 tag = "v1"
 new_classes = ["LiveSession"]
 
-# D1 database — same instance as the main Pages project
+# D1 database — same instance as the main Pages project.
 # Use the same database_id so both services share the live_sessions table.
-# Local dev uses a separate SQLite file in .wrangler/state/v3/d1/.
+# Local dev: the `dev` script passes --persist-to ../.wrangler/state so this
+# worker reads/writes the same local SQLite state as `wrangler pages dev`
+# (run from the repo root, which persists to .wrangler/state by default).
 [[d1_databases]]
 binding = "DB"
 database_name = "gql-fiddle-db"
 database_id = "b52a7c08-99dd-41b0-9c5f-0baf5e796362"
-
-# For local dev, use a shared SQLite file path so the Pages Functions and
-# this Worker can access the same database.
-local_binding_dir = "../.wrangler/state/v3/d1/minimal/"

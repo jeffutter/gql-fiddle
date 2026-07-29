@@ -17,7 +17,8 @@
     "APP_ORIGIN": "https://gqlfiddle.dev",
     // Origin of the live-sync Worker (TASK-119.1). Used by the Pages Function
     // at /api/live-session to build the WebSocket URL returned to clients.
-    // For local dev, set to http://localhost:8789 in .dev.vars.
+    // For local dev, set to http://localhost:8001 in .dev.vars — Vite proxies
+    // /ws through to the live-sync worker (see web/vite.config.ts).
     "LIVE_SYNC_URL": "https://live-sync.gqlfiddle.dev"
   },
 

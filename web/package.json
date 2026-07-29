@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "postinstall": "bash scripts/patch-workerd-nixos.sh",
+    "postinstall": "bash ../scripts/patch-workerd-nixos.sh",
     "build:wasm": "wasm-pack build ../crates/gql-core --target web --out-dir ../../web/src/wasm",
     "db:migrate": "wrangler d1 migrations apply gql-fiddle-db --local --config ../wrangler.jsonc",
     "dev": "pnpm build:wasm && concurrently --kill-others-on-fail \"cargo watch --watch $(pwd)/../crates/gql-core/src -s 'pnpm --dir $(pwd) build:wasm'\" \"vite\"",
-    "dev:full": "pnpm db:migrate && pnpm build:wasm && concurrently --kill-others-on-fail --names wasm,vite,wrangler \"cargo watch --watch $(pwd)/../crates/gql-core/src -s 'pnpm --dir $(pwd) build:wasm'\" \"vite\" \"cd $(pwd)/.. && wrangler pages dev web/dist\"",
+    "dev:full": "pnpm db:migrate && pnpm build:wasm && concurrently --kill-others-on-fail --names wasm,vite,wrangler,live-sync \"cargo watch --watch $(pwd)/../crates/gql-core/src -s 'pnpm --dir $(pwd) build:wasm'\" \"vite\" \"cd $(pwd)/.. && wrangler pages dev web/dist\" \"cd $(pwd)/../live-sync && npm run dev\"",
     "dev:no-wasm": "vite",
     "pages:dev": "pnpm db:migrate && cd .. && wrangler pages dev web/dist",
     "build": "tsc -b && vite build",
