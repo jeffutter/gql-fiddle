@@ -116,6 +116,17 @@ jobs:
 
       - name: Web install
         run: nix develop .#web -c bash -c "cd web && pnpm install --frozen-lockfile"
+      - name: live-sync install
+        # Separate npm project (its own preinstall guard rejects pnpm/yarn) — not
+        # a pnpm workspace member, so this is a distinct step from "Web install".
+        run: nix develop .#web -c bash -c "cd live-sync && npm ci"
+      - name: Build web (wrangler pages dev needs web/dist to exist)
+        run: nix develop .#web -c bash -c "cd web && pnpm build"
+      - name: Local dev vars for the live-sync e2e specs
+        # LIVE_SYNC_URL points wrangler pages dev's /api/live-session at the
+        # Vite dev server's own /ws proxy (see web/vite.config.ts) rather than
+        # a real deployed live-sync origin — see .dev.vars.example for details.
+        run: echo "LIVE_SYNC_URL=http://localhost:8001" > .dev.vars
       - name: Web e2e tests
         run: nix develop .#web -c bash -c "cd web && pnpm e2e"
 
