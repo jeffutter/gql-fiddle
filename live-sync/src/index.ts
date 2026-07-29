@@ -10,6 +10,10 @@
 // the WebSocket relay.
 import { LiveSession } from "./session";
 
+// Durable Object classes must be exported from the Worker's entrypoint module
+// for the runtime to bind them — importing alone isn't enough.
+export { LiveSession };
+
 interface Env {
   LiveSession: DurableObjectNamespace;
   DB: D1Database;

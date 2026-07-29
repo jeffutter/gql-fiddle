@@ -138,7 +138,8 @@ export class LiveSession {
       return Response.json({
         sessionId: this.sessionId,
         clientCount: this.clients.size,
-        hasEncodedState: row?.encoded_state !== null && row?.encoded_state !== undefined,
+        hasEncodedState:
+          row?.encoded_state !== null && row?.encoded_state !== undefined,
         createdAt: row?.created_at ?? null,
         lastActiveAt: row?.last_active_at ?? null,
       });
@@ -151,14 +152,18 @@ export class LiveSession {
     request: Request,
     clientId: string,
   ): Promise<Response> {
-    if (
-      !request.headers.get("Upgrade")?.toLowerCase().includes("websocket")
-    ) {
+    if (!request.headers.get("Upgrade")?.toLowerCase().includes("websocket")) {
       return new Response("Expected WebSocket upgrade", { status: 400 });
     }
 
     const { 0: clientWs, 1: serverWs } = new WebSocketPair();
     serverWs.accept();
+    // WebSocket.binaryType defaults to "blob" per the WHATWG spec, but the
+    // message handler below parses binary frames synchronously with
+    // DataView, which requires an ArrayBuffer, not a Blob (Blob.arrayBuffer()
+    // is async). The client already opts into "arraybuffer" (liveSyncProvider.ts);
+    // match it here so both ends receive typed-array-ready buffers.
+    serverWs.binaryType = "arraybuffer";
 
     // Track this client
     const client = { ws: serverWs, clientId };
@@ -206,15 +211,18 @@ export class LiveSession {
               sendWebSocketMessage(serverWs, msg);
             } else if (step === 0x01) {
               // SYNC_ACK — client sent their state vector
-              // Compute diff update and send it
+              // Compute diff update and send it. Always reply (even with a
+              // zero-length update) so the client has a deterministic signal
+              // that the initial sync answer has arrived — it uses this to
+              // decide whether it's safe to seed default content (only if
+              // the session turns out to still be empty), rather than
+              // guessing based on whether a message shows up at all.
               const stateVectorStart = 2; // skip type + step bytes
               const clientSV = new Uint8Array(data, stateVectorStart);
               const update = this.diffUpdate(clientSV);
-              if (update.byteLength > 0) {
-                const header = new Uint8Array([Y_SYNC, 0x02]); // UPDATE
-                const msg = concatArrays(header, update);
-                sendWebSocketMessage(serverWs, msg);
-              }
+              const header = new Uint8Array([Y_SYNC, 0x02]); // UPDATE
+              const msg = concatArrays(header, update);
+              sendWebSocketMessage(serverWs, msg);
             } else if (step === 0x02) {
               // UPDATE — client sent a document update
               const updateStart = 2; // skip type + step bytes
@@ -236,10 +244,9 @@ export class LiveSession {
             // Client requests our current awareness state.
             // Respond with merged awareness for all connected clients.
             const states = this.awareness.getStates();
-            const encoded = encodeAwarenessUpdate(
-              this.awareness,
-              [...states.keys()],
-            );
+            const encoded = encodeAwarenessUpdate(this.awareness, [
+              ...states.keys(),
+            ]);
             if (encoded.byteLength > 0) {
               sendWebSocketMessage(serverWs, encoded);
             }
@@ -292,7 +299,10 @@ export class LiveSession {
    * Apply an incoming awareness update, attributing any client IDs it introduces to
    * `origin` via the "update" listener registered in the constructor.
    */
-  private applyIncomingAwarenessUpdate(data: Uint8Array, origin: WebSocket): void {
+  private applyIncomingAwarenessUpdate(
+    data: Uint8Array,
+    origin: WebSocket,
+  ): void {
     applyAwarenessUpdate(this.awareness, data, origin);
   }
 
