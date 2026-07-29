@@ -102,7 +102,12 @@
                 ]
                 # Browser + driver for headless wasm-pack tests (pre-built binaries
                 # from wasm-pack don't work on Nix — missing shared libs). Linux only.
-                ++ browserInputs;
+                ++ browserInputs
+                # Needed by web/'s and live-sync's postinstall hooks
+                # (scripts/patch-workerd-nixos.sh) to patch wrangler's
+                # bundled workerd binary for NixOS. Linux only — the issue
+                # doesn't exist on macOS/darwin.
+                ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.patchelf ];
 
               shellHook = rustShellHook;
             }
