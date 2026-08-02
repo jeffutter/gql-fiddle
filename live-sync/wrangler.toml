@@ -15,10 +15,11 @@ port = 8789
 [durable_objects]
 bindings = [{ name = "LiveSession", class_name = "LiveSession" }]
 
-# Migrations — track DO class versions
+# Migrations — track DO class versions.
+# Free tier requires SQLite-backed Durable Objects (new_sqlite_classes).
 [[migrations]]
 tag = "v1"
-new_classes = ["LiveSession"]
+new_sqlite_classes = ["LiveSession"]
 
 # Routing: configure via Cloudflare Dashboard or API.
 # Wrangler CLI: wrangler routes list --config live-sync/wrangler.toml
