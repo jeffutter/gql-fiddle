@@ -24,7 +24,7 @@ console_error_panic_hook = "0.1"
 # Pinned EXACT. apollo-federation has NO semver guarantees (Apollo treats it as
 # Router-internal), so any version may break the API.
 apollo-compiler = "=1.32.0"
-apollo-federation = "=2.16.0"
+apollo-federation = "=2.17.0"
 # The usual wasm fix when a transitive dep needs randomness:
 # enable getrandom's wasm_js feature for wasm builds.
 # Required for apollo-federation which pulls in getrandom v0.3.

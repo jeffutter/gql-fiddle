@@ -8,4 +8,6 @@ allowBuilds:
   workerd: true
 minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260712.1'
+  - '@types/better-sqlite3@9.6.0'
+  - js-yaml@5.2.3
 patchedDependencies: { monaco-graphql@1.8.0: patches/monaco-graphql@1.8.0.patch }
