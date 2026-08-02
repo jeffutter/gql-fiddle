@@ -30,6 +30,8 @@ export async function openApp(page: Page, path = "/"): Promise<void> {
 
 /** Clicks "Collaborate", waits for the session to be created, returns its id. */
 export async function startLiveSession(page: Page): Promise<string> {
+  // Open the Share dropdown (Collaborate button lives inside it)
+  await page.getByTestId("header-menu-share").click();
   const [createResp] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes("/api/live-session") && r.request().method() === "POST",
