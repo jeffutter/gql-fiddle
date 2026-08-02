@@ -3,9 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "packageManager": "npm@10.9.8",
+  "packageManager": "pnpm@11.10.0",
   "scripts": {
-    "preinstall": "node -e \"if (!/^npm\\//.test(process.env.npm_config_user_agent||'')) { console.error('ERROR: live-sync is an npm-only project — do not run pnpm/yarn here. Use: npm --prefix live-sync install'); process.exit(1); }\"",
     "postinstall": "bash ../scripts/patch-workerd-nixos.sh",
     "dev": "wrangler dev --config wrangler.toml --persist-to ../.wrangler/state",
     "deploy": "wrangler deploy --config wrangler.toml",

@@ -13,9 +13,7 @@ port = 8789
 
 # Durable Object class — one instance per session
 [durable_objects]
-bindings = [
-  { name = "LiveSession", class_name = "LiveSession" },
-]
+bindings = [{ name = "LiveSession", class_name = "LiveSession" }]
 
 # Migrations — track DO class versions
 [[migrations]]

@@ -40,3 +40,6 @@ pre-push:
     wasm-browser-test:
       glob: "crates/**/*.rs"
       run: wasm-pack test --headless --chrome crates/gql-core
+    livesync-typecheck:
+      root: "live-sync/"
+      run: pnpm exec tsc --noEmit

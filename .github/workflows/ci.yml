@@ -117,9 +117,9 @@ jobs:
       - name: Web install
         run: nix develop .#web -c bash -c "cd web && pnpm install --frozen-lockfile"
       - name: live-sync install
-        # Separate npm project (its own preinstall guard rejects pnpm/yarn) — not
-        # a pnpm workspace member, so this is a distinct step from "Web install".
-        run: nix develop .#web -c bash -c "cd live-sync && npm ci"
+        # Separate pnpm project (not a workspace member of web/) — distinct from
+        # "Web install" so its own lockfile is used.
+        run: nix develop .#web -c bash -c "cd live-sync && pnpm install --frozen-lockfile"
       - name: Build web (wrangler pages dev needs web/dist to exist)
         run: nix develop .#web -c bash -c "cd web && pnpm build"
       - name: Local dev vars for the live-sync e2e specs
@@ -130,8 +130,20 @@ jobs:
       - name: Web e2e tests
         run: nix develop .#web -c bash -c "cd web && pnpm e2e"
 
+  livesync-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: live-sync install
+        run: nix develop .#web -c bash -c "cd live-sync && pnpm install --frozen-lockfile"
+      - name: live-sync typecheck
+        run: nix develop .#web -c bash -c "cd live-sync && pnpm exec tsc --noEmit"
+      - name: live-sync tests
+        run: nix develop .#web -c bash -c "cd live-sync && pnpm test run"
+
   deploy:
-    needs: [rust-checks, wasm-build, wasm-browser-tests, web-checks, e2e]
+    needs: [rust-checks, wasm-build, wasm-browser-tests, web-checks, e2e, livesync-checks]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     # Required CLOUDFLARE_API_TOKEN permissions (create a custom token in the Cloudflare dashboard):
@@ -202,7 +214,7 @@ jobs:
       # Deploy the live-sync Worker (standalone, not Pages).
       # Requires CLOUDFLARE_API_TOKEN with "Workers Scripts: Edit" permission.
       - name: live-sync install
-        run: nix develop .#web -c bash -c "cd live-sync && npm ci"
+        run: nix develop .#web -c bash -c "cd live-sync && pnpm install --frozen-lockfile"
       - name: Deploy live-sync Worker
         uses: cloudflare/wrangler-action@v3
         with:

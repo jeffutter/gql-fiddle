@@ -29,6 +29,10 @@ interpreter=$(patchelf --print-interpreter "$(command -v node)")
 rpath=$(dirname "$interpreter")
 
 find node_modules -path "*/workerd*/bin/workerd" -type f 2>/dev/null | while read -r bin; do
+  # Skip non-ELF binaries (e.g. macOS darwin builds)
+  file_type=$(file -b "$bin" 2>/dev/null || true)
+  [[ "$file_type" == *"ELF"* ]] || continue
+
   current=$(patchelf --print-interpreter "$bin" 2>/dev/null || true)
   [ "$current" = "$interpreter" ] && continue
 
