@@ -20,9 +20,14 @@ bindings = [{ name = "LiveSession", class_name = "LiveSession" }]
 tag = "v1"
 new_classes = ["LiveSession"]
 
-# Custom domain for WebSocket connections.
-[triggers]
-custom_domains = ["live-sync.gqlfiddle.dev"]
+# Routing: configure via Cloudflare Dashboard or API.
+# Wrangler CLI: wrangler routes list --config live-sync/wrangler.toml
+# To add a route via CLI:
+#   wrangler routes create --pattern "live-sync.gqlfiddle.dev/*" --zone-name "gqlfiddle.dev"
+# (requires zone name from Cloudflare dashboard)
+#
+# Alternatively, use `wrangler deploy --route "live-sync.gqlfiddle.dev/*"`
+# when deploying from CI if you prefer automated routing.
 
 # D1 database — same instance as the main Pages project.
 # Use the same database_id so both services share the live_sessions table.
