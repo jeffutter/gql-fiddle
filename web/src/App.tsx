@@ -1635,7 +1635,7 @@ export default function App() {
     return (
       <>
         <div className="app" style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
-          <div style={{ padding: "8px 8px 0" }}>{globalHeader}</div>
+          {globalHeader}
           {/* Content area */}
           <div
             style={{

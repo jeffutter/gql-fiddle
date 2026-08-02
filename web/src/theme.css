@@ -1824,6 +1824,7 @@ body {
    * shrinks/scrolls via its base (non-mobile) rules. */
   .page-header {
     flex-wrap: wrap;
+    padding: 8px 8px 0;
   }
 
   /* Actions drop to their own row, lose the left divider, wrap their buttons */
