@@ -619,6 +619,13 @@ body {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 8px;
+  /* `.app > *` gives every direct child of `.app` its own z-index:1 stacking
+   * context (see above), so the panels below the header would otherwise
+   * paint over header dropdowns just by coming later in DOM order. Lift the
+   * header's context above its siblings so open menus float over the page.
+   * Modals/overlays render outside `.app` entirely, so this doesn't affect
+   * their stacking. */
+  z-index: 5;
 }
 
 /* Shrinks to fit between the logo and actions rather than forcing
@@ -667,6 +674,62 @@ body {
   flex-shrink: 0;
   padding-left: 10px;
   border-left: 1px solid var(--border);
+}
+
+/* ========================================================================== *
+ * Header dropdown menus (Workspace, Share) — nest a cluster of related
+ * page-header actions behind one trigger button.
+ * ========================================================================== */
+.header-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.header-menu__caret {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.header-menu__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 170px;
+  padding: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+}
+
+/* Buttons (and the live-session-controls row) inside a menu panel stack as
+ * full-width list items instead of the pill-shaped horizontal toolbar buttons
+ * they render as in the header itself. */
+.header-menu__panel .btn {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: transparent;
+}
+
+.header-menu__panel .live-session-controls {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.header-menu__panel .live-session-controls .badge {
+  align-self: flex-start;
+  margin-bottom: 2px;
+}
+
+.header-menu__divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 
 /* ========================================================================== *

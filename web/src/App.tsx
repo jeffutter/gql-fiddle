@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useMobile } from "./hooks";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import * as _monaco from "monaco-editor";
@@ -168,6 +168,86 @@ function ExportImageButton({
   );
 }
 
+/**
+ * Dropdown that groups related header actions behind a single trigger button.
+ * Open/closed state is owned by the caller (`open`/`onToggle`/`onClose`) so
+ * multiple menus in the same header can share one "only one open at a time"
+ * state variable. Closes on outside click or Escape; closing on an item click
+ * is left to the caller, since some items (e.g. "Copied!" feedback) need the
+ * panel to stay open after the click.
+ */
+function HeaderMenu({
+  label,
+  triggerClassName = "btn",
+  testId,
+  open,
+  onToggle,
+  onClose,
+  children,
+}: {
+  label: ReactNode;
+  triggerClassName?: string;
+  testId?: string;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
+  return (
+    <div className="header-menu" ref={ref}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={triggerClassName}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid={testId}
+      >
+        {label}
+        <svg
+          className="header-menu__caret"
+          width="8"
+          height="8"
+          viewBox="0 0 8 8"
+          aria-hidden="true"
+        >
+          <path
+            d="M1 2.5 4 5.5 7 2.5"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      {open && (
+        <div className="header-menu__panel" role="menu">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SubgraphLegend({ services }: { services: string[] }) {
   if (services.length === 0) return null;
   return (
@@ -249,6 +329,9 @@ export default function App() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [workspaceExportOpen, setWorkspaceExportOpen] = useState(false);
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
+  // Which page-header dropdown (if any) is open. A single field keeps the
+  // menus mutually exclusive without each one needing to know about the other.
+  const [openHeaderMenu, setOpenHeaderMenu] = useState<"workspace" | "share" | null>(null);
   // Lets the tab-strip export button reach the live sequence-diagram <svg>.
   const sequenceSvgContainerRef = useRef<HTMLDivElement>(null);
   // Each copy button tracks its own "Copied!" state independently (TASK-96.4:
@@ -1255,108 +1338,157 @@ export default function App() {
       </div>
       {workspaceTabStrip}
       <div className="page-header__actions">
-        <button onClick={copyForLLM} className={copiedLLM ? "btn is-success" : "btn"}>
-          {copiedLLM ? "Copied!" : "Copy for LLM"}
-        </button>
-        <button
-          onClick={() => setWorkspaceExportOpen(true)}
-          className="btn"
-          title="Export workspaces"
+        <HeaderMenu
+          label="Workspace"
+          testId="header-menu-workspace"
+          open={openHeaderMenu === "workspace"}
+          onToggle={() => setOpenHeaderMenu((m) => (m === "workspace" ? null : "workspace"))}
+          onClose={() => setOpenHeaderMenu((m) => (m === "workspace" ? null : m))}
         >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+          <button onClick={copyForLLM} className={copiedLLM ? "btn is-success" : "btn"}>
+            {copiedLLM ? "Copied!" : "Copy for LLM"}
+          </button>
+          <button
+            onClick={() => {
+              setWorkspaceExportOpen(true);
+              setOpenHeaderMenu(null);
+            }}
+            className="btn"
+            title="Export workspaces"
           >
-            <path d="M7 1.5v8" />
-            <path d="M3.5 6.5 7 10l3.5-3.5" />
-            <path d="M1.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" />
-          </svg>
-          Export
-        </button>
-        <button
-          onClick={() => setWorkspaceImportOpen(true)}
-          className="btn"
-          title="Import workspaces"
-        >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M7 9.5v-8" />
-            <path d="M3.5 4.5 7 1l3.5 3.5" />
-            <path d="M1.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" />
-          </svg>
-          Import
-        </button>
-        {tourDraft !== null ? (
-          <>
-            <button
-              onClick={copyTourShareUrl}
-              className={copiedTourShare ? "btn is-success" : "btn"}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              {copiedTourShare ? "Copied!" : "Share Tour"}
-            </button>
-            {!tourAuthoringOpen && (
-              <button onClick={() => setTourAuthoringOpen(true)} className="btn">
-                Tour ›
-              </button>
-            )}
-          </>
-        ) : (
-          <>
-            {/* Share (static snapshot) + Collaborate (live session) */}
-            {!liveSession.wsUrl ? (
-              <>
-                <button onClick={copyShareUrl} className={copiedShare ? "btn is-success" : "btn"}>
-                  {copiedShare ? "Copied!" : "Share"}
-                </button>
-                <button onClick={startCollaboration} className="btn btn--primary">
-                  Collaborate
-                </button>
-                <button onClick={createTour} className="btn">
-                  Create Tour
-                </button>
-              </>
-            ) : (
-              <div className="live-session-controls">
-                <span className="badge badge--success">Live</span>
-                <button
-                  onClick={copyLiveSessionUrl}
-                  className={copiedLiveLink ? "btn is-success" : "btn"}
-                >
-                  {copiedLiveLink ? "Copied!" : "Copy link"}
-                </button>
-                <button onClick={endLiveSession} className="btn">
-                  End session
-                </button>
-              </div>
-            )}
-          </>
-        )}
-        <button
-          onClick={() => {
-            if (window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")) {
-              resetToDefaults();
-            }
-          }}
-          className="btn"
+              <path d="M7 1.5v8" />
+              <path d="M3.5 6.5 7 10l3.5-3.5" />
+              <path d="M1.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" />
+            </svg>
+            Export
+          </button>
+          <button
+            onClick={() => {
+              setWorkspaceImportOpen(true);
+              setOpenHeaderMenu(null);
+            }}
+            className="btn"
+            title="Import workspaces"
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M7 9.5v-8" />
+              <path d="M3.5 4.5 7 1l3.5 3.5" />
+              <path d="M1.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" />
+            </svg>
+            Import
+          </button>
+          <div className="header-menu__divider" />
+          <button
+            onClick={() => {
+              if (window.confirm("Reset all subgraphs, query, variables, and seed to defaults?")) {
+                resetToDefaults();
+                setOpenHeaderMenu(null);
+              }
+            }}
+            className="btn"
+          >
+            Reset to defaults
+          </button>
+        </HeaderMenu>
+        <HeaderMenu
+          label={tourDraft !== null ? "Tour" : liveSession.wsUrl ? "Live" : "Share"}
+          triggerClassName={tourDraft === null && !liveSession.wsUrl ? "btn btn--primary" : "btn"}
+          testId="header-menu-share"
+          open={openHeaderMenu === "share"}
+          onToggle={() => setOpenHeaderMenu((m) => (m === "share" ? null : "share"))}
+          onClose={() => setOpenHeaderMenu((m) => (m === "share" ? null : m))}
         >
-          Reset to defaults
-        </button>
+          {tourDraft !== null ? (
+            <>
+              <button
+                onClick={copyTourShareUrl}
+                className={copiedTourShare ? "btn is-success" : "btn"}
+              >
+                {copiedTourShare ? "Copied!" : "Share Tour"}
+              </button>
+              {!tourAuthoringOpen && (
+                <button
+                  onClick={() => {
+                    setTourAuthoringOpen(true);
+                    setOpenHeaderMenu(null);
+                  }}
+                  className="btn"
+                >
+                  Tour ›
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Share (static snapshot) + Collaborate (live session) */}
+              {!liveSession.wsUrl ? (
+                <>
+                  <button onClick={copyShareUrl} className={copiedShare ? "btn is-success" : "btn"}>
+                    {copiedShare ? "Copied!" : "Share"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      void startCollaboration();
+                      setOpenHeaderMenu(null);
+                    }}
+                    className="btn"
+                  >
+                    Collaborate
+                  </button>
+                  <button
+                    onClick={() => {
+                      createTour();
+                      setOpenHeaderMenu(null);
+                    }}
+                    className="btn"
+                  >
+                    Create Tour
+                  </button>
+                </>
+              ) : (
+                <div className="live-session-controls">
+                  <span className="badge badge--success">Live</span>
+                  <button
+                    onClick={copyLiveSessionUrl}
+                    className={copiedLiveLink ? "btn is-success" : "btn"}
+                  >
+                    {copiedLiveLink ? "Copied!" : "Copy link"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      endLiveSession();
+                      setOpenHeaderMenu(null);
+                    }}
+                    className="btn"
+                  >
+                    End session
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </HeaderMenu>
         {authStatus === "authed" && (
           <span
             className={`sync-status sync-status--${syncStatus}`}

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import App from "./App";
 import { useWorkspace, activeWorkspace } from "./store";
 import * as monaco from "monaco-editor";
@@ -1422,8 +1422,10 @@ describe("App", () => {
     // Advance past the initial debounce so any first hash is set.
     await vi.advanceTimersByTimeAsync(350);
 
-    // The Share button should initially show "Share" text.
-    const shareBtn = screen.getByRole("button", { name: /share/i });
+    // Share lives behind the "Share" header dropdown; open it first.
+    fireEvent.click(screen.getByTestId("header-menu-share"));
+    const shareMenu = screen.getByRole("menu");
+    const shareBtn = within(shareMenu).getByRole("button", { name: /^share$/i });
     expect(shareBtn.textContent).toBe("Share");
 
     // Click the Share button inside act() so that when the clipboard Promise
@@ -1440,14 +1442,18 @@ describe("App", () => {
     // The clipboard write should have been triggered.
     expect(mockWriteText).toHaveBeenCalledTimes(1);
 
-    // The button text should now be "Copied!" (green feedback).
-    const allBtns = screen.getAllByRole("button");
-    const copiedText = allBtns.find((b) => b.textContent === "Copied!");
+    // The button text should now be "Copied!" (green feedback). The menu
+    // stays open after a copy action so the feedback is visible.
+    const copiedText = within(shareMenu)
+      .getAllByRole("button")
+      .find((b) => b.textContent === "Copied!");
     expect(copiedText).toBeDefined();
 
     // Advance 1ms short of the revert timeout — button should still say "Copied!".
     await vi.advanceTimersByTimeAsync(1499);
-    const copiedStill = screen.getAllByRole("button").find((b) => b.textContent === "Copied!");
+    const copiedStill = within(shareMenu)
+      .getAllByRole("button")
+      .find((b) => b.textContent === "Copied!");
     expect(copiedStill).toBeDefined();
 
     // Advance 2ms more (1501ms total) — the 1500ms setCopied(false) fires.
@@ -1456,7 +1462,9 @@ describe("App", () => {
     });
 
     // The button text should be back to "Share".
-    const shareBtnAfter = screen.getAllByRole("button").find((b) => b.textContent === "Share");
+    const shareBtnAfter = within(shareMenu)
+      .getAllByRole("button")
+      .find((b) => b.textContent === "Share");
     expect(shareBtnAfter).toBeDefined();
   });
 
@@ -1487,9 +1495,10 @@ describe("App", () => {
 
     await vi.advanceTimersByTimeAsync(350);
 
-    const copyForLlmBtn = screen.getByRole("button", { name: /copy for llm/i });
-    const shareBtn = screen.getByRole("button", { name: /^share$/i });
-    expect(shareBtn.textContent).toBe("Share");
+    // Copy for LLM lives behind the "Workspace" header dropdown.
+    fireEvent.click(screen.getByTestId("header-menu-workspace"));
+    const workspaceMenu = screen.getByRole("menu");
+    const copyForLlmBtn = within(workspaceMenu).getByRole("button", { name: /copy for llm/i });
 
     await act(async () => {
       fireEvent.click(copyForLlmBtn);
@@ -1500,9 +1509,16 @@ describe("App", () => {
     expect(mockWriteText).toHaveBeenCalledTimes(1);
 
     // Copy for LLM should show its own "Copied!" feedback...
-    expect(screen.getByRole("button", { name: /copied!/i }).textContent).toBe("Copied!");
-    // ...but the adjacent Share button must be unaffected.
-    expect(screen.getByRole("button", { name: /^share$/i }).textContent).toBe("Share");
+    expect(within(workspaceMenu).getByRole("button", { name: /copied!/i }).textContent).toBe(
+      "Copied!",
+    );
+
+    // ...but the unrelated Share button (in the separate "Share" dropdown)
+    // must be unaffected. Opening it swaps out the Workspace menu since only
+    // one header menu is open at a time.
+    fireEvent.click(screen.getByTestId("header-menu-share"));
+    const shareMenu = screen.getByRole("menu");
+    expect(within(shareMenu).getByRole("button", { name: /^share$/i }).textContent).toBe("Share");
   });
 
   it("TASK-23 AC#4: corrupt hash falls back to default workspace without throwing", () => {
@@ -1593,8 +1609,11 @@ describe("App", () => {
     // Advance past the initial debounce so any first hash is set.
     await vi.advanceTimersByTimeAsync(350);
 
-    // The Share button must be visible in the UI.
-    const shareBtn = screen.getByRole("button", { name: /share/i });
+    // The Share action lives behind the "Share" header dropdown.
+    const shareMenuTrigger = screen.getByTestId("header-menu-share");
+    expect(shareMenuTrigger).toBeInTheDocument();
+    fireEvent.click(shareMenuTrigger);
+    const shareBtn = within(screen.getByRole("menu")).getByRole("button", { name: /^share$/i });
     expect(shareBtn).toBeInTheDocument();
 
     // Click the Share button.
