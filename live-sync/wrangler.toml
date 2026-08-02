@@ -22,6 +22,10 @@ bindings = [
 tag = "v1"
 new_classes = ["LiveSession"]
 
+# Custom domain for WebSocket connections.
+[triggers]
+custom_domains = ["live-sync.gqlfiddle.dev"]
+
 # D1 database — same instance as the main Pages project.
 # Use the same database_id so both services share the live_sessions table.
 # Local dev: the `dev` script passes --persist-to ../.wrangler/state so this

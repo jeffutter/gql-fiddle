@@ -136,7 +136,8 @@ jobs:
     runs-on: ubuntu-latest
     # Required CLOUDFLARE_API_TOKEN permissions (create a custom token in the Cloudflare dashboard):
     #   - Cloudflare Pages: Edit          (deploy the Pages project)
-    #   - D1: Edit                         (bind the D1 database to the Pages project)
+    #   - Workers Scripts: Edit            (deploy the live-sync Worker)
+    #   - D1: Edit                         (bind the D1 database to both projects)
     #   - Workers KV Storage: Edit         (bind the KV namespace to the Pages project)
     #   - Account Settings: Read           (resolve the account ID)
     # CLOUDFLARE_ACCOUNT_ID is your numeric Cloudflare account ID (not a secret per se,
@@ -197,3 +198,15 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4"
           command: d1 migrations apply gql-fiddle-db --remote
+
+      # Deploy the live-sync Worker (standalone, not Pages).
+      # Requires CLOUDFLARE_API_TOKEN with "Workers Scripts: Edit" permission.
+      - name: live-sync install
+        run: nix develop .#web -c bash -c "cd live-sync && npm ci"
+      - name: Deploy live-sync Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          command: deploy --config live-sync/wrangler.toml
