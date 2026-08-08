@@ -14,6 +14,7 @@
 //   - Offline: edits and deletes queued in memory and flushed on "online"
 //     event / login.
 //   - Anonymous / logged-out: store subscription short-circuits, no API calls.
+import { create } from "zustand";
 import type { WorkspaceEntry, WorkspacePayload } from "./share";
 import { useWorkspace, makeDefaultWorkspace } from "./store";
 import { useAuth } from "./auth";
@@ -30,6 +31,8 @@ interface WorkspaceRow {
   version: number;
   updated_at: number;
   deleted_at: number | null;
+  saved: boolean;
+  open: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,11 +69,13 @@ function rowToEntry(row: WorkspaceRow, local?: WorkspaceEntry): WorkspaceEntry {
     seed: p.seed,
     mockConfig: p.mockConfig ?? "",
     tourDraft: local?.tourDraft ?? null, // tours are URL-shareable (#t=); not synced to cloud
+    saved: row.saved,
+    open: row.open,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Merge function — exported for unit tests
+// Merge functions — exported for unit tests
 //
 // Reconciles local WorkspaceEntry[] with remote WorkspaceRow[] using
 // last-write-wins per workspace id:
@@ -78,26 +83,67 @@ function rowToEntry(row: WorkspaceRow, local?: WorkspaceEntry): WorkspaceEntry {
 //   - remote version > local version → adopt remote
 //   - local version >= remote version → keep local
 //   - local-only (no matching remote row) → keep local (will be pushed up)
+//
+// mergeWorkspaces (the tab bar) and mergeSavedLibrary (the closed-saved-
+// workspace library) are two halves of one partition over every pulled row:
+// a saved-and-closed workspace belongs in the library, everything else
+// belongs in the tab bar, and a row never belongs in both. Both share this
+// generic by-id reducer, parameterized by which rows this merge target
+// excludes.
 // ---------------------------------------------------------------------------
 
-export function mergeWorkspaces(local: WorkspaceEntry[], remote: WorkspaceRow[]): WorkspaceEntry[] {
+function mergeById(
+  local: WorkspaceEntry[],
+  remote: WorkspaceRow[],
+  excludeRow: (row: WorkspaceRow) => boolean,
+): WorkspaceEntry[] {
   const byId = new Map<string, WorkspaceEntry>();
   for (const ws of local) {
     if (ws.id) byId.set(ws.id, ws);
   }
   for (const row of remote) {
+    const loc = byId.get(row.id);
     if (row.deleted_at !== null) {
       byId.delete(row.id); // remote delete wins
       continue;
     }
-    const loc = byId.get(row.id);
-    if (!loc || row.version > (loc.version ?? 0)) {
-      byId.set(row.id, rowToEntry(row, loc)); // remote is newer
+    const remoteWins = !loc || row.version > (loc.version ?? 0);
+    if (excludeRow(row)) {
+      // Remote says this row doesn't belong in this merge target. Only
+      // remove an existing entry when the remote row actually wins the LWW
+      // race — a not-yet-pushed local change (e.g. just opened/closed here)
+      // must survive until it's had a chance to reach the server.
+      if (remoteWins) byId.delete(row.id);
+      continue;
     }
+    if (remoteWins) byId.set(row.id, rowToEntry(row, loc)); // remote is newer
     // else: local is same version or newer → local wins
   }
   return Array.from(byId.values());
 }
+
+/** Tab bar: every remote row except a closed saved workspace. */
+export function mergeWorkspaces(local: WorkspaceEntry[], remote: WorkspaceRow[]): WorkspaceEntry[] {
+  return mergeById(local, remote, (row) => row.saved && !row.open);
+}
+
+/** Saved-workspace library: exactly the complement — only closed saved workspaces. */
+export function mergeSavedLibrary(
+  local: WorkspaceEntry[],
+  remote: WorkspaceRow[],
+): WorkspaceEntry[] {
+  return mergeById(local, remote, (row) => !row.saved || row.open);
+}
+
+/**
+ * Closed-but-saved workspaces: tracked separately from the tab bar
+ * (`useWorkspace.workspaces`) so a saved workspace lives in exactly one of
+ * the two stores at a time. Populated alongside every `mergeWorkspaces` call
+ * against a pull's rows (onLogin, deltaRefresh) and cleared on logout.
+ */
+export const useSavedWorkspaceLibrary = create<{ entries: WorkspaceEntry[] }>(() => ({
+  entries: [],
+}));
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -165,6 +211,8 @@ async function pushWorkspace(ws: WorkspaceEntry): Promise<WorkspaceRow | null> {
       name: encName,
       payload: encPayload,
       version: ws.version ?? 1,
+      saved: ws.saved ?? false,
+      open: ws.open ?? true,
     }),
   });
   if (res.status === 401 || res.status === 403) return null;
@@ -241,6 +289,51 @@ const THROTTLE_MS = 15_000; // at most one delta pull per 15 s (dampen focus/vis
 // isSyncing is module-level so both initSync and deltaRefresh can check it.
 let isSyncing = false;
 
+// Module-level (not closure-local to initSync) so both autoSave and the
+// top-level openSavedWorkspace/closeSavedWorkspace functions below can queue
+// into the same queue via pushEntry. offlineDeleteQueue and debounceTimers
+// stay closure-local to initSync() — only the push path is shared.
+const offlineQueue = new Map<string, WorkspaceEntry>(); // keyed by id
+
+/**
+ * Push one workspace entry to the server, handling the offline queue, sync
+ * status, and the LWW adoption of the server's response — the shared tail
+ * of autoSave and the open/close actions below.
+ */
+async function pushEntry(ws: WorkspaceEntry): Promise<void> {
+  if (!ws.id) return;
+  if (!navigator.onLine) {
+    offlineQueue.set(ws.id, ws);
+    useAuth.getState().setSyncStatus("offline");
+    return;
+  }
+  useAuth.getState().setSyncStatus("saving");
+  try {
+    const serverRow = await pushWorkspace(ws);
+    if (serverRow) {
+      isSyncing = true;
+      try {
+        const workspaces = useWorkspace.getState().workspaces.map((w) => {
+          if (w.id !== ws.id) return w;
+          // A late-arriving response for an older in-flight request must not
+          // roll back a newer edit/version the store has already advanced
+          // past (mirrors autoSave's stale-response guard).
+          if (serverRow.version < (w.version ?? 0)) return w;
+          return rowToEntry(serverRow, w);
+        });
+        useWorkspace.setState({ workspaces });
+      } finally {
+        isSyncing = false;
+      }
+    }
+    useAuth.getState().setSyncStatus("synced");
+  } catch (err) {
+    console.error("Sync: push failed", err);
+    offlineQueue.set(ws.id, useWorkspace.getState().workspaces.find((w) => w.id === ws.id) ?? ws);
+    useAuth.getState().setSyncStatus(navigator.onLine ? "error" : "offline");
+  }
+}
+
 export async function deltaRefresh(force = false): Promise<void> {
   if (useAuth.getState().status !== "authed") return;
   const now = Date.now();
@@ -258,6 +351,8 @@ export async function deltaRefresh(force = false): Promise<void> {
     if (rows.length === 0) return;
     const local = useWorkspace.getState().workspaces;
     const merged = mergeWorkspaces(local, rows);
+    const library = mergeSavedLibrary(useSavedWorkspaceLibrary.getState().entries, rows);
+    useSavedWorkspaceLibrary.setState({ entries: library });
     // Guard against an empty result (all remote workspaces deleted); clamp index.
     const safeMerged = merged.length > 0 ? merged : [makeDefaultWorkspace("Workspace 1")];
     const currIdx = useWorkspace.getState().activeWorkspaceIndex;
@@ -274,6 +369,78 @@ export async function deltaRefresh(force = false): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Saved-workspace open/close actions (TASK-126.2)
+//
+// The mechanism 126.3/126.4's UI calls into to move a saved workspace
+// between the tab bar and the closed library. Both wrap only the *local*
+// state mutation in isSyncing (matching every other mutator in this file) so
+// unsubStore's change-detection subscriber — which would otherwise treat the
+// tab-bar change as a delete-worthy event — never fires for these calls. The
+// network push happens outside that guard, same as autoSave.
+// ---------------------------------------------------------------------------
+
+/**
+ * Opens a saved workspace: adds it to the tab bar (or just focuses it if
+ * it's already open there — no duplicate tabs) and marks it open so it
+ * appears on the user's other devices on their next sync. No-op (and logs)
+ * if `id` isn't a known saved workspace.
+ */
+export function openSavedWorkspace(id: string): void {
+  const workspaces = useWorkspace.getState().workspaces;
+  const existingIndex = workspaces.findIndex((w) => w.id === id);
+  if (existingIndex !== -1) {
+    useWorkspace.setState({ activeWorkspaceIndex: existingIndex });
+    return;
+  }
+  const entry = useSavedWorkspaceLibrary.getState().entries.find((w) => w.id === id);
+  if (!entry) {
+    console.error(`Sync: openSavedWorkspace(${id}) — not found in saved library`);
+    return;
+  }
+  const opened: WorkspaceEntry = { ...entry, open: true, version: (entry.version ?? 0) + 1 };
+  isSyncing = true;
+  try {
+    const next = [...workspaces, opened];
+    useWorkspace.setState({ workspaces: next, activeWorkspaceIndex: next.length - 1 });
+    useSavedWorkspaceLibrary.setState({
+      entries: useSavedWorkspaceLibrary.getState().entries.filter((w) => w.id !== id),
+    });
+  } finally {
+    isSyncing = false;
+  }
+  void pushEntry(opened);
+}
+
+/**
+ * Closes a saved workspace's tab: removes it from the tab bar and marks it
+ * closed so it disappears from the tab bar on the user's other devices too
+ * — the workspace itself is not deleted, it moves into the saved library.
+ * No-op (and logs) if `id` isn't currently an open, saved workspace — this
+ * function must never be called for a non-saved workspace, whose close path
+ * is the existing immediate-delete behavior in store.ts/App.tsx.
+ */
+export function closeSavedWorkspace(id: string): void {
+  const workspaces = useWorkspace.getState().workspaces;
+  const index = workspaces.findIndex((w) => w.id === id);
+  const ws = workspaces[index];
+  if (!ws || !ws.saved) {
+    console.error(`Sync: closeSavedWorkspace(${id}) — not an open saved workspace`);
+    return;
+  }
+  const closed: WorkspaceEntry = { ...ws, open: false, version: (ws.version ?? 0) + 1 };
+  isSyncing = true;
+  try {
+    useWorkspace.getState().removeWorkspace(index); // reuses store.ts's tested index-clamping / empty-tab-bar fallback
+    useSavedWorkspaceLibrary.setState({
+      entries: [...useSavedWorkspaceLibrary.getState().entries, closed],
+    });
+  } finally {
+    isSyncing = false;
+  }
+  void pushEntry(closed);
+}
+
+// ---------------------------------------------------------------------------
 // Sync engine initialization
 // ---------------------------------------------------------------------------
 
@@ -281,7 +448,6 @@ const AUTOSAVE_DEBOUNCE_MS = 2_000; // 2 s — balance responsiveness vs. push f
 
 export function initSync(): () => void {
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const offlineQueue = new Map<string, WorkspaceEntry>(); // keyed by id
   const offlineDeleteQueue = new Set<string>(); // ids pending soft-delete
 
   async function onLogin() {
@@ -300,6 +466,8 @@ export function initSync(): () => void {
       applyDecryptWarning(skippedIds);
       const local = useWorkspace.getState().workspaces;
       const merged = mergeWorkspaces(local, rows);
+      const library = mergeSavedLibrary(useSavedWorkspaceLibrary.getState().entries, rows);
+      useSavedWorkspaceLibrary.setState({ entries: library });
 
       // Push workspaces that exist locally but not on the server; adopt the
       // server row on success so local versions are authoritative from login.
@@ -372,33 +540,7 @@ export function initSync(): () => void {
     }
     if (!bumped) return; // deleted concurrently between lookup and bump
 
-    useAuth.getState().setSyncStatus("saving");
-    try {
-      const serverRow = await pushWorkspace(bumped);
-      if (serverRow) {
-        // Update local entry to match server row (handles both 200 and 409).
-        isSyncing = true;
-        try {
-          const workspaces = useWorkspace.getState().workspaces.map((w) => {
-            if (w.id !== id) return w;
-            // A late-arriving response for an older in-flight request must
-            // not roll back a newer edit/version that a later request (or a
-            // later local edit) has already advanced the store past.
-            if (serverRow.version < (w.version ?? 0)) return w;
-            return rowToEntry(serverRow, w);
-          });
-          useWorkspace.setState({ workspaces });
-        } finally {
-          isSyncing = false;
-        }
-      }
-      useAuth.getState().setSyncStatus("synced");
-    } catch (err) {
-      console.error("Sync: auto-save failed", err);
-      const current = useWorkspace.getState().workspaces.find((w) => w.id === id);
-      if (current) offlineQueue.set(id, current);
-      useAuth.getState().setSyncStatus(navigator.onLine ? "error" : "offline");
-    }
+    await pushEntry(bumped);
   }
 
   // Mirrors autoSave's offline/error handling (same navigator.onLine check,
@@ -434,7 +576,20 @@ export function initSync(): () => void {
     const entries = Array.from(offlineQueue.values());
     offlineQueue.clear();
     for (const ws of entries) {
-      await autoSave(ws.id!);
+      // A queued entry for a workspace that's since been closed (removed
+      // from the tab bar, not deleted — e.g. closeSavedWorkspace ran while
+      // offline) has nothing fresher to re-read: autoSave's "deleted
+      // concurrently" guard would silently drop it, since it can no longer
+      // distinguish "closed" from "deleted" by absence alone. Push the
+      // queued snapshot directly instead.
+      const stillOpen = useWorkspace.getState().workspaces.some((w) => w.id === ws.id);
+      if (stillOpen) {
+        // Re-reads live content — preserves the existing "flush pushes
+        // latest, not stale snapshot" guarantee.
+        await autoSave(ws.id!);
+      } else {
+        await pushEntry(ws); // the queued snapshot IS the final state
+      }
     }
   }
 
@@ -442,6 +597,11 @@ export function initSync(): () => void {
   const unsubAuth = useAuth.subscribe((auth, prevAuth) => {
     if (auth.status === "authed" && prevAuth.status !== "authed") {
       void onLogin();
+    } else if (auth.status !== "authed" && prevAuth.status === "authed") {
+      // Saved-workspace names/content must not leak across an account switch
+      // on a shared device — mirrors how logout() in auth.ts already clears
+      // decryptWarning and the cached encryption key.
+      useSavedWorkspaceLibrary.setState({ entries: [] });
     }
   });
 

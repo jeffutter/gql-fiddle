@@ -1,6 +1,14 @@
 // Tests for web/src/sync.ts (TASK-88.6 + TASK-88.7 + TASK-88.8 + TASK-92)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mergeWorkspaces, deltaRefresh, initSync } from "./sync";
+import {
+  mergeWorkspaces,
+  mergeSavedLibrary,
+  useSavedWorkspaceLibrary,
+  openSavedWorkspace,
+  closeSavedWorkspace,
+  deltaRefresh,
+  initSync,
+} from "./sync";
 
 // Encryption is tested separately in encryption.test.ts.  Here we stub it out
 // so sync tests are not sensitive to crypto.subtle timing (native thread-pool
@@ -49,6 +57,8 @@ function makeRow(overrides: {
   deleted_at?: number | null;
   subgraphs?: { name: string; sdl: string }[];
   updated_at?: number;
+  saved?: boolean;
+  open?: boolean;
 }) {
   return {
     id: overrides.id,
@@ -63,6 +73,11 @@ function makeRow(overrides: {
     version: overrides.version ?? 1,
     updated_at: overrides.updated_at ?? Date.now(),
     deleted_at: overrides.deleted_at ?? null,
+    // Matches the server's documented defaults (functions/_lib/db.ts /
+    // AGENTS.md's Workspace API section): every non-deleted row is
+    // implicitly open everywhere unless explicitly marked saved+closed.
+    saved: overrides.saved ?? false,
+    open: overrides.open ?? true,
   };
 }
 
@@ -89,6 +104,7 @@ function resetStores() {
     composeErrors: null,
     composeHints: 0,
   });
+  useSavedWorkspaceLibrary.setState({ entries: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +218,61 @@ describe("mergeWorkspaces", () => {
     expect(byId["c"]).toBeDefined();
     // D: remote only → adopted
     expect(byId["d"]).toBeDefined();
+  });
+
+  it("excludes a closed saved workspace from the tab bar, even if previously present locally", () => {
+    // Simulates another device closing a saved workspace: the local tab bar
+    // still has it, but the remote row now says saved+closed and wins LWW.
+    const id = "ws-closed";
+    const local = [makeEntry({ id, version: 1, name: "Was open" })];
+    const remote = [makeRow({ id, version: 2, saved: true, open: false })];
+    const result = mergeWorkspaces(local, remote);
+    expect(result.some((w) => w.id === id)).toBe(false);
+  });
+
+  it("does not remove a not-yet-pushed local change when the closed-saved remote row is stale", () => {
+    // The local copy is already newer (e.g. the user just re-opened it here)
+    // than what a slower remote pull reports — the local change must survive
+    // until it reaches the server.
+    const id = "ws-race";
+    const local = [
+      makeEntry({ id, version: 5, name: "Locally reopened", saved: true, open: true }),
+    ];
+    const remote = [makeRow({ id, version: 2, saved: true, open: false })];
+    const result = mergeWorkspaces(local, remote);
+    expect(result.some((w) => w.id === id)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeSavedLibrary — pure function tests
+// ---------------------------------------------------------------------------
+
+describe("mergeSavedLibrary", () => {
+  it("includes a closed saved workspace", () => {
+    const remote = [makeRow({ id: "ws-lib", version: 1, saved: true, open: false })];
+    const result = mergeSavedLibrary([], remote);
+    expect(result.some((w) => w.id === "ws-lib")).toBe(true);
+  });
+
+  it("excludes an open saved workspace (currently open elsewhere)", () => {
+    const remote = [makeRow({ id: "ws-open-elsewhere", version: 1, saved: true, open: true })];
+    const result = mergeSavedLibrary([], remote);
+    expect(result.some((w) => w.id === "ws-open-elsewhere")).toBe(false);
+  });
+
+  it("excludes a non-saved workspace", () => {
+    const remote = [makeRow({ id: "ws-not-saved", version: 1, saved: false, open: false })];
+    const result = mergeSavedLibrary([], remote);
+    expect(result.some((w) => w.id === "ws-not-saved")).toBe(false);
+  });
+
+  it("remote soft-delete removes a previously-known library entry", () => {
+    const id = "ws-lib-deleted";
+    const local = [makeEntry({ id, version: 1, saved: true, open: false })];
+    const remote = [makeRow({ id, deleted_at: Date.now(), saved: true, open: false })];
+    const result = mergeSavedLibrary(local, remote);
+    expect(result.some((w) => w.id === id)).toBe(false);
   });
 });
 
@@ -920,5 +991,353 @@ describe("initSync offline queue", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(deleteAttempts).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// openSavedWorkspace (TASK-126.2)
+// ---------------------------------------------------------------------------
+
+describe("openSavedWorkspace", () => {
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("moves a library entry into the tab bar (open, focused) and pushes open: true", async () => {
+    const id = "ws-saved-open";
+    useSavedWorkspaceLibrary.setState({
+      entries: [makeEntry({ id, name: "Saved WS", version: 3, saved: true, open: false })],
+    });
+
+    const putBodies: { open?: boolean }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ workspace: makeRow({ id, version: 4, saved: true, open: true }) }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    openSavedWorkspace(id);
+
+    const { workspaces, activeWorkspaceIndex } = useWorkspace.getState();
+    expect(workspaces.some((w) => w.id === id)).toBe(true);
+    expect(workspaces[activeWorkspaceIndex].id).toBe(id);
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === id)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(putBodies).toHaveLength(1);
+    expect(putBodies[0].open).toBe(true);
+  });
+
+  it("focuses an already-open workspace instead of duplicating it, and issues no PUT", async () => {
+    const id = "ws-already-open";
+    useWorkspace.setState({
+      workspaces: [
+        makeEntry({ id: "other", name: "Other" }),
+        makeEntry({ id, name: "Already open", saved: true, open: true }),
+      ],
+      activeWorkspaceIndex: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    openSavedWorkspace(id);
+
+    const state = useWorkspace.getState();
+    expect(state.activeWorkspaceIndex).toBe(1);
+    expect(state.workspaces).toHaveLength(2); // no duplicate tab
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closeSavedWorkspace (TASK-126.2)
+// ---------------------------------------------------------------------------
+
+describe("closeSavedWorkspace", () => {
+  let cleanup: (() => void) | undefined;
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("removes the workspace from the tab bar, adds it to the library, and never calls DELETE; PUT body includes open: false", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    const id = "ws-to-close";
+    useWorkspace.setState({
+      workspaces: [makeEntry({ id, name: "Saved & open", version: 2, saved: true, open: true })],
+      activeWorkspaceIndex: 0,
+    });
+
+    const putBodies: { open?: boolean }[] = [];
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ workspace: makeRow({ id, version: 3, saved: true, open: false }) }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    // Run with the store subscription (unsubStore) active — the regression
+    // this whole ticket exists to prevent is closeSavedWorkspace's tab-bar
+    // removal being mistaken for a user-delete by that subscriber.
+    cleanup = initSync();
+
+    closeSavedWorkspace(id);
+
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === id)).toBe(false);
+    const libEntry = useSavedWorkspaceLibrary.getState().entries.find((w) => w.id === id);
+    expect(libEntry?.open).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(putBodies).toHaveLength(1);
+    expect(putBodies[0].open).toBe(false);
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("no-ops (and never fetches) when called on a workspace that isn't saved", async () => {
+    const id = "ws-not-saved";
+    useWorkspace.setState({
+      workspaces: [makeEntry({ id, name: "Not saved" })], // saved undefined
+      activeWorkspaceIndex: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    closeSavedWorkspace(id);
+
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === id)).toBe(true);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-device: a closed-saved row from deltaRefresh moves a locally-open
+// workspace into the library without a network delete (TASK-126.2 AC #1)
+// ---------------------------------------------------------------------------
+
+describe("deltaRefresh — saved workspace closed on another device", () => {
+  let cleanup: (() => void) | undefined;
+
+  beforeEach(() => {
+    resetStores();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it("removes it from the tab bar and adds it to the library, without a network delete", async () => {
+    useAuth.setState({ status: "authed" });
+    const id = "ws-closed-elsewhere";
+    useWorkspace.setState({
+      workspaces: [makeEntry({ id, name: "Was open here", version: 1, saved: true, open: true })],
+      activeWorkspaceIndex: 0,
+    });
+
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              workspaces: [makeRow({ id, version: 2, saved: true, open: false })],
+              cursor: Date.now(),
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    );
+
+    // The unsubStore subscription must not mistake this remote-driven tab-bar
+    // removal for a user delete.
+    cleanup = initSync();
+
+    await deltaRefresh(true);
+
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === id)).toBe(false);
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === id)).toBe(true);
+    expect(deleteCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closeSavedWorkspace — offline queue (TASK-126.2)
+// ---------------------------------------------------------------------------
+
+describe("closeSavedWorkspace offline queue", () => {
+  let cleanup: (() => void) | undefined;
+
+  function setOnline(value: boolean) {
+    vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(value);
+  }
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("queues the closed snapshot while offline and flushes a PUT with open: false on reconnect", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    const id = "ws-close-offline";
+    useWorkspace.setState({
+      workspaces: [makeEntry({ id, name: "Saved & open", version: 1, saved: true, open: true })],
+      activeWorkspaceIndex: 0,
+    });
+
+    const putBodies: { open?: boolean }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ workspace: makeRow({ id, version: 2, saved: true, open: false }) }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    cleanup = initSync();
+
+    setOnline(false);
+    closeSavedWorkspace(id);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(putBodies).toHaveLength(0); // still offline — nothing sent yet
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === id)).toBe(false);
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === id)).toBe(true);
+
+    // Reconnect and flush. The queued entry is no longer in the tab bar, so
+    // flushOfflineQueue must push the queued snapshot directly (pushEntry),
+    // not re-read it through autoSave (which would no-op on a missing id).
+    setOnline(true);
+    window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(putBodies).toHaveLength(1);
+    expect(putBodies[0].open).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression pin: non-saved workspace close-to-delete is unchanged
+// (TASK-126.2 AC #4)
+// ---------------------------------------------------------------------------
+
+describe("non-saved workspace close still soft-deletes", () => {
+  let cleanup: (() => void) | undefined;
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("removing a non-saved workspace from the store still triggers DELETE /api/workspaces/:id", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    const id = "ws-plain";
+    const ws = makeEntry({ id, name: "Plain workspace" }); // saved undefined
+    useWorkspace.setState({ workspaces: [ws], activeWorkspaceIndex: 0 });
+
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    cleanup = initSync();
+
+    // Same store mutation store.ts's removeWorkspace performs on tab close
+    // (App.tsx's existing onRemove path) — pinned here so a future refactor
+    // to this file can't silently change non-saved close-to-delete behavior.
+    useWorkspace.getState().removeWorkspace(0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]).toContain(`/api/workspaces/${id}`);
   });
 });

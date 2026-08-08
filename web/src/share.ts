@@ -34,6 +34,13 @@ export interface WorkspaceEntry {
   /** Raw YAML string for mock field overrides. Empty string means no overrides. */
   mockConfig: string;
   tourDraft: Tour | null;
+  /** Marked to persist past tab close. Synced; undefined ≡ false (matches
+   *  the server's default for pre-126.1 rows and brand-new local workspaces). */
+  saved?: boolean;
+  /** Whether this workspace currently appears as a tab, shared/synced across
+   *  devices. Undefined ≡ true (matches the server default) — only ever
+   *  false for a saved workspace sitting in the closed library. */
+  open?: boolean;
 }
 
 export type PaneId = "schema" | "plan";

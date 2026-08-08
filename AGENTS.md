@@ -630,6 +630,28 @@ layers cloud sync on top of localStorage:
 - **No sync loop:** a store update triggered by a pull (within `isSyncing=true`)
   does not re-queue a debounced save.
 
+**Saved-workspace library (TASK-126.2):** `saved`/`open` (see "Workspace API"
+above) are per-workspace synced fields. A workspace that is saved *and*
+closed lives in `useSavedWorkspaceLibrary` (in `sync.ts`) instead of the tab
+bar (`useWorkspace.workspaces`) — never both at once. Every pull's rows are
+partitioned between the two: `mergeWorkspaces` merges everything except a
+closed saved workspace into the tab bar, and its sibling `mergeSavedLibrary`
+merges exactly the complement into the library; both share one generic
+by-id LWW reducer (`mergeById`), parameterized by which rows to exclude.
+The library is cleared on logout so saved-workspace names/content don't leak
+across an account switch on a shared device.
+
+`openSavedWorkspace(id)` moves a workspace from the library into the tab bar
+(or just focuses it if already open) and marks it `open: true`, shared to
+other devices on their next sync. `closeSavedWorkspace(id)` does the
+reverse: removes it from the tab bar and marks it `open: false`, without
+deleting it. Both are the sync-engine primitives that TASK-126.3/126.4's UI
+calls into — this layer has no UI of its own.
+
+Non-saved workspace behavior is unchanged: closing one still soft-deletes it
+immediately (the existing `DELETE` path above), and the `saved`/`open`
+fields don't apply to it.
+
 ### Cross-device refresh strategy
 
 When the tab regains focus or becomes visible (`visibilitychange`), a delta
