@@ -683,6 +683,75 @@ describe("initSync onLogin", () => {
     expect(state.activeWorkspaceIndex).toBe(0);
     expect(state.activeWorkspaceIndex).toBeLessThan(state.workspaces.length);
   });
+
+  it("deltaRefresh preserves active workspace by identity when an earlier tab disappears", async () => {
+    // Two local workspaces: ws-a at index 0, ws-b at index 1 (active).
+    const ws1 = makeEntry({ id: "ws-a", name: "WS A", version: 1 });
+    const ws2 = makeEntry({ id: "ws-b", name: "WS B", version: 1 });
+    useWorkspace.setState({ workspaces: [ws1, ws2], activeWorkspaceIndex: 1 });
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    // Delta reports ws-a as closed-and-saved elsewhere — the routine
+    // TASK-126.2 case that shrinks the tab array without deleting anything.
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            workspaces: [makeRow({ id: "ws-a", version: 2, saved: true, open: false })],
+            cursor: Date.now(),
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    await deltaRefresh(true);
+
+    const state = useWorkspace.getState();
+    expect(state.workspaces.some((w) => w.id === "ws-a")).toBe(false);
+    // Must still point at ws-b by identity, not just "whatever is at index 1"
+    // (nothing ends up scrambled here, but assert by id so a future
+    // regression that reorders entries is still caught).
+    expect(state.workspaces[state.activeWorkspaceIndex]?.id).toBe("ws-b");
+  });
+
+  it("onLogin preserves active workspace by identity when an earlier tab disappears", async () => {
+    const ws1 = makeEntry({ id: "ws-a", name: "WS A", version: 1 });
+    const ws2 = makeEntry({ id: "ws-b", name: "WS B", version: 1 });
+    useWorkspace.setState({ workspaces: [ws1, ws2], activeWorkspaceIndex: 1 });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            // Both rows already exist on the server (version 1, matching
+            // local) so onLogin's local-only push loop is a no-op here —
+            // this test is only about active-index resolution after merge.
+            workspaces: [
+              makeRow({ id: "ws-a", version: 2, saved: true, open: false }),
+              makeRow({ id: "ws-b", version: 1 }),
+            ],
+            cursor: Date.now(),
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    cleanup = initSync();
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    const state = useWorkspace.getState();
+    expect(state.workspaces.some((w) => w.id === "ws-a")).toBe(false);
+    expect(state.workspaces[state.activeWorkspaceIndex]?.id).toBe("ws-b");
+  });
 });
 
 // ---------------------------------------------------------------------------

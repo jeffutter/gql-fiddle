@@ -145,6 +145,27 @@ export const useSavedWorkspaceLibrary = create<{ entries: WorkspaceEntry[] }>(()
   entries: [],
 }));
 
+/**
+ * Resolves the active workspace by identity across a merge, not position.
+ * If the workspace that was active before the merge still exists in the
+ * merged array (by id), stays active regardless of where it moved to. Falls
+ * back to positional clamping only when that workspace is genuinely gone
+ * from `merged` (deleted, or excluded into the saved library) — matching
+ * the pre-existing empty-result fallback behavior.
+ */
+function resolveActiveIndex(
+  prevWorkspaces: WorkspaceEntry[],
+  prevActiveIndex: number,
+  merged: WorkspaceEntry[],
+): number {
+  const activeId = prevWorkspaces[prevActiveIndex]?.id;
+  if (activeId) {
+    const idx = merged.findIndex((w) => w.id === activeId);
+    if (idx !== -1) return idx;
+  }
+  return Math.min(prevActiveIndex, merged.length - 1);
+}
+
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
@@ -381,7 +402,7 @@ export async function deltaRefresh(force = false): Promise<void> {
     // Guard against an empty result (all remote workspaces deleted); clamp index.
     const safeMerged = merged.length > 0 ? merged : [makeDefaultWorkspace("Workspace 1")];
     const currIdx = useWorkspace.getState().activeWorkspaceIndex;
-    const safeIdx = Math.min(currIdx, safeMerged.length - 1);
+    const safeIdx = resolveActiveIndex(local, currIdx, safeMerged);
     isSyncing = true;
     try {
       useWorkspace.setState({ workspaces: safeMerged, activeWorkspaceIndex: safeIdx });
@@ -573,7 +594,7 @@ export function initSync(): () => void {
       const safeMerged =
         finalMerged.length > 0 ? finalMerged : [makeDefaultWorkspace("Workspace 1")];
       const currIdx = useWorkspace.getState().activeWorkspaceIndex;
-      const safeIdx = Math.min(currIdx, safeMerged.length - 1);
+      const safeIdx = resolveActiveIndex(local, currIdx, safeMerged);
       useWorkspace.setState({ workspaces: safeMerged, activeWorkspaceIndex: safeIdx });
       useAuth.getState().setSyncStatus("synced");
 
