@@ -332,6 +332,28 @@ body {
   color: var(--text-muted);
 }
 
+/* The "★"/"☆" save toggle affordance inside a workspace tab. */
+.tab__save {
+  display: inline-flex;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.tab__save:hover {
+  color: var(--text);
+}
+.tab__save.is-saved {
+  color: var(--accent);
+}
+.tab.is-active .tab__save {
+  color: var(--text-muted);
+}
+.tab.is-active .tab__save.is-saved {
+  color: var(--accent);
+}
+
 /* Inline rename field shown inside a tab. */
 .tab__rename {
   font-family: var(--font-ui);

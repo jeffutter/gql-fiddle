@@ -11,6 +11,13 @@ export interface EditableTabProps {
   testId?: string;
   removeAriaLabel?: string;
   removeTestId?: string;
+  /** Current saved state. Only meaningful when onToggleSaved is provided. */
+  saved?: boolean;
+  /** Toggles saved state. Omit entirely to hide the save affordance (e.g.
+   *  anonymous users, or tab strips that don't support saving). */
+  onToggleSaved?: () => void;
+  saveAriaLabel?: string;
+  saveTestId?: string;
 }
 
 /**
@@ -29,6 +36,10 @@ export function EditableTab({
   testId,
   removeAriaLabel,
   removeTestId,
+  saved,
+  onToggleSaved,
+  saveAriaLabel,
+  saveTestId,
 }: EditableTabProps) {
   const [renaming, setRenaming] = useState(false);
   const [value, setValue] = useState(name);
@@ -75,6 +86,22 @@ export function EditableTab({
           title={canRename ? "Double-click to rename" : undefined}
         >
           {name}
+        </span>
+      )}
+      {onToggleSaved && (
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSaved();
+          }}
+          className={saved ? "tab__save is-saved" : "tab__save"}
+          role="button"
+          aria-pressed={saved}
+          aria-label={saveAriaLabel}
+          data-testid={saveTestId}
+          title={saved ? "Saved — click to unsave" : "Click to save"}
+        >
+          {saved ? "★" : "☆"}
         </span>
       )}
       <span

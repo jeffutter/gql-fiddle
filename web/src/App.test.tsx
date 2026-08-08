@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import App from "./App";
 import { useWorkspace, activeWorkspace } from "./store";
@@ -8,6 +8,7 @@ import type { Diagnostic } from "./core/types";
 import { encode, encodeTour } from "./share";
 import type { Tour, WorkspaceEntry } from "./share";
 import { useAuth } from "./auth";
+import { useSavedWorkspaceLibrary } from "./sync";
 
 /** Update only workspace-level fields on the active workspace. */
 function setWs(patch: Partial<WorkspaceEntry>) {
@@ -2001,5 +2002,148 @@ describe("App decryptWarning banner", () => {
 
     expect(useAuth.getState().decryptWarning).toBeNull();
     expect(screen.queryByText("1 workspace could not be loaded.")).toBeNull();
+  });
+});
+
+describe("saved workspace toggle & close (TASK-126.3)", () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "" },
+      writable: true,
+      configurable: true,
+    });
+    useWorkspace.setState({
+      workspaces: [
+        {
+          name: "Workspace 1",
+          id: "ws-1",
+          version: 1,
+          subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+          activeSubgraph: 0,
+          queryTabs: [{ name: "Query 1", query: "" }],
+          activeQueryTab: 0,
+          seed: 42,
+          mockConfig: "",
+          tourDraft: null,
+        },
+        {
+          name: "Workspace 2",
+          id: "ws-2",
+          version: 1,
+          subgraphs: [{ name: "products", sdl: "" }],
+          activeSubgraph: 0,
+          queryTabs: [{ name: "Query 1", query: "" }],
+          activeQueryTab: 0,
+          seed: 42,
+          mockConfig: "",
+          tourDraft: null,
+        },
+      ],
+      activeWorkspaceIndex: 0,
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+    });
+    useSavedWorkspaceLibrary.setState({ entries: [] });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("anonymous users see no save toggle (AC #4)", () => {
+    useAuth.setState({ status: "anonymous" });
+
+    render(<App />);
+
+    expect(screen.queryByTestId("workspace-save-0")).toBeNull();
+  });
+
+  it("authed user can mark and unmark a workspace as saved (AC #1)", () => {
+    useAuth.setState({ status: "authed" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+    );
+
+    render(<App />);
+
+    const toggle = screen.getByTestId("workspace-save-0");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.className).not.toContain("is-saved");
+
+    fireEvent.click(toggle);
+    expect(useWorkspace.getState().workspaces[0].saved).toBe(true);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.className).toContain("is-saved");
+
+    fireEvent.click(toggle);
+    expect(useWorkspace.getState().workspaces[0].saved).toBe(false);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.className).not.toContain("is-saved");
+  });
+
+  it("closing a saved workspace's tab moves it to the saved library instead of deleting it (AC #2)", async () => {
+    useAuth.setState({ status: "authed" });
+    useWorkspace.setState((s) => ({
+      workspaces: s.workspaces.map((w, i) => (i === 0 ? { ...w, saved: true } : w)),
+    }));
+
+    const deleteCalls: string[] = [];
+    const putBodies: { open?: boolean }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          return Promise.resolve(
+            new Response(JSON.stringify({ workspace: { id: "ws-1" } }), { status: 200 }),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId("workspace-remove-0"));
+
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === "ws-1")).toBe(false);
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === "ws-1")).toBe(true);
+
+    await vi.waitFor(() => expect(putBodies.length).toBeGreaterThan(0));
+    expect(putBodies[0].open).toBe(false);
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("closing a non-saved workspace's tab still deletes it immediately (AC #3)", async () => {
+    useAuth.setState({ status: "authed" });
+
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId("workspace-remove-0"));
+
+    await vi.waitFor(() => expect(deleteCalls.length).toBeGreaterThan(0));
+    expect(deleteCalls[0]).toContain("ws-1");
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === "ws-1")).toBe(false);
   });
 });

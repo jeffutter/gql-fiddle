@@ -89,6 +89,24 @@ describe("workspace store", () => {
     });
   });
 
+  describe("setWorkspaceSaved (TASK-126.3)", () => {
+    it("sets saved on only the targeted workspace", () => {
+      useWorkspace.getState().addWorkspace(); // "Workspace 2", now active at index 1
+      useWorkspace.getState().setWorkspaceSaved(0, true);
+      const workspaces = useWorkspace.getState().workspaces;
+      expect(workspaces[0].saved).toBe(true);
+      expect(workspaces[1].saved).toBeUndefined();
+    });
+
+    it("clears saved on an already-saved workspace", () => {
+      useWorkspace.getState().setWorkspaceSaved(0, true);
+      expect(aw().saved).toBe(true);
+
+      useWorkspace.getState().setWorkspaceSaved(0, false);
+      expect(aw().saved).toBe(false);
+    });
+  });
+
   describe("query tab management", () => {
     it("addQueryTab creates a new tab and makes it active", () => {
       useWorkspace.getState().addQueryTab();

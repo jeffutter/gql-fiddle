@@ -13,7 +13,7 @@ import {
   generateUUID,
 } from "./store";
 import { useAuth, fetchCurrentUser, login, logout } from "./auth";
-import { initSync } from "./sync";
+import { initSync, closeSavedWorkspace } from "./sync";
 import { loadCore } from "./core";
 import { decode, encode, encodeTour, decodeTour } from "./share";
 import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
@@ -279,6 +279,7 @@ export default function App() {
     cloneWorkspace,
     removeWorkspace,
     renameWorkspace,
+    setWorkspaceSaved,
     setActiveWorkspace,
     setActiveSubgraph,
     setSubgraphSdl,
@@ -1240,11 +1241,26 @@ export default function App() {
             active={i === activeWorkspaceIndex}
             onSelect={() => setActiveWorkspace(i)}
             onRename={(newName) => renameWorkspace(i, newName)}
-            onRemove={() => removeWorkspace(i)}
+            onRemove={() => {
+              // Saved workspaces: close the tab only (TASK-126.2's closeSavedWorkspace
+              // moves it into the saved library and pushes open:false — never deletes
+              // it). Non-saved: unchanged immediate delete-on-close.
+              if (ws.saved && ws.id) {
+                closeSavedWorkspace(ws.id);
+              } else {
+                removeWorkspace(i);
+              }
+            }}
             canRename={i === activeWorkspaceIndex}
             testId={`workspace-tab-${i}`}
             removeAriaLabel={`Remove ${ws.name}`}
             removeTestId={`workspace-remove-${i}`}
+            saved={ws.saved ?? false}
+            onToggleSaved={
+              authStatus === "authed" && ws.id ? () => setWorkspaceSaved(i, !ws.saved) : undefined
+            }
+            saveAriaLabel={ws.saved ? `Unsave ${ws.name}` : `Save ${ws.name}`}
+            saveTestId={`workspace-save-${i}`}
           />
         ))}
       </nav>

@@ -186,6 +186,8 @@ export interface WorkspaceState {
   removeWorkspace: (index: number) => void;
   /** Rename the workspace at `index`. */
   renameWorkspace: (index: number, name: string) => void;
+  /** Mark or unmark the workspace at `index` as Saved (persists past tab close for logged-in users). */
+  setWorkspaceSaved: (index: number, saved: boolean) => void;
   /**
    * Switch to the workspace at `index`. Clears session-only derived state
    * (`supergraphSdl`, `composeErrors`, `composeHints`) so compose re-runs
@@ -395,6 +397,11 @@ export const useWorkspace = create<WorkspaceState>()(
       renameWorkspace: (index, name) =>
         set((state) => ({
           workspaces: state.workspaces.map((ws, i) => (i === index ? { ...ws, name } : ws)),
+        })),
+
+      setWorkspaceSaved: (index, saved) =>
+        set((state) => ({
+          workspaces: state.workspaces.map((ws, i) => (i === index ? { ...ws, saved } : ws)),
         })),
 
       setActiveWorkspace: (index) =>
