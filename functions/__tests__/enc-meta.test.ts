@@ -94,13 +94,14 @@ function makePutCtx(
 
 let db: D1Database;
 let kv: KVNamespace;
+let kvStore: Map<string, string>;
 let env: Env;
 let userCookie: string;
 let userId: string;
 
 beforeEach(async () => {
   db = createD1Mock(migrationSql);
-  ({ kv } = createKVMock());
+  ({ kv, store: kvStore } = createKVMock());
   env = { DB: db, SESSIONS: kv };
 
   const user = await getOrCreateUser(db, {
@@ -270,5 +271,133 @@ describe("PUT /api/auth/enc-meta", () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy KV KWK recovery (TASK-128)
+// ---------------------------------------------------------------------------
+
+describe("legacy KV KWK recovery (TASK-128)", () => {
+  it("GET omits legacy_kwk when wrapped_dek is not set yet", async () => {
+    // Simulates data left over from before TASK-118: a legacy KV entry
+    // exists, but this account has no wrapped_dek yet, so there is nothing
+    // to reconcile — the first GET just creates a fresh, unrelated D1 kwk.
+    kvStore.set(`kwk:${userId}`, "legacy-kwk-value==");
+
+    const res = await onRequestGet(makeGetCtx(env, userCookie));
+    const body = (await res.json()) as {
+      kwk: string;
+      wrapped_dek: string | null;
+      legacy_kwk: string | null;
+    };
+    expect(body.wrapped_dek).toBeNull();
+    expect(body.legacy_kwk).toBeNull();
+  });
+
+  it("GET returns legacy_kwk once wrapped_dek exists and it disagrees with the D1 kwk", async () => {
+    kvStore.set(`kwk:${userId}`, "legacy-kwk-value==");
+
+    // First GET creates a fresh D1 kwk unrelated to the legacy entry.
+    await onRequestGet(makeGetCtx(env, userCookie));
+    await onRequestPut(
+      makePutCtx(env, { wrapped_dek: "E1:orphaned==" }, userCookie),
+    );
+
+    const res = await onRequestGet(makeGetCtx(env, userCookie));
+    const body = (await res.json()) as {
+      kwk: string;
+      wrapped_dek: string | null;
+      legacy_kwk: string | null;
+    };
+    expect(body.legacy_kwk).toBe("legacy-kwk-value==");
+    expect(body.kwk).not.toBe(body.legacy_kwk);
+  });
+
+  it("GET omits legacy_kwk once it matches the current D1 kwk (never diverged)", async () => {
+    // First GET generates and stores a D1 kwk.
+    const res1 = await onRequestGet(makeGetCtx(env, userCookie));
+    const { kwk } = (await res1.json()) as { kwk: string };
+
+    // Legacy KV entry holds the SAME value — this account never diverged
+    // (e.g. it started and finished key setup entirely post-TASK-118, and
+    // some unrelated legacy-looking KV entry happens to already agree).
+    kvStore.set(`kwk:${userId}`, kwk);
+    await onRequestPut(
+      makePutCtx(env, { wrapped_dek: "E1:established==" }, userCookie),
+    );
+
+    const res2 = await onRequestGet(makeGetCtx(env, userCookie));
+    const body2 = (await res2.json()) as { legacy_kwk: string | null };
+    expect(body2.legacy_kwk).toBeNull();
+  });
+
+  it("PUT confirm_kwk repairs the stored KWK when it matches the legacy KV value", async () => {
+    kvStore.set(`kwk:${userId}`, "legacy-kwk-value==");
+    await onRequestGet(makeGetCtx(env, userCookie));
+    await onRequestPut(
+      makePutCtx(env, { wrapped_dek: "E1:orphaned==" }, userCookie),
+    );
+
+    const putRes = await onRequestPut(
+      makePutCtx(env, { confirm_kwk: "legacy-kwk-value==" }, userCookie),
+    );
+    expect(putRes.status).toBe(200);
+    expect(await getKwk(db, userId)).toBe("legacy-kwk-value==");
+
+    const getRes = await onRequestGet(makeGetCtx(env, userCookie));
+    const body = (await getRes.json()) as {
+      kwk: string;
+      legacy_kwk: string | null;
+    };
+    expect(body.kwk).toBe("legacy-kwk-value==");
+    expect(body.legacy_kwk).toBeNull();
+  });
+
+  it("PUT confirm_kwk is a no-op when the value does not match the legacy KV entry", async () => {
+    kvStore.set(`kwk:${userId}`, "legacy-kwk-value==");
+    await onRequestGet(makeGetCtx(env, userCookie));
+    const before = await getKwk(db, userId);
+
+    const res = await onRequestPut(
+      makePutCtx(env, { confirm_kwk: "not-the-legacy-value==" }, userCookie),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(await getKwk(db, userId)).toBe(before);
+  });
+
+  it("PUT confirm_kwk is a no-op when there is no legacy KV entry at all", async () => {
+    await onRequestGet(makeGetCtx(env, userCookie));
+    const before = await getKwk(db, userId);
+
+    const res = await onRequestPut(
+      makePutCtx(env, { confirm_kwk: "some-arbitrary-value==" }, userCookie),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(await getKwk(db, userId)).toBe(before);
+  });
+
+  it("PUT confirm_kwk alongside a wrapped_dek in the same request repairs the KWK and stores the wrapped_dek", async () => {
+    kvStore.set(`kwk:${userId}`, "legacy-kwk-value==");
+    await onRequestGet(makeGetCtx(env, userCookie));
+
+    const res = await onRequestPut(
+      makePutCtx(
+        env,
+        {
+          wrapped_dek: "E1:combined==",
+          confirm_kwk: "legacy-kwk-value==",
+        },
+        userCookie,
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { wrapped_dek: string };
+    expect(body.wrapped_dek).toBe("E1:combined==");
+    expect(await getKwk(db, userId)).toBe("legacy-kwk-value==");
   });
 });

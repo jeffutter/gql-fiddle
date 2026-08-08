@@ -7,6 +7,7 @@ import {
   getOrCreateUser,
   getWrappedDek,
   listWorkspaces,
+  setKwk,
   setKwkIfAbsent,
   setWrappedDekIfAbsent,
   softDeleteWorkspace,
@@ -341,5 +342,33 @@ describe("getKwk / setKwkIfAbsent", () => {
     expect(first).toBe("kwk-first==");
     expect(second).toBe("kwk-first==");
     expect(await getKwk(db, user.id)).toBe("kwk-first==");
+  });
+});
+
+describe("setKwk", () => {
+  it("overwrites an existing KWK unconditionally", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 5004,
+      login: "mia",
+      name: null,
+      avatar_url: null,
+    });
+    await setKwkIfAbsent(db, user.id, "kwk-original==");
+    await setKwk(db, user.id, "kwk-replacement==");
+    // Unlike setKwkIfAbsent, this has no IS NULL guard — the second write
+    // must take effect even though a value was already present.
+    expect(await getKwk(db, user.id)).toBe("kwk-replacement==");
+  });
+
+  it("sets a KWK when previously null", async () => {
+    const user = await getOrCreateUser(db, {
+      github_id: 5005,
+      login: "noah",
+      name: null,
+      avatar_url: null,
+    });
+    expect(await getKwk(db, user.id)).toBeNull();
+    await setKwk(db, user.id, "kwk-fresh==");
+    expect(await getKwk(db, user.id)).toBe("kwk-fresh==");
   });
 });

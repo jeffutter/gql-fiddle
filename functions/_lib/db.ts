@@ -253,6 +253,23 @@ export async function setKwkIfAbsent(
 }
 
 /**
+ * Unconditionally overwrite the stored KWK for a user. Unlike
+ * setKwkIfAbsent, this has no `IS NULL` guard — it is used only to persist
+ * a legacy KWK the client has already cryptographically proven correct by
+ * successfully unwrapping the account's wrapped_dek with it (see TASK-128
+ * / the `confirm_kwk` flow in enc-meta.ts). Never called on the normal
+ * first-login path, where setKwkIfAbsent's conditional write is what keeps
+ * concurrent first logins race-safe.
+ */
+export async function setKwk(
+  db: D1Database,
+  userId: string,
+  kwk: string,
+): Promise<void> {
+  await db.prepare("UPDATE users SET kwk = ? WHERE id = ?").bind(kwk, userId).run();
+}
+
+/**
  * Soft-delete a workspace: set deleted_at, bump version, and update updated_at
  * so the deletion appears in delta pulls (?since=).
  *

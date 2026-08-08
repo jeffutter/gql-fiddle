@@ -192,6 +192,124 @@ describe("initEncryption", () => {
     expect(await decrypt(key, ct)).toBe("winner's data");
   });
 
+  it("falls back to legacy_kwk when the primary kwk fails to unwrap wrapped_dek, adopts the resulting DEK, and confirms it to the server", async () => {
+    // Simulates a pre-TASK-118 account (TASK-128): the D1 kwk the GET
+    // returns is an unrelated, orphaned value that cannot unwrap this
+    // account's wrapped_dek, but the server also offers the true (legacy
+    // KV) KWK that can.
+    const primaryKwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const primaryKwkB64 = toB64(primaryKwkBytes);
+    const legacyKwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const legacyKwkB64 = toB64(legacyKwkBytes);
+    const dekBytes = crypto.getRandomValues(new Uint8Array(32));
+    const wrappedDek = await wrapDek(legacyKwkBytes, dekBytes);
+
+    let putBody: { confirm_kwk?: string } = {};
+    let putCalled = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+      if (String(url).endsWith("/api/auth/enc-meta") && (!opts || opts.method !== "PUT")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              kwk: primaryKwkB64,
+              wrapped_dek: wrappedDek,
+              legacy_kwk: legacyKwkB64,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      putCalled = true;
+      putBody = JSON.parse((opts?.body as string) ?? "{}") as typeof putBody;
+      return Promise.resolve(Response.json({ ok: true }, { status: 200 }));
+    });
+
+    await initEncryption("u1");
+
+    const knownDek = await crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(dekBytes),
+      { name: "AES-GCM" },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    const ct = await encrypt(knownDek, "recovered");
+    const key = await getOrCreateKey();
+    expect(await decrypt(key, ct)).toBe("recovered");
+
+    expect(putCalled).toBe(true);
+    expect(putBody).toEqual({ confirm_kwk: legacyKwkB64 });
+  });
+
+  it("does not attempt legacy fallback when legacy_kwk is absent", async () => {
+    // Regression guard: primary kwk cannot unwrap wrapped_dek, and the
+    // server offers no legacy_kwk candidate — must fall straight to the
+    // local key without any extra PUT.
+    const kwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const kwkB64 = toB64(kwkBytes);
+    const otherKwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const dekBytes = crypto.getRandomValues(new Uint8Array(32));
+    const wrappedDek = await wrapDek(otherKwkBytes, dekBytes);
+
+    let putCalled = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+      if (String(url).endsWith("/api/auth/enc-meta") && (!opts || opts.method !== "PUT")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ kwk: kwkB64, wrapped_dek: wrappedDek, legacy_kwk: null }), {
+            status: 200,
+          }),
+        );
+      }
+      putCalled = true;
+      return Promise.resolve(Response.json({ ok: true }, { status: 200 }));
+    });
+
+    await initEncryption("u1");
+
+    expect(putCalled).toBe(false);
+    // Falls back to a locally generated key — usable for encrypt/decrypt.
+    const key = await getOrCreateKey();
+    const ct = await encrypt(key, "local fallback");
+    expect(await decrypt(key, ct)).toBe("local fallback");
+  });
+
+  it("keeps local key when neither the primary nor legacy kwk can unwrap wrapped_dek", async () => {
+    // Genuine corruption/tampering case, not the TASK-128 migration gap.
+    const kwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const kwkB64 = toB64(kwkBytes);
+    const legacyKwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const legacyKwkB64 = toB64(legacyKwkBytes);
+    const unrelatedKwkBytes = crypto.getRandomValues(new Uint8Array(32));
+    const dekBytes = crypto.getRandomValues(new Uint8Array(32));
+    // wrapped_dek was wrapped under a THIRD key neither offered candidate matches.
+    const wrappedDek = await wrapDek(unrelatedKwkBytes, dekBytes);
+
+    let putCalled = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+      if (String(url).endsWith("/api/auth/enc-meta") && (!opts || opts.method !== "PUT")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              kwk: kwkB64,
+              wrapped_dek: wrappedDek,
+              legacy_kwk: legacyKwkB64,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      putCalled = true;
+      return Promise.resolve(Response.json({ ok: true }, { status: 200 }));
+    });
+
+    await initEncryption("u1");
+
+    expect(putCalled).toBe(false);
+    const key = await getOrCreateKey();
+    const ct = await encrypt(key, "still local");
+    expect(await decrypt(key, ct)).toBe("still local");
+  });
+
   it("falls back to local key when server is unreachable", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
 

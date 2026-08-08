@@ -21,6 +21,16 @@
 // (dekCacheKey below) so one user's cached DEK never collides with another's
 // on a shared browser profile; the entry is cleared on explicit logout
 // (clearCachedKey), not on any timer.
+//
+// Legacy KWK recovery (TASK-128): accounts that finished key setup before
+// TASK-118 moved KWK storage into D1 can have a wrapped_dek that the current
+// (post-TASK-118) D1 kwk cannot unwrap — migration 0003 never backfilled the
+// new column, so the server generated an unrelated fresh KWK on their first
+// post-migration login. The server can offer the old KV-stored KWK as a
+// `legacy_kwk` candidate (see enc-meta.ts) but cannot verify it itself; only
+// this module can, by attempting the unwrap. On success, it both adopts the
+// resulting DEK locally and asks the server to persist the confirmed KWK via
+// `confirm_kwk` so future logins skip the fallback.
 import * as pako from "pako";
 
 const DEK_CACHE_PREFIX = "gql-fiddle-dek:";
@@ -96,9 +106,14 @@ export async function initEncryption(userId: string): Promise<void> {
   try {
     const res = await fetch("/api/auth/enc-meta", { credentials: "include" });
     if (!res.ok) throw new Error(`enc-meta: ${res.status}`);
-    const { kwk: kwkB64, wrapped_dek: wrappedB64 } = (await res.json()) as {
+    const {
+      kwk: kwkB64,
+      wrapped_dek: wrappedB64,
+      legacy_kwk: legacyKwkB64,
+    } = (await res.json()) as {
       kwk: string;
       wrapped_dek: string | null;
+      legacy_kwk: string | null;
     };
 
     const kwk = await importAesGcm(fromBase64(kwkB64));
@@ -106,11 +121,33 @@ export async function initEncryption(userId: string): Promise<void> {
     let dekBytes: Uint8Array;
 
     if (wrappedB64) {
-      const dekRaw = await aesGcmDecrypt(kwk, wrappedB64);
+      let dekRaw = await aesGcmDecrypt(kwk, wrappedB64);
+      if (!dekRaw && legacyKwkB64) {
+        // Primary KWK failed to unwrap — try the legacy (pre-TASK-118) KWK the
+        // server offered. If it works, this account's wrapped_dek predates
+        // migration 0003's unbackfilled kwk column (TASK-128) — tell the
+        // server to adopt it as the permanent KWK so future logins (this
+        // device and others) skip this fallback.
+        const legacyKwk = await importAesGcm(fromBase64(legacyKwkB64));
+        dekRaw = await aesGcmDecrypt(legacyKwk, wrappedB64);
+        if (dekRaw) {
+          void fetch("/api/auth/enc-meta", {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirm_kwk: legacyKwkB64 }),
+          }).catch(() => {
+            // Best-effort: this device already decrypted successfully either
+            // way; a failed repair just means this fallback runs again next
+            // login (this device or another) until it succeeds.
+          });
+        }
+      }
       if (dekRaw) {
         dekBytes = fromBase64(new TextDecoder().decode(dekRaw));
       } else {
-        // KWK/wrapped_dek mismatch (e.g. race on first login) — keep local key.
+        // Neither the primary nor legacy KWK unwraps wrapped_dek — genuine
+        // corruption/tampering, not the TASK-128 migration gap. Keep local key.
         dekPromise = loadLocalKey();
         return;
       }
