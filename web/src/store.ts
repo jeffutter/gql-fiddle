@@ -81,6 +81,23 @@ extend type User @key(fields: "id") {
   },
 ];
 
+/**
+ * Seeded SDL for a freshly added subgraph. An empty string has no Query
+ * type and fails to compose the moment it's added, before the user has
+ * typed anything — this gives them a minimal, already-valid starting
+ * point instead (same @link/query:Query shape as DEFAULT_SUBGRAPHS above).
+ */
+export const DEFAULT_NEW_SUBGRAPH_SDL = `extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.3")
+{
+  query: Query
+}
+
+type Query {
+  _tmp: String
+}
+`;
+
 export const DEFAULT_QUERY = `query {
   topProducts {
     id
@@ -486,7 +503,7 @@ export const useWorkspace = create<WorkspaceState>()(
         set((state) => {
           const ws = activeWorkspace(state);
           return updateActive(state, {
-            subgraphs: [...ws.subgraphs, { name, sdl: "" }],
+            subgraphs: [...ws.subgraphs, { name, sdl: DEFAULT_NEW_SUBGRAPH_SDL }],
             activeSubgraph: ws.subgraphs.length,
           });
         }),

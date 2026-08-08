@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { useWorkspace, computeOverrides, activeWorkspace } from "./store";
+import { parse } from "graphql";
+import { useWorkspace, computeOverrides, activeWorkspace, DEFAULT_NEW_SUBGRAPH_SDL } from "./store";
 import type { WorkspaceEntry, WorkspacePayload } from "./share";
 
 /** Update only workspace-level fields on the active workspace. */
@@ -46,7 +47,21 @@ describe("workspace store", () => {
     useWorkspace.getState().setSubgraphSdl(0, "type Query { a: Int }");
     const ws = aw();
     expect(ws.subgraphs[0].sdl).toBe("type Query { a: Int }");
-    expect(ws.subgraphs[1].sdl).toBe("");
+    // Untouched subgraph keeps its seeded default rather than being blank.
+    expect(ws.subgraphs[1].sdl).toBe(DEFAULT_NEW_SUBGRAPH_SDL);
+  });
+
+  describe("addSubgraph default sdl (TASK-127)", () => {
+    it("seeds a non-empty, valid default schema instead of an empty string", () => {
+      useWorkspace.getState().addSubgraph("reviews");
+      const sdl = aw().subgraphs[1].sdl;
+      expect(sdl).not.toBe("");
+      expect(sdl).toContain("extend schema");
+      expect(sdl).toContain("type Query");
+      // Lightweight syntax check — full composition validation is covered
+      // by the WASM core / integration tests, not this unit test file.
+      expect(() => parse(sdl)).not.toThrow();
+    });
   });
 
   describe("removeSubgraph (AC #2)", () => {
