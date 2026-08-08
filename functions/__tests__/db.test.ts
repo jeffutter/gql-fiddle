@@ -21,6 +21,10 @@ const migrationSql = [
     "utf-8",
   ),
   readFileSync(join(__dirname, "../../migrations/0003_users_kwk.sql"), "utf-8"),
+  readFileSync(
+    join(__dirname, "../../migrations/0005_workspaces_saved_open.sql"),
+    "utf-8",
+  ),
 ].join("\n");
 
 let db: D1Database;
@@ -100,6 +104,8 @@ describe("upsertWorkspace and listWorkspaces", () => {
       name: "My Workspace",
       payload: JSON.stringify({ subgraphs: [] }),
       version: 1,
+      saved: false,
+      open: true,
     });
 
     expect(accepted).toBe(true);
@@ -107,6 +113,8 @@ describe("upsertWorkspace and listWorkspaces", () => {
     expect(ws?.id).toBe("ws-aaaa-0001");
     expect(ws?.name).toBe("My Workspace");
     expect(ws?.deleted_at).toBeNull();
+    expect(ws?.saved).toBe(false);
+    expect(ws?.open).toBe(true);
 
     const list = await listWorkspaces(db, user.id);
     expect(list).toHaveLength(1);
@@ -127,6 +135,8 @@ describe("upsertWorkspace and listWorkspaces", () => {
       name: "v2 name",
       payload: "{}",
       version: 2,
+      saved: false,
+      open: true,
     });
 
     // Lower version — must not overwrite
@@ -136,6 +146,8 @@ describe("upsertWorkspace and listWorkspaces", () => {
       name: "v1 name (stale)",
       payload: "{}",
       version: 1,
+      saved: false,
+      open: true,
     });
 
     // Same-user stale-version conflict must still return the caller's own
@@ -170,6 +182,8 @@ describe("upsertWorkspace and listWorkspaces", () => {
       name: "Alice's Workspace",
       payload: JSON.stringify({ secret: "alice-only" }),
       version: 1,
+      saved: false,
+      open: true,
     });
 
     // Same id, different user — the ON CONFLICT owner guard rejects the
@@ -180,6 +194,8 @@ describe("upsertWorkspace and listWorkspaces", () => {
       name: "Bob's attempt",
       payload: JSON.stringify({ secret: "bob-payload" }),
       version: 1,
+      saved: false,
+      open: true,
     });
 
     expect(accepted).toBe(false);
@@ -200,6 +216,8 @@ describe("upsertWorkspace and listWorkspaces", () => {
       name: "Boundary",
       payload: "{}",
       version: 1,
+      saved: false,
+      open: true,
     });
     expect(row).not.toBeNull();
 
@@ -224,6 +242,8 @@ describe("softDeleteWorkspace", () => {
       name: "To Delete",
       payload: "{}",
       version: 1,
+      saved: false,
+      open: true,
     });
 
     const deleted = await softDeleteWorkspace(db, "ws-cccc-0003", user.id);
@@ -255,6 +275,8 @@ describe("softDeleteWorkspace", () => {
       name: "Protected",
       payload: "{}",
       version: 1,
+      saved: false,
+      open: true,
     });
 
     const deleted = await softDeleteWorkspace(

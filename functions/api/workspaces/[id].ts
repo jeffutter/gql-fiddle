@@ -53,14 +53,20 @@ export const onRequestPut: PagesFunction<Env> = withErrorHandling(
       );
     }
 
-    let body: { name: string; payload: string; version: number };
+    let body: {
+      name: string;
+      payload: string;
+      version: number;
+      saved?: boolean;
+      open?: boolean;
+    };
     try {
       body = JSON.parse(rawBody) as typeof body;
     } catch {
       return Response.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { name, payload, version } = body;
+    const { name, payload, version, saved, open } = body;
     if (
       typeof name !== "string" ||
       typeof payload !== "string" ||
@@ -68,6 +74,18 @@ export const onRequestPut: PagesFunction<Env> = withErrorHandling(
     ) {
       return Response.json(
         { error: "Missing required fields: name, payload, version" },
+        { status: 400 },
+      );
+    }
+    if (saved !== undefined && typeof saved !== "boolean") {
+      return Response.json(
+        { error: "Field 'saved' must be a boolean" },
+        { status: 400 },
+      );
+    }
+    if (open !== undefined && typeof open !== "boolean") {
+      return Response.json(
+        { error: "Field 'open' must be a boolean" },
         { status: 400 },
       );
     }
@@ -80,12 +98,15 @@ export const onRequestPut: PagesFunction<Env> = withErrorHandling(
     }
 
     // Ownership check: if this id already exists and belongs to another user,
-    // return 404 to avoid leaking that the id is taken.
+    // return 404 to avoid leaking that the id is taken. Also fetches the
+    // current saved/open flags (but NOT payload, which can be up to 1 MB) so
+    // an omitted saved/open field below can fall back to preserving the
+    // existing value instead of resetting it to a default.
     const existing = await ctx.env.DB.prepare(
-      "SELECT user_id FROM workspaces WHERE id = ?",
+      "SELECT user_id, saved, open FROM workspaces WHERE id = ?",
     )
       .bind(id)
-      .first<{ user_id: string }>();
+      .first<{ user_id: string; saved: number; open: number }>();
     if (existing && existing.user_id !== user.id) {
       logEvent("data.cross_user_denied", {
         user_id: user.id,
@@ -94,12 +115,23 @@ export const onRequestPut: PagesFunction<Env> = withErrorHandling(
       return Response.json({ error: "Not found" }, { status: 404 });
     }
 
+    // Omitted saved/open means "leave it as it is" for an existing row, and
+    // falls back to the migration's schema defaults only for a new row (see
+    // TASK-126.1's plan for why: old clients that don't know about these
+    // fields must not silently reset them on every autosave).
+    const existingSaved = existing ? existing.saved === 1 : undefined;
+    const existingOpen = existing ? existing.open === 1 : undefined;
+    const effectiveSaved = saved ?? existingSaved ?? false;
+    const effectiveOpen = open ?? existingOpen ?? true;
+
     const { accepted, row } = await upsertWorkspace(ctx.env.DB, {
       id,
       user_id: user.id,
       name,
       payload,
       version,
+      saved: effectiveSaved,
+      open: effectiveOpen,
     });
 
     if (!accepted) {

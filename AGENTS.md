@@ -290,12 +290,27 @@ Cross-user access returns 404 (not 403) to avoid id enumeration.
 |--------|------|-------------|
 | GET | `/api/workspaces` | Full snapshot — live (non-deleted) workspaces for the caller |
 | GET | `/api/workspaces?since=<cursor>` | Delta — rows updated at-or-after `since`, including soft-deleted rows so clients learn about deletions. `since` must be a `cursor` value previously returned by this endpoint (or `0`), never a client timestamp. Every response (snapshot or delta) includes a `cursor` field — see "Cursor contract" below |
-| PUT | `/api/workspaces/:id` | Upsert. Body: `{ name, payload, version }`. Returns 200 + row on accept, 409 + current row on stale version |
+| PUT | `/api/workspaces/:id` | Upsert. Body: `{ name, payload, version, saved?, open? }`. Returns 200 + row on accept, 409 + current row on stale version |
 | DELETE | `/api/workspaces/:id` | Soft-delete (sets `deleted_at`, bumps `version`). Returns 204 |
 
 **Last-write-wins:** a PUT is accepted when `incoming.version >= stored.version`.
 On 409 the response body includes the current server row so the client can adopt
 it and move forward without manual conflict resolution.
+
+**Saved / open fields:** each workspace row also carries two booleans (added in
+migration 0005):
+- `saved` — whether the workspace is marked to persist past tab close.
+- `open` — whether the workspace currently appears as a tab. This is
+  shared/synced state, not per-device local UI state — opening or closing a
+  saved workspace is meant to reflect across the user's devices.
+
+New rows, and rows that predate migration 0005, default to `saved: false,
+open: true` — preserving today's behavior where every non-deleted workspace
+is implicitly open everywhere and closing one deletes it immediately.
+Omitting `saved` and/or `open` on a PUT leaves the currently stored value
+unchanged rather than resetting it to a default — only send them when the
+caller actually wants to change one. Both GET forms (full snapshot and
+`?since=`) include `saved`/`open` on every row.
 
 **Payload cap:** 1 MB per workspace (413 if exceeded).
 

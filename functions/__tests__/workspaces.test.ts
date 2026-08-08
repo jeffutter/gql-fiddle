@@ -10,10 +10,13 @@ import { SESSION_COOKIE_NAME, mintSession } from "../_lib/auth";
 import { getOrCreateUser } from "../_lib/db";
 import { createD1Mock } from "./d1-mock";
 
-const migrationSql = readFileSync(
-  join(__dirname, "../../migrations/0001_initial.sql"),
-  "utf-8",
-);
+const migrationSql = [
+  readFileSync(join(__dirname, "../../migrations/0001_initial.sql"), "utf-8"),
+  readFileSync(
+    join(__dirname, "../../migrations/0005_workspaces_saved_open.sql"),
+    "utf-8",
+  ),
+].join("\n");
 
 // ---------------------------------------------------------------------------
 // KV mock
@@ -172,6 +175,31 @@ describe("GET /api/workspaces — full snapshot", () => {
     // Full snapshot responses must also carry a cursor for the client's next delta pull.
     expect(typeof body.cursor).toBe("number");
   });
+
+  it("includes saved/open as JS booleans", async () => {
+    const id = crypto.randomUUID();
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "WS", payload: "{}", version: 1 },
+        userCookie,
+      ),
+    );
+
+    const ctx = makeGetCtx(env, "http://localhost/api/workspaces", userCookie);
+    const res = await onRequestGet(ctx);
+    const body = (await res.json()) as {
+      workspaces: Array<{ id: string; saved: boolean; open: boolean }>;
+    };
+    const ws = body.workspaces.find((w) => w.id === id);
+    expect(ws).toBeDefined();
+    expect(typeof ws!.saved).toBe("boolean");
+    expect(typeof ws!.open).toBe("boolean");
+    expect(ws!.saved).toBe(false);
+    expect(ws!.open).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -242,6 +270,36 @@ describe("GET /api/workspaces?since=<cursor>", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { workspaces: Array<{ id: string }> };
     expect(body.workspaces.map((w) => w.id)).toContain(id);
+  });
+
+  it("includes saved/open as JS booleans in delta responses", async () => {
+    const id = crypto.randomUUID();
+    const before = Date.now();
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "WS", payload: "{}", version: 1, saved: true, open: false },
+        userCookie,
+      ),
+    );
+
+    const ctx = makeGetCtx(
+      env,
+      `http://localhost/api/workspaces?since=${before}`,
+      userCookie,
+    );
+    const res = await onRequestGet(ctx);
+    const body = (await res.json()) as {
+      workspaces: Array<{ id: string; saved: boolean; open: boolean }>;
+    };
+    const ws = body.workspaces.find((w) => w.id === id);
+    expect(ws).toBeDefined();
+    expect(typeof ws!.saved).toBe("boolean");
+    expect(typeof ws!.open).toBe("boolean");
+    expect(ws!.saved).toBe(true);
+    expect(ws!.open).toBe(false);
   });
 });
 
@@ -356,11 +414,18 @@ describe("PUT /api/workspaces/:id", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as {
       conflict: boolean;
-      current: { name: string; version: number };
+      current: {
+        name: string;
+        version: number;
+        saved: boolean;
+        open: boolean;
+      };
     };
     expect(body.conflict).toBe(true);
     expect(body.current.name).toBe("v5");
     expect(body.current.version).toBe(5);
+    expect(typeof body.current.saved).toBe("boolean");
+    expect(typeof body.current.open).toBe("boolean");
   });
 
   it("returns 413 when payload exceeds 1 MB", async () => {
@@ -407,6 +472,102 @@ describe("PUT /api/workspaces/:id", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/name too long/i);
+  });
+
+  it("persists saved/open when provided on a new workspace", async () => {
+    const id = crypto.randomUUID();
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "New WS", payload: "{}", version: 1, saved: true, open: false },
+      userCookie,
+    );
+    const res = await onRequestPut(ctx);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspace: { saved: boolean; open: boolean };
+    };
+    expect(body.workspace.saved).toBe(true);
+    expect(body.workspace.open).toBe(false);
+  });
+
+  it("defaults saved/open to false/true when omitted on a new workspace", async () => {
+    const id = crypto.randomUUID();
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "New WS", payload: "{}", version: 1 },
+      userCookie,
+    );
+    const res = await onRequestPut(ctx);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspace: { saved: boolean; open: boolean };
+    };
+    expect(body.workspace.saved).toBe(false);
+    expect(body.workspace.open).toBe(true);
+  });
+
+  it("preserves saved/open when omitted on an update to an existing workspace (does not reset to defaults)", async () => {
+    const id = crypto.randomUUID();
+    // Mark saved: true, open: false on the initial write.
+    await onRequestPut(
+      makeIdCtx(
+        env,
+        id,
+        "PUT",
+        { name: "v1", payload: "{}", version: 1, saved: true, open: false },
+        userCookie,
+      ),
+    );
+
+    // A later write (e.g. from a client unaware of these fields) omits both.
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "v2", payload: "{}", version: 2 },
+      userCookie,
+    );
+    const res = await onRequestPut(ctx);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspace: { name: string; saved: boolean; open: boolean };
+    };
+    expect(body.workspace.name).toBe("v2");
+    expect(body.workspace.saved).toBe(true);
+    expect(body.workspace.open).toBe(false);
+  });
+
+  it("returns 400 when saved is present but not a boolean", async () => {
+    const id = crypto.randomUUID();
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "WS", payload: "{}", version: 1, saved: "yes" },
+      userCookie,
+    );
+    const res = await onRequestPut(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when open is present but not a boolean", async () => {
+    const id = crypto.randomUUID();
+    const ctx = makeIdCtx(
+      env,
+      id,
+      "PUT",
+      { name: "WS", payload: "{}", version: 1, open: "no" },
+      userCookie,
+    );
+    const res = await onRequestPut(ctx);
+    expect(res.status).toBe(400);
   });
 
   it("returns 404 when the workspace id belongs to another user", async () => {

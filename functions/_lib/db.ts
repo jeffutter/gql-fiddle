@@ -15,6 +15,32 @@ export interface WorkspaceRow {
   version: number;
   updated_at: number;
   deleted_at: number | null;
+  saved: boolean;
+  open: boolean;
+}
+
+/**
+ * Exact SQLite row shape for `workspaces`: identical to WorkspaceRow except
+ * `saved`/`open`, which SQLite stores as INTEGER 0/1 (no native boolean
+ * type). Only this module and the PUT handler's narrow ownership-check
+ * query (which has its own justification, see functions/api/workspaces/[id].ts)
+ * should ever see this 0/1 encoding — everywhere else works with the mapped
+ * `WorkspaceRow` booleans.
+ */
+interface RawWorkspaceRow {
+  id: string;
+  user_id: string;
+  name: string;
+  payload: string;
+  version: number;
+  updated_at: number;
+  deleted_at: number | null;
+  saved: number;
+  open: number;
+}
+
+export function mapWorkspaceRow(raw: RawWorkspaceRow): WorkspaceRow {
+  return { ...raw, saved: raw.saved === 1, open: raw.open === 1 };
 }
 
 export interface GithubProfile {
@@ -30,6 +56,8 @@ export interface WorkspaceUpsert {
   name: string;
   payload: string;
   version: number;
+  saved: boolean;
+  open: boolean;
 }
 
 export async function getOrCreateUser(
@@ -98,8 +126,8 @@ export async function listWorkspaces(
          ORDER BY updated_at DESC`,
       )
       .bind(userId, since)
-      .all<WorkspaceRow>();
-    return result.results;
+      .all<RawWorkspaceRow>();
+    return result.results.map(mapWorkspaceRow);
   }
   const result = await db
     .prepare(
@@ -108,8 +136,8 @@ export async function listWorkspaces(
        ORDER BY updated_at DESC`,
     )
     .bind(userId)
-    .all<WorkspaceRow>();
-  return result.results;
+    .all<RawWorkspaceRow>();
+  return result.results.map(mapWorkspaceRow);
 }
 
 /**
@@ -135,23 +163,35 @@ export async function upsertWorkspace(
   const now = Date.now();
   await db
     .prepare(
-      `INSERT INTO workspaces (id, user_id, name, payload, version, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO workspaces (id, user_id, name, payload, version, updated_at, saved, open)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name       = excluded.name,
          payload    = excluded.payload,
          version    = excluded.version,
-         updated_at = excluded.updated_at
+         updated_at = excluded.updated_at,
+         saved      = excluded.saved,
+         open       = excluded.open
        WHERE excluded.version >= workspaces.version
          AND workspaces.user_id = excluded.user_id`,
     )
-    .bind(row.id, row.user_id, row.name, row.payload, row.version, now)
+    .bind(
+      row.id,
+      row.user_id,
+      row.name,
+      row.payload,
+      row.version,
+      now,
+      row.saved ? 1 : 0,
+      row.open ? 1 : 0,
+    )
     .run();
 
-  const current = await db
+  const rawCurrent = await db
     .prepare(`SELECT * FROM workspaces WHERE id = ? AND user_id = ?`)
     .bind(row.id, row.user_id)
-    .first<WorkspaceRow>();
+    .first<RawWorkspaceRow>();
+  const current = rawCurrent ? mapWorkspaceRow(rawCurrent) : null;
   if (!current) {
     // Either the id collided with another user's row (the ON CONFLICT guard
     // rejected the write) or some other unexpected state. Both are treated
