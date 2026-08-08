@@ -12,22 +12,27 @@ This prompt takes NO arguments — you choose the task yourself. It is designed 
 
 ## Step 0 — Select the next task
 
-1. Compute the ready set:
+1. List candidate tasks, priority-sorted (this loop only ever queues from "To Do" — "Backlog" is a separate, human-curated holding area; a ticket must be deliberately promoted with `backlog task edit <id> -s "To Do"` before this loop will consider it):
    ```bash
-   backlog sequence list --plain
+   backlog task list -s "To Do" --sort priority --json
    ```
-   Tasks are grouped into dependency "sequences". **"Sequence 1" contains every task whose dependencies are already Done** — the tasks that are ready to start right now. Completed tasks are not shown.
+   If the `tasks` array is empty, output exactly `BACKLOG LOOP: NOTHING TO DO` and stop.
 
-2. If the output is empty, or there is no "Sequence 1", there is nothing ready to work on. Output exactly `BACKLOG LOOP: NOTHING TO DO` and stop.
-
-3. Choose `TASK_ID` = the first task under "Sequence 1". Confirm it is actually startable:
+2. Walk the candidates in the order returned (highest priority first). For each candidate `id`, check whether it's ready — i.e. has no unresolved dependency:
    ```bash
-   backlog task <TASK_ID> --plain
+   backlog task <id> --json
    ```
-   - If its status is `Done` or `In Progress`, it is already taken — try the next task under "Sequence 1" instead.
-   - If every task under "Sequence 1" is `Done` or `In Progress`, output exactly `BACKLOG LOOP: NOTHING TO DO` and stop.
+   Read its `dependencies` array. If it's empty, the candidate is ready. Otherwise, for each id in `dependencies`, run:
+   ```bash
+   backlog task <depId> --json
+   ```
+   and read its `status`. The candidate is ready only if every dependency's status is exactly `Done`.
 
-4. Record `TASK_ID`. From here on, treat `TASK_ID` exactly as `$ARGUMENTS` would be treated by the automated workflow.
+   Take the FIRST ready candidate in priority order. Its status was already confirmed `To Do` by the `-s "To Do"` filter in step 1, so no separate startability re-check is needed.
+
+3. If no candidate is ready (every one still has an unresolved dependency), output exactly `BACKLOG LOOP: NOTHING TO DO` and stop.
+
+4. Record `TASK_ID` = the chosen candidate's id. From here on, treat `TASK_ID` exactly as `$ARGUMENTS` would be treated by the automated workflow.
 
 Announce: `BACKLOG LOOP: working on <TASK_ID> — <title>`.
 

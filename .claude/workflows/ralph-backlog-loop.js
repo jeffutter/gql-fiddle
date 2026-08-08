@@ -11,7 +11,7 @@ export const meta = {
     {
       title: "State",
       detail:
-        "one CLI-only sweep: In Progress / Dev Ready / Needs Plan tickets, Sequence 1, priority-sorted To Do, no-ralph list",
+        "one CLI-only sweep: In Progress / Dev Ready / Needs Plan tickets, priority-sorted To Do with dependencies, no-ralph list",
       model: "haiku",
     },
     { title: "Execute", detail: "run /backlog-execute on one ticket" },
@@ -28,7 +28,7 @@ export const meta = {
     {
       title: "Choose",
       detail:
-        "deterministically pick the priority-sorted To Do ticket in Sequence 1 (no unresolved deps) and move it to Needs Plan",
+        "deterministically pick the priority-sorted To Do ticket with no unresolved (non-Done) dependencies and move it to Needs Plan",
       model: "haiku",
     },
   ],
@@ -64,9 +64,15 @@ const SETUP_SCHEMA = {
 // instead of a separate State call every iteration plus a second Discover
 // call only on iterations that reach Choose. All of this is pure CLI-output
 // extraction, no judgment: the script does the actual branch/target decision
-// with plain array/set logic, since asking an LLM to re-derive "is this in
-// Sequence 1?" across many candidates is exactly how TASK-96.2 — actually
-// Sequence 3 — got chosen as if it had no unresolved dependencies.
+// with plain array/set logic (see isReady below), since asking an LLM to
+// re-derive "does this ticket have any unresolved dependency?" across many
+// candidates is exactly how TASK-96.2 once got chosen as Dev Ready despite
+// having unresolved dependencies. `backlog sequence list` (which used to
+// compute that dependency-readiness graph server-side) was removed from the
+// CLI, so this reconstructs readiness itself from each candidate's
+// `dependencies` array (`backlog task <id> --json`) cross-referenced against
+// each dependency's status — still resolved entirely in JS below, never left
+// to agent judgment.
 const STATE_SCHEMA = {
   type: "object",
   properties: {
@@ -85,31 +91,45 @@ const STATE_SCHEMA = {
       items: { type: "string" },
       description: "Ticket IDs with status Needs Plan, in list order",
     },
-    sequence1: {
-      type: "array",
-      items: { type: "string" },
-      description:
-        "Every ticket ID listed under the 'Sequence 1:' header of `backlog sequence list --plain` (stop at the next 'Sequence N:' header). These have no unresolved (non-Done) dependencies, regardless of current status.",
-    },
     todoByPriority: {
       type: "array",
-      items: { type: "string" },
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          dependencies: { type: "array", items: { type: "string" } },
+        },
+        required: ["id", "dependencies"],
+      },
       description:
-        'Every ticket ID from `backlog task list -s "To Do" --sort priority --plain`, in the order shown (already sorted high -> medium -> low -> unset).',
+        'One entry per ticket from `backlog task list -s "To Do" --sort priority --json`, in the order shown (already sorted high -> medium -> low -> unset), each paired with its "dependencies" array read from `backlog task <id> --json` for that same ticket.',
+    },
+    depStatus: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          status: { type: "string" },
+        },
+        required: ["id", "status"],
+      },
+      description:
+        'One entry per UNIQUE ticket id referenced in any todoByPriority entry\'s "dependencies" array (skip duplicates; empty array if none of the To Do tickets have dependencies), giving that id\'s "status" from `backlog task <id> --json`. Do not include ids that are not referenced as a dependency.',
     },
     noRalph: {
       type: "array",
       items: { type: "string" },
       description:
-        'Every ticket ID from `backlog task list -s "To Do" -l no-ralph --plain` (may be empty).',
+        'Every ticket ID from `backlog task list -s "To Do" -l no-ralph --json` (may be empty).',
     },
   },
   required: [
     "inProgress",
     "devReady",
     "needsPlan",
-    "sequence1",
     "todoByPriority",
+    "depStatus",
     "noRalph",
   ],
 };
@@ -131,18 +151,27 @@ const VERIFY_SCHEMA = {
       type: "string",
       description: "The ticket's current status field, exactly as shown",
     },
-    inSequence1: {
+    depsResolved: {
       type: "boolean",
       description:
-        "True if the ticket ID appears under the 'Sequence 1:' header of `backlog sequence list --plain`, false if it's under Sequence 2+ (meaning it still has an unresolved dependency) or missing entirely",
+        'True if this ticket\'s "dependencies" array (from `backlog task <id> --json`) is empty, or every id in it has status exactly "Done" (checked via `backlog task <depId> --json` for each). False if any dependency is not Done.',
     },
     corrected: {
       type: "boolean",
       description:
-        "True if this call found status=Dev Ready and inSequence1=false and fixed it (edited to Blocked + note), false otherwise (including when no fix was needed)",
+        "True if this call found status=Dev Ready and depsResolved=false and fixed it (edited to Blocked + note), false otherwise (including when no fix was needed)",
     },
   },
-  required: ["ticketId", "status", "inSequence1", "corrected"],
+  required: ["ticketId", "status", "depsResolved", "corrected"],
+};
+
+const BACKLOG_CHECK_SCHEMA = {
+  type: "object",
+  properties: {
+    count: { type: "number" },
+    sampleIds: { type: "array", items: { type: "string" } },
+  },
+  required: ["count", "sampleIds"],
 };
 
 const ACTION_SCHEMA = {
@@ -185,16 +214,17 @@ Report via structured output:
 - statuses: the final statuses list (after your edit, if any)
 - changed: true if you modified the file, false if it already had everything needed`;
 
-const STATE_PROMPT = `In the gql-fiddle repo (repo root, no git submodules), run these six commands and report each result as a plain ID list. This is pure data extraction — no filtering, judgment, or dependency reasoning needed, the caller does that:
+const STATE_PROMPT = `In the gql-fiddle repo (repo root, no git submodules), run these commands and report the results below. This is pure data extraction — no filtering, judgment, or dependency reasoning needed, the caller does that:
 
-1. backlog task list -s "In Progress" --plain -> inProgress
-2. backlog task list -s "Dev Ready" --plain -> devReady
-3. backlog task list -s "Needs Plan" --plain -> needsPlan
-4. backlog sequence list --plain -> sequence1: extract every ticket ID listed under the "Sequence 1:" header (stop at the next "Sequence N:" header or end of output)
-5. backlog task list -s "To Do" --sort priority --plain -> todoByPriority: every ticket ID, in the order shown
-6. backlog task list -s "To Do" -l no-ralph --plain -> noRalph: every ticket ID shown (empty array if none)
+1. backlog task list -s "In Progress" --json -> inProgress: the "id" of every task in the "tasks" array, in order
+2. backlog task list -s "Dev Ready" --json -> devReady: the "id" of every task in the "tasks" array, in order
+3. backlog task list -s "Needs Plan" --json -> needsPlan: the "id" of every task in the "tasks" array, in order
+4. backlog task list -s "To Do" --sort priority --json -> the ordered list of To Do task ids (already sorted high -> medium -> low -> unset)
+5. For EACH id from step 4, run: backlog task <id> --json and read its "dependencies" array. Report todoByPriority as an array of {id, dependencies} objects, one per To Do ticket, in the same order as step 4.
+6. Collect the set of unique dependency ids across every "dependencies" array from step 5 (if none of the To Do tickets have dependencies, this set is empty). For each unique id in that set (and only those — do not query ids that aren't referenced as a dependency), run: backlog task <id> --json and read its "status". Report depStatus as an array of {id, status}, one entry per unique dependency id.
+7. backlog task list -s "To Do" -l no-ralph --json -> noRalph: the "id" of every task in the "tasks" array (empty array if none)
 
-Report all six lists via the structured output.`;
+Report all fields via the structured output.`;
 
 function moveToNeedsPlanPrompt(ticketId) {
   return `You're working in the gql-fiddle repo at its root.
@@ -207,20 +237,32 @@ Report via structured output: ticketId "${ticketId}", success (true if the edit 
 function verifyAndCorrectPrompt(ticketId) {
   return `You're working in the gql-fiddle repo at its root.
 
-Run: backlog task ${ticketId} --plain
-Run: backlog sequence list --plain
+Run: backlog task ${ticketId} --json
+Read its "status" and "dependencies" array.
+
+For each id in "dependencies" (if any), run: backlog task <id> --json and read its "status".
 
 Determine:
 - status: this ticket's current status field, exactly as shown
-- inSequence1: true if "${ticketId}" appears under the "Sequence 1:" header of the sequence list output, false if it's under Sequence 2+ or missing (meaning it still has an unresolved, non-Done dependency)
+- depsResolved: true if "dependencies" is empty, or every dependency's status is exactly "Done"; false if any dependency's status is not "Done"
 
-If status is exactly "Dev Ready" AND inSequence1 is false, the planner was wrong to mark it ready — correct it now, in this same turn:
+If status is exactly "Dev Ready" AND depsResolved is false, the planner was wrong to mark it ready — correct it now, in this same turn:
   backlog task edit ${ticketId} -s "Blocked"
-and append one implementation note: planning marked this Dev Ready, but it still has an unresolved dependency per \`backlog sequence list\`, so it was forced to Blocked. It should be re-checked once its dependencies are Done.
+and append one implementation note: planning marked this Dev Ready, but it still has an unresolved dependency, so it was forced to Blocked. It should be re-checked once its dependencies are Done.
 
 Set corrected to true only if you made that fix just now; false otherwise (including when no fix was needed).
 
-Report via structured output: ticketId "${ticketId}", status, inSequence1, corrected.`;
+Report via structured output: ticketId "${ticketId}", status, depsResolved, corrected.`;
+}
+
+function backlogCheckPrompt() {
+  return `You're working in the gql-fiddle repo at its root.
+
+Run: backlog task list -s "Backlog" --json
+
+Report via structured output:
+- count: the number of tasks in the "tasks" array
+- sampleIds: the "id" of up to the first 5 tasks in that array (fewer if there are fewer than 5, empty array if there are none)`;
 }
 
 function executePrompt(ticketId) {
@@ -228,7 +270,7 @@ function executePrompt(ticketId) {
 
 Use the Skill tool to invoke "/backlog-execute ${ticketId}". This skill will claim the ticket, implement the work, mark acceptance criteria, add implementation notes/summary, set the ticket status to Done, and commit the result — all per its own instructions. If the skill determines the ticket is blocked by new/unforeseen work discovered mid-implementation, it will revert the ticket's status to "To Do".
 
-Dependency readiness is already guaranteed before a ticket reaches you: the Plan phase verifies every ticket it marks "Dev Ready" is actually in Sequence 1 (no unresolved dependencies) before handing it off, so you should not need to re-check dependencies here. If you nonetheless find the ticket genuinely can't proceed, follow the skill's own blocked-handling behavior.
+Dependency readiness is already guaranteed before a ticket reaches you: the Plan phase verifies every ticket it marks "Dev Ready" has no unresolved (non-Done) dependencies before handing it off, so you should not need to re-check dependencies here. If you nonetheless find the ticket genuinely can't proceed, follow the skill's own blocked-handling behavior.
 
 After the skill finishes, report via structured output:
 - ticketId: "${ticketId}"
@@ -440,35 +482,64 @@ for (let i = 0; i < MAX_ITERATIONS; i++) {
       });
       if (verify && verify.corrected) {
         log(
-          `Corrected ${target}: planner set "Dev Ready" but it still has an unresolved dependency (not in Sequence 1) — forced to "Blocked".`,
+          `Corrected ${target}: planner set "Dev Ready" but it still has an unresolved dependency — forced to "Blocked".`,
         );
         results.push({
           ticketId: target,
           phase: "plan",
           outcome: "corrected-to-blocked",
           summary:
-            "Planner marked this Dev Ready but it still has an unresolved dependency (not in Sequence 1); forced to Blocked so Execute never receives it.",
+            "Planner marked this Dev Ready but it still has an unresolved dependency; forced to Blocked so Execute never receives it.",
         });
       }
     }
     continue;
   }
 
-  // Choose: the State call above already gathered sequence1/todoByPriority/
+  // Choose: the State call above already gathered todoByPriority/depStatus/
   // noRalph, so no second data-gathering round trip is needed here — just
   // the deterministic pick and (if one was found) the mutation to move it.
+  // This loop deliberately only ever queues from "To Do" — "Backlog" status
+  // is a separate, human-curated holding area upstream of it (see the
+  // drained-branch warning below for surfacing unpromoted work there).
   phase("Choose");
-  const sequence1 = new Set(state.sequence1);
+  const depStatus = new Map(state.depStatus.map((d) => [d.id, d.status]));
   const noRalph = new Set(state.noRalph);
-  const target =
-    state.todoByPriority.find((id) => sequence1.has(id) && !noRalph.has(id)) ??
-    null;
+  const isReady = (dependencies) =>
+    dependencies.every((depId) => depStatus.get(depId) === "Done");
+  const candidate = state.todoByPriority.find(
+    (t) => isReady(t.dependencies) && !noRalph.has(t.id),
+  );
+  const target = candidate ? candidate.id : null;
 
   if (!target) {
     stopReason = "drained";
     log(
-      "Backlog drained: no To Do ticket is both in Sequence 1 (no unresolved dependencies) and unlabeled no-ralph.",
+      "Backlog drained: no To Do ticket has all dependencies Done and is unlabeled no-ralph.",
     );
+
+    // "To Do" is the only status this loop queues from — tickets sitting in
+    // "Backlog" are never picked up automatically (by design: promotion is a
+    // deliberate human decision). Surface that instead of silently stopping,
+    // since a drained-but-Backlog-is-full state usually means work is
+    // waiting on a promotion step, not that the project has run out of work.
+    const backlogCheck = await agent(backlogCheckPrompt(), {
+      schema: BACKLOG_CHECK_SCHEMA,
+      model: "haiku",
+      phase: "Choose",
+    });
+    if (backlogCheck && backlogCheck.count > 0) {
+      const sample = backlogCheck.sampleIds.join(", ");
+      log(
+        `Note: ${backlogCheck.count} ticket(s) are sitting in "Backlog" status and were not considered (e.g. ${sample}) — promote with \`backlog task edit <id> -s "To Do"\` if they should run.`,
+      );
+      results.push({
+        ticketId: "(warning)",
+        phase: "choose",
+        outcome: `${backlogCheck.count} ticket(s) in Backlog`,
+        summary: `Not considered — this loop only pulls from "To Do". Sample: ${sample}`,
+      });
+    }
     break;
   }
 
@@ -488,7 +559,7 @@ for (let i = 0; i < MAX_ITERATIONS; i++) {
     ticketId: target,
     phase: "choose",
     outcome: "queued-for-planning",
-    summary: `Deterministically picked: highest-priority To Do ticket that is in Sequence 1 (no unresolved dependencies) and not labeled no-ralph, out of ${state.todoByPriority.length} To Do candidate(s).`,
+    summary: `Deterministically picked: highest-priority To Do ticket with no unresolved dependencies and not labeled no-ralph, out of ${state.todoByPriority.length} To Do candidate(s).`,
   });
 }
 

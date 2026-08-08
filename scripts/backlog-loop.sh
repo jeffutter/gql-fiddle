@@ -3,9 +3,10 @@
 # Overnight autonomous backlog runner.
 #
 # Repeatedly invokes the `backlog-workflow-loop` pi prompt. Each invocation picks
-# the next ready task (the first task in "Sequence 1" of `backlog sequence list`)
-# and runs it end to end (research -> plan refine -> implement -> review -> hooks
-# -> commit). The loop stops cleanly when:
+# the next ready "To Do" task (highest priority, no unresolved dependencies) and
+# runs it end to end (research -> plan refine -> implement -> review -> hooks ->
+# commit). "Backlog" status is a separate, human-curated holding area — promote a
+# ticket to "To Do" for this loop to consider it. The loop stops cleanly when:
 #   - the backlog is drained        (prompt prints "BACKLOG LOOP: NOTHING TO DO")
 #   - a ticket gets stuck           (prompt prints "BACKLOG LOOP: stopped on ...")
 #   - the safety iteration cap hits  (MAX_ITERS)

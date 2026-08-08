@@ -136,13 +136,15 @@ follow these rules exactly.
 **One fix per ticket — tightly scoped.** Never bundle unrelated findings. If one
 reviewed task produced three independent problems, create three tickets.
 
-**Make it ready-now so the loop picks it up.** `pi` selects the first task in
-"Sequence 1" of `backlog sequence list --plain` (tasks whose dependencies are all
-Done). To land a fix there *and* keep lineage:
+**Make it ready-now so the loop picks it up.** `pi`'s backlog loop only queues
+tasks in "To Do" status with no unresolved (non-Done) dependencies (see Step 0
+of `.pi/prompts/backlog-workflow-loop.md`). `backlog task create` defaults new
+tasks to "To Do" per this project's `backlog/config.yml` (`default_status`), so
+no explicit `--status` is needed. To land a fix there *and* keep lineage:
 - Set `--depends-on <reviewed TASK_ID>` (that task is Done, so the dependency is
-  satisfied → the fix appears in Sequence 1 immediately).
+  already resolved → the fix is ready immediately).
 - Set `--priority high` and a **low `--ordinal`** (e.g. `100`, `110`, …) so the
-  fix sorts ahead of feature work within Sequence 1 and gets done first.
+  fix sorts ahead of other "To Do" feature work and gets done first.
 - Label it: `--labels review-followup` so these are easy to find and audit.
 - Assign the same `--milestone` (`-m`) as the reviewed task's area.
 
@@ -150,8 +152,8 @@ Done). To land a fix there *and* keep lineage:
 not-yet-started task is now building on a broken foundation, add this new fix
 ticket as a dependency of that future task too — edit the future task:
 `backlog task edit <FUTURE_ID> --depends-on <NEW_FIX_ID>` (preserving its
-existing deps). This is the "blocker" wiring: the dependent feature won't enter
-Sequence 1 until the fix is Done.
+existing deps). This is the "blocker" wiring: the dependent feature won't be
+picked up as ready until the fix is Done.
 
 **Write a thorough plan, in this project's house style.** Match the existing
 tickets (see `backlog/tasks/`): the plan begins with the SETUP preamble, then
@@ -195,7 +197,8 @@ should always be the relevant test/lint command passing.
 
 After creating tickets, sanity-check the wiring:
 ```bash
-backlog sequence list --plain     # confirm new fix tickets are in Sequence 1
+backlog task <NEW_FIX_ID> --json   # confirm status is "To Do" and every id in
+                                    # "dependencies" (if any) has status "Done"
 ```
 
 ---
@@ -208,8 +211,9 @@ Give the user a concise report:
 - **Findings:** grouped by severity, each with `file:line` and the axis it
   violates. Include nits here (not as tickets).
 - **Tickets filed:** the new `task-<id>`s, their titles, deps, and which reviewed
-  task each traces back to. State explicitly that they're in Sequence 1 and will
-  be picked up on pi's next round (or, if you blocked a future task, say which).
+  task each traces back to. State explicitly that they're "To Do" with no
+  unresolved dependencies and will be picked up on pi's next round (or, if you
+  blocked a future task, say which).
 - **Verdict:** is pi on track, or should the loop be paused until the
   review-followup tickets are cleared? Recommend a course of action.
 
