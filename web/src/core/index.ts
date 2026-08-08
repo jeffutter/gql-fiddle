@@ -53,14 +53,6 @@ function wrap(ns: typeof wasm): GqlCore {
     ): MockResult {
       return json(ns.execute_mock(supergraphSdl, operation, BigInt(seed), mockConfig));
     },
-    nodeAtPosition(
-      sdl: string,
-      line: number,
-      col: number,
-    ): { typeName: string; fieldName?: string } | null {
-      const raw = ns.node_at_position(sdl, line, col);
-      return JSON.parse(raw);
-    },
     queryShape(apiSchemaSdl: string, query: string): QueryShapeTree {
       return json(ns.query_shape(apiSchemaSdl, query));
     },

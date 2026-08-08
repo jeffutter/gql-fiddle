@@ -28,16 +28,15 @@
 //!    `validate::validate_query` for why the two failure sources can't share
 //!    one diagnostic shape). Callers MUST check for `schema_error` before
 //!    treating the payload as query diagnostics.
-//! 3. **Silent-default envelope** ([`query_shape()`], [`node_at_position`]):
-//!    return an empty/null result for invalid input rather than an error.
-//!    These are view-only conveniences (editor hover/tree), not diagnostic
-//!    surfaces, so there's nothing meaningful to report back to the caller.
+//! 3. **Silent-default envelope** ([`query_shape()`]): return an empty/null
+//!    result for invalid input rather than an error. This is a view-only
+//!    convenience (editor tree), not a diagnostic surface, so there's nothing
+//!    meaningful to report back to the caller.
 
 mod api_schema;
 mod compose;
 mod dto;
 mod mock;
-mod node_at_pos;
 mod plan;
 mod query_shape;
 mod validate;
@@ -113,17 +112,6 @@ pub fn execute_mock(supergraph_sdl: &str, operation: &str, seed: u64, mock_confi
 #[wasm_bindgen]
 pub fn query_shape(api_schema_sdl: &str, query: &str) -> String {
     query_shape::query_shape(api_schema_sdl, query).to_string()
-}
-
-/// Find the type or field definition at a 1-based (line, col) position in a subgraph SDL.
-///
-/// Returns a JSON string:
-///   - `{"typeName":"Product"}` when the cursor is on the type declaration block.
-///   - `{"typeName":"Product","fieldName":"price"}` when on a field line.
-///   - `"null"` when the position doesn't land on a type or field definition.
-#[wasm_bindgen]
-pub fn node_at_position(sdl: &str, line: u32, col: u32) -> String {
-    node_at_pos::node_at_position(sdl, line, col).to_string()
 }
 
 #[cfg(test)]

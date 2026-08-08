@@ -2,10 +2,6 @@
 // envelopes returned by crates/gql-core (see its dto.rs). The UI depends on
 // these types, never on apollo-federation internals.
 
-// Tour types are defined in share.ts (alongside WorkspacePayload which they
-// reference) and re-exported here for consumer convenience.
-export type { Tour, TourStep } from "../share";
-
 export interface Diagnostic {
   severity: "error" | "warning";
   message: string;
@@ -180,8 +176,7 @@ export interface DeferredBranch {
 }
 
 export type PlanResult =
-  | { ok: true; query_plan: PlanNode }
-  | { ok: false; errors: { code: string; message: string }[] };
+  { ok: true; query_plan: PlanNode } | { ok: false; errors: { code: string; message: string }[] };
 
 /** Functions exported by the WASM module, wrapped with typed I/O. */
 export interface GqlCore {
@@ -199,11 +194,6 @@ export interface GqlCore {
     seed: number,
     mockConfig: string,
   ): MockResult;
-  nodeAtPosition(
-    sdl: string,
-    line: number,
-    col: number,
-  ): { typeName: string; fieldName?: string } | null;
   /**
    * Compute the query shape tree from an API schema SDL and a query string.
    * Returns `{ operations: [] }` for empty, invalid SDL, or invalid query inputs.

@@ -163,7 +163,6 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
         activeQueryTab: ws.activeQueryTab,
         seed: ws.seed,
         mockConfig: ws.mockConfig,
-        tourDraft: ws.tourDraft,
       };
     });
     useWorkspace.setState({

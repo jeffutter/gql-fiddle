@@ -47,7 +47,6 @@ function makeEntry(overrides: Partial<WorkspaceEntry> & { id: string }): Workspa
     activeQueryTab: 0,
     seed: 42,
     mockConfig: "",
-    tourDraft: null,
     ...overrides,
   };
 }

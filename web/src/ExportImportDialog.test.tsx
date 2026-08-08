@@ -16,7 +16,6 @@ function makeWorkspace(name: string, overrides: Partial<WorkspaceEntry> = {}): W
     activeQueryTab: 0,
     seed: 42,
     mockConfig: "",
-    tourDraft: null,
     ...overrides,
   };
 }
@@ -178,29 +177,5 @@ describe("ImportDialog", () => {
 
     expect(useWorkspace.getState().workspaces).toBe(before);
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("round-trips a non-null tourDraft through import", async () => {
-    const tour = {
-      title: "Tour",
-      base: {
-        subgraphs: [{ name: "users", sdl: "type Query { me: String }" }],
-        queryTabs: [{ name: "Query 1", query: "query { me }" }],
-        activeQueryTab: 0,
-        seed: 42,
-        mockConfig: "",
-      },
-      steps: [],
-    };
-    const bytes = encodeExport([makeWorkspace("Tour WS", { tourDraft: tour })]);
-    render(<ImportDialog onClose={vi.fn()} />);
-
-    await act(async () => selectFile(bytes));
-    await waitFor(() => expect(screen.getByRole("checkbox")).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
-
-    const state = useWorkspace.getState();
-    expect(state.workspaces[1].tourDraft).toEqual(tour);
   });
 });

@@ -107,7 +107,6 @@ function resetStore() {
         activeQueryTab: 0,
         seed: 42,
         mockConfig: "",
-        tourDraft: null,
       },
     ],
     activeWorkspaceIndex: 0,

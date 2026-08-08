@@ -5,8 +5,8 @@ import { useWorkspace, activeWorkspace } from "./store";
 import * as monaco from "monaco-editor";
 import { initVimMode } from "monaco-vim";
 import type { Diagnostic } from "./core/types";
-import { encode, encodeTour } from "./share";
-import type { Tour, WorkspaceEntry } from "./share";
+import { encode } from "./share";
+import type { WorkspaceEntry } from "./share";
 import { useAuth } from "./auth";
 import { useSavedWorkspaceLibrary } from "./sync";
 
@@ -106,7 +106,6 @@ describe("App", () => {
           activeQueryTab: 0,
           seed: 42,
           mockConfig: "",
-          tourDraft: null,
         },
       ],
       activeWorkspaceIndex: 0,
@@ -1173,7 +1172,7 @@ describe("App", () => {
     // DOM structure:
     //   main (outer app div, height:100vh)
     //     ├─ main.child[0] = page header
-    //     ├─ main.child[1] = flex wrapper div (Group + optional TourAuthoringPanel)
+    //     ├─ main.child[1] = flex wrapper div (contains the panel Group)
     //     │   └─ main.child[1].child[0] = vertical Group
     //     │       ├─ child[0] = top Panel wrapper
     //     │       │   └─ child[0].child[0] = content div (flex column)
@@ -1852,23 +1851,7 @@ describe("App", () => {
   });
 });
 
-describe("App — tour playback", () => {
-  const sampleTour: Tour = {
-    title: "My Sample Tour",
-    base: {
-      subgraphs: [
-        { name: "products", sdl: "type Query { products: [Product] }\ntype Product { id: ID! }" },
-      ],
-      queryTabs: [{ name: "Query 1", query: "{ products { id } }" }],
-      activeQueryTab: 0,
-      seed: 42,
-    },
-    steps: [
-      { label: "Step One", prose: "This is the first step." },
-      { label: "Step Two", prose: "This is the second step." },
-    ],
-  };
-
+describe("App — sequence diagram export", () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -1887,7 +1870,6 @@ describe("App — tour playback", () => {
           activeQueryTab: 0,
           seed: 42,
           mockConfig: "",
-          tourDraft: null,
         },
       ],
       activeWorkspaceIndex: 0,
@@ -1895,35 +1877,6 @@ describe("App — tour playback", () => {
       composeErrors: null,
       composeHints: 0,
     });
-  });
-
-  it("AC#1: #t= URL hash renders TourPlayback instead of the normal fiddle", () => {
-    const hash = encodeTour(sampleTour);
-    Object.defineProperty(globalThis, "location", {
-      value: { hash },
-      writable: true,
-      configurable: true,
-    });
-
-    const { container } = render(<App />);
-
-    // The tour playback element should be present.
-    expect(container.querySelector('[data-testid="tour-playback"]')).not.toBeNull();
-  });
-
-  it("AC#9: invalid #t= URL hash shows an error message, not the normal fiddle", () => {
-    Object.defineProperty(globalThis, "location", {
-      value: { hash: "#t=INVALID_GARBAGE_NOT_BASE64_TOUR" },
-      writable: true,
-      configurable: true,
-    });
-
-    const { container } = render(<App />);
-
-    // An error message should appear.
-    expect(container.textContent).toMatch(/Could not load tour/i);
-    // The normal fiddle should not be rendered.
-    expect(container.querySelector(".page-header")).toBeNull();
   });
 
   // TASK-115: Export-image button on the Sequence Diagram tab.
@@ -1968,7 +1921,6 @@ describe("App decryptWarning banner", () => {
           activeQueryTab: 0,
           seed: 42,
           mockConfig: "",
-          tourDraft: null,
         },
       ],
       activeWorkspaceIndex: 0,
@@ -2026,7 +1978,6 @@ describe("saved workspace toggle & close (TASK-126.3)", () => {
           activeQueryTab: 0,
           seed: 42,
           mockConfig: "",
-          tourDraft: null,
         },
         {
           name: "Workspace 2",
@@ -2038,7 +1989,6 @@ describe("saved workspace toggle & close (TASK-126.3)", () => {
           activeQueryTab: 0,
           seed: 42,
           mockConfig: "",
-          tourDraft: null,
         },
       ],
       activeWorkspaceIndex: 0,
@@ -2160,7 +2110,6 @@ describe("Saved Workspaces menu (TASK-126.4)", () => {
       activeQueryTab: 0,
       seed: 42,
       mockConfig: "",
-      tourDraft: null,
       saved: true,
       open: false,
     };
@@ -2200,7 +2149,6 @@ describe("Saved Workspaces menu (TASK-126.4)", () => {
           activeQueryTab: 0,
           seed: 42,
           mockConfig: "",
-          tourDraft: null,
         },
         {
           name: "Workspace 2",
@@ -2212,7 +2160,6 @@ describe("Saved Workspaces menu (TASK-126.4)", () => {
           activeQueryTab: 0,
           seed: 42,
           mockConfig: "",
-          tourDraft: null,
         },
       ],
       activeWorkspaceIndex: 0,

@@ -6,7 +6,7 @@
 //! boundary.
 #![cfg(target_arch = "wasm32")]
 
-use gql_core::{compose, execute_mock, node_at_position, plan, validate_query, validate_subgraph};
+use gql_core::{compose, execute_mock, plan, validate_query, validate_subgraph};
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -149,31 +149,4 @@ fn execute_mock_same_seed_is_deterministic() {
     let a = execute_mock(&sdl, "{ me { id name } }", 99, "{}");
     let b = execute_mock(&sdl, "{ me { id name } }", 99, "{}");
     assert_eq!(a, b, "same seed must produce identical output");
-}
-
-// ---------------------------------------------------------------------------
-// node_at_position
-// ---------------------------------------------------------------------------
-
-#[wasm_bindgen_test]
-fn node_at_position_field_line_returns_type_and_field_name() {
-    // Line 2, col 3 lands on the `hello` field (1-based, Monaco convention).
-    let sdl = "type Query {\n  hello: String\n}";
-    let result = node_at_position(sdl, 2, 3);
-    let val: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(
-        val["typeName"], "Query",
-        "expected typeName Query, got: {result}"
-    );
-    assert_eq!(
-        val["fieldName"], "hello",
-        "expected fieldName hello, got: {result}"
-    );
-}
-
-#[wasm_bindgen_test]
-fn node_at_position_whitespace_returns_null() {
-    let sdl = "type Query {\n  hello: String\n}";
-    let result = node_at_position(sdl, 3, 1);
-    assert_eq!(result, "null", "closing brace position must return null");
 }

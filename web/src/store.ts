@@ -1,32 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CompositionError, QueryTab, SubgraphInput } from "./core/types";
-import type { PaneId, Tour, WorkspaceEntry, WorkspacePayload } from "./share";
-import { resolveTourStep } from "./share";
+import type { WorkspaceEntry } from "./share";
 
 // Single source of truth for the workspace. Composition output is *derived*
 // state (recomputed when subgraphs change), never hand-edited.
-
-/**
- * Compute the diff of `current` against `base`. Only top-level keys that
- * differ are included in the returned overrides object. Returns `undefined`
- * when the two payloads are identical.
- */
-export function computeOverrides(
-  base: WorkspacePayload,
-  current: WorkspacePayload,
-): Partial<WorkspacePayload> | undefined {
-  const overrides: Partial<WorkspacePayload> = {};
-  if (JSON.stringify(current.subgraphs) !== JSON.stringify(base.subgraphs))
-    overrides.subgraphs = current.subgraphs;
-  if (JSON.stringify(current.queryTabs) !== JSON.stringify(base.queryTabs))
-    overrides.queryTabs = current.queryTabs;
-  if (current.activeQueryTab !== base.activeQueryTab)
-    overrides.activeQueryTab = current.activeQueryTab;
-  if (current.seed !== base.seed) overrides.seed = current.seed;
-  if (current.mockConfig !== base.mockConfig) overrides.mockConfig = current.mockConfig;
-  return Object.keys(overrides).length > 0 ? overrides : undefined;
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Default workspace content
@@ -140,7 +118,6 @@ export function makeDefaultWorkspace(name: string): WorkspaceEntry {
     activeQueryTab: 0,
     seed: DEFAULT_SEED,
     mockConfig: "",
-    tourDraft: null,
   };
 }
 
@@ -181,10 +158,6 @@ export interface WorkspaceState {
   vimMode: boolean;
   setVimMode: (enabled: boolean) => void;
 
-  // Session-only tour authoring state — NOT persisted.
-  tourActiveStep: number | null;
-  setTourActiveStep: (i: number | null) => void;
-
   // Live collaboration session — session-only (not persisted, not synced).
   liveSession: LiveSessionState;
   setLiveSessionWsUrl: (wsUrl: string | null, sessionId?: string) => void;
@@ -214,37 +187,6 @@ export interface WorkspaceState {
 
   // ── Per-workspace actions (operate on workspaces[activeWorkspaceIndex]) ──────
 
-  /**
-   * Load the resolved workspace for a given step index into the live editors.
-   * Calls resolveTourStep and writes the result into the active workspace.
-   */
-  loadTourStep: (stepIndex: number) => void;
-
-  /**
-   * Snapshot the current workspace into a tour step.
-   * 'new' appends a new TourStep; a number updates the existing step's overrides.
-   * Computes overrides as the diff of the current workspace against tour.base.
-   */
-  snapshotCurrentToStep: (stepIndex: number | "new") => void;
-
-  /**
-   * Set or clear the anchor for a specific step. The anchor identifies a
-   * GraphQL type or field in a subgraph's schema that should be highlighted
-   * during tour playback.
-   */
-  setStepAnchor: (
-    stepIndex: number,
-    anchor: { subgraphIndex: number; typeName: string; fieldName?: string } | undefined,
-  ) => void;
-
-  /**
-   * Set the visibility of a specific pane for a given step. Only an explicit
-   * `false` hides the pane — `undefined` and `true` both mean visible, so
-   * existing tours without flags continue to show all panes.
-   */
-  setStepPaneVisibility: (stepIndex: number, pane: PaneId, visible: boolean) => void;
-
-  setTourDraft: (tour: Tour | null) => void;
   setMockConfig: (yaml: string) => void;
 
   addSubgraph: (name: string) => void;
@@ -319,10 +261,6 @@ export const useWorkspace = create<WorkspaceState>()(
 
       vimMode: false,
       setVimMode: (enabled) => set({ vimMode: enabled }),
-
-      // Session-only authoring state — not in partialize.
-      tourActiveStep: null,
-      setTourActiveStep: (i) => set({ tourActiveStep: i }),
 
       // Live collaboration session — session-only (not persisted, not synced).
       liveSession: {
@@ -432,73 +370,6 @@ export const useWorkspace = create<WorkspaceState>()(
 
       // ── Per-workspace actions ──────────────────────────────────────────────────
 
-      loadTourStep: (stepIndex) =>
-        set((state) => {
-          const ws = activeWorkspace(state);
-          if (!ws.tourDraft) return state;
-          const payload = resolveTourStep(ws.tourDraft, stepIndex);
-          return updateActive(state, {
-            subgraphs: payload.subgraphs,
-            queryTabs: payload.queryTabs,
-            activeQueryTab: payload.activeQueryTab,
-            seed: payload.seed,
-            mockConfig: payload.mockConfig ?? "",
-          });
-        }),
-
-      snapshotCurrentToStep: (stepIndex) =>
-        set((state) => {
-          const ws = activeWorkspace(state);
-          if (!ws.tourDraft) return state;
-          const current: WorkspacePayload = {
-            subgraphs: ws.subgraphs,
-            queryTabs: ws.queryTabs,
-            activeQueryTab: ws.activeQueryTab,
-            seed: ws.seed,
-            mockConfig: ws.mockConfig,
-          };
-          const overrides = computeOverrides(ws.tourDraft.base, current);
-          if (stepIndex === "new") {
-            const newStep = {
-              label: `Step ${ws.tourDraft.steps.length + 1}`,
-              prose: "",
-              overrides,
-            };
-            return updateActive(state, {
-              tourDraft: { ...ws.tourDraft, steps: [...ws.tourDraft.steps, newStep] },
-            });
-          } else {
-            const updatedSteps = ws.tourDraft.steps.map((step, i) =>
-              i === stepIndex ? { ...step, overrides } : step,
-            );
-            return updateActive(state, { tourDraft: { ...ws.tourDraft, steps: updatedSteps } });
-          }
-        }),
-
-      setStepAnchor: (stepIndex, anchor) =>
-        set((state) => {
-          const ws = activeWorkspace(state);
-          if (!ws.tourDraft) return state;
-          const updatedSteps = ws.tourDraft.steps.map((step, i) =>
-            i === stepIndex ? { ...step, anchor } : step,
-          );
-          return updateActive(state, { tourDraft: { ...ws.tourDraft, steps: updatedSteps } });
-        }),
-
-      setStepPaneVisibility: (stepIndex, pane, visible) =>
-        set((state) => {
-          const ws = activeWorkspace(state);
-          if (!ws.tourDraft) return state;
-          const updatedSteps = ws.tourDraft.steps.map((step, i) => {
-            if (i !== stepIndex) return step;
-            const pv = { ...(step.paneVisibility ?? {}), [pane]: visible };
-            return { ...step, paneVisibility: pv };
-          });
-          return updateActive(state, { tourDraft: { ...ws.tourDraft, steps: updatedSteps } });
-        }),
-
-      setTourDraft: (tour) => set((state) => updateActive(state, { tourDraft: tour })),
-
       addSubgraph: (name) =>
         set((state) => {
           const ws = activeWorkspace(state);
@@ -599,7 +470,7 @@ export const useWorkspace = create<WorkspaceState>()(
 
       resetToDefaults: () =>
         set((state) => {
-          // Preserve the workspace name and tourDraft, reset content fields only.
+          // Preserve the workspace name, reset content fields only.
           const ws = activeWorkspace(state);
           return updateActive(state, {
             subgraphs: DEFAULT_SUBGRAPHS,
@@ -608,9 +479,7 @@ export const useWorkspace = create<WorkspaceState>()(
             activeQueryTab: 0,
             seed: DEFAULT_SEED,
             mockConfig: "",
-            // Preserve name and tourDraft
             name: ws.name,
-            tourDraft: ws.tourDraft,
           });
         }),
     }),
@@ -658,7 +527,6 @@ export const useWorkspace = create<WorkspaceState>()(
             activeQueryTab,
             seed,
             mockConfig,
-            tourDraft,
             vimMode,
             // Drop any other unknown keys from the old flat state.
             ...rest
@@ -671,7 +539,6 @@ export const useWorkspace = create<WorkspaceState>()(
             activeQueryTab: (activeQueryTab as number) ?? 0,
             seed: (seed as number) ?? DEFAULT_SEED,
             mockConfig: (mockConfig as string) ?? "",
-            tourDraft: (tourDraft as Tour | null) ?? null,
           };
           void rest; // unused fields from old state
           state = {

@@ -14,7 +14,6 @@ function makeWorkspace(overrides: Partial<WorkspaceEntry> = {}): WorkspaceEntry 
     activeQueryTab: 0,
     seed: 42,
     mockConfig: "",
-    tourDraft: null,
     ...overrides,
   };
 }
@@ -41,29 +40,6 @@ describe("encodeExport / decodeExport", () => {
     expect(format.workspaces[1].seed).toBe(7);
   });
 
-  it("preserves a non-null tourDraft through the round-trip", () => {
-    const tour = {
-      title: "My tour",
-      base: {
-        subgraphs: [{ name: "users", sdl: "type Query { me: String }" }],
-        queryTabs: [{ name: "Query 1", query: "query { me }" }],
-        activeQueryTab: 0,
-        seed: 42,
-        mockConfig: "",
-      },
-      steps: [],
-    };
-    const workspaces = [makeWorkspace({ tourDraft: tour })];
-    const { format } = decodeExport(encodeExport(workspaces));
-    expect(format.workspaces[0].tourDraft).toEqual(tour);
-  });
-
-  it("keeps tourDraft null when the source workspace has none", () => {
-    const workspaces = [makeWorkspace({ tourDraft: null })];
-    const { format } = decodeExport(encodeExport(workspaces));
-    expect(format.workspaces[0].tourDraft).toBeNull();
-  });
-
   it("produces output starting with the gzip magic bytes", () => {
     const bytes = encodeExport([makeWorkspace()]);
     expect(bytes[0]).toBe(0x1f);
@@ -83,7 +59,6 @@ describe("encodeExport / decodeExport", () => {
           activeQueryTab: 0,
           seed: 1,
           mockConfig: "",
-          tourDraft: null,
         } satisfies ExportedWorkspace,
       ],
     };
@@ -149,7 +124,6 @@ describe("encodeExport / decodeExport", () => {
     expect(decoded.workspaces[0].activeQueryTab).toBe(0);
     expect(decoded.workspaces[0].seed).toBe(42);
     expect(decoded.workspaces[0].mockConfig).toBe("");
-    expect(decoded.workspaces[0].tourDraft).toBeNull();
   });
 });
 

@@ -483,7 +483,6 @@ crates/gql-core/        Rust/WASM library
     plan.rs             Query plan tree construction (visualization only)
     mock.rs             Deterministic mock execution
     api_schema.rs       Derive client-facing API schema from supergraph
-    node_at_pos.rs      Cursor-aware SDL node lookup (hover/highlight support)
     dto.rs              Serde types for the JS↔Rust boundary
   tests/
     wasm.rs             Browser smoke tests (CI only)
@@ -498,8 +497,6 @@ web/
     QueryShape.tsx      Query shape / field-set summary view
     SchemaTree.tsx      Hierarchical schema tree (types → fields → args)
     SequenceDiagram.tsx Mermaid sequence diagram renderer
-    TourAuthoringPanel.tsx  Slide-deck tour builder (create + edit tours in-app)
-    TourPlayback.tsx    Full-screen tour player (step-through, progress, highlight)
     TypeGraph.tsx       Force-directed type relationship graph (D3)
     auth.ts             Auth client (fetchCurrentUser, login, logout) + useAuth Zustand store
     encryption.ts       AES-256-GCM two-layer key system (KWK/DEK, compress+encrypt)
@@ -512,11 +509,10 @@ web/
     schemaToEntityGraph.ts  Parse supergraph → entity ownership data
     schemaToSchemaTree.ts   Parse schema → hierarchical tree
     schemaToTypeGraph.ts    Parse schema → type relationship graph data
-    share.ts            URL encode/decode (gzip + base64url); workspace + tour types
+    share.ts            URL encode/decode (gzip + base64url); workspace types
     store.ts            Zustand workspace store (persisted to localStorage, v5)
     subgraphColors.ts   Deterministic per-subgraph color assignment
     sync.ts             Cloud sync engine (pull-on-login, auto-save, delta refresh)
-    tourHighlight.ts    Monaco decoration helpers for tour step anchors
     theme.css           All design tokens + semantic component classes
     core/
       index.ts          loadCore() — lazy WASM loader + typed wrapper
@@ -541,7 +537,6 @@ The six exports:
 | `validate_query(supergraph_sdl, operation)` | two strings | `{ diagnostics: Diagnostic[] }` |
 | `plan(supergraph_sdl, operation, op_name?)` | strings | `{ ok, query_plan? }` or `{ ok, errors }` |
 | `execute_mock(supergraph_sdl, operation, seed, mock_config)` | strings + u64 + config | `{ data, errors? }` |
-| `node_at_position(sdl, line, col)` | SDL string + cursor position | `{ node_type?, name?, ... }` — cursor-aware SDL node metadata |
 
 The TypeScript wrapper in `web/src/core/index.ts` parses/stringifies and
 exposes a typed `GqlCore` interface. All UI code calls `loadCore()` and uses
@@ -554,7 +549,6 @@ apollo-federation types.
 ### Data flow
 
 1. User edits a subgraph SDL → `validate_subgraph` shows squiggles live.
-   `node_at_position` drives hover tooltips and field-range highlights.
 2. On change (300 ms debounce) → `compose` → supergraph SDL stored in Zustand.
    Last good supergraph is kept when composition fails.
 3. User runs a query → `plan` + `execute_mock` called with the supergraph SDL.
@@ -594,15 +588,12 @@ wiping existing users' saved workspaces. It holds:
 - `vimMode: boolean`
 
 Each `WorkspaceEntry` contains:
-- `name`, `subgraphs`, `activeSubgraph`, `queryTabs`, `activeQueryTab`, `seed`, `mockConfig`, `tourDraft`
+- `name`, `subgraphs`, `activeSubgraph`, `queryTabs`, `activeQueryTab`, `seed`, `mockConfig`
 - `id: string` — stable client-generated UUID for cloud sync (added in v5)
 - `version: number` — monotonic counter for last-write-wins conflict resolution (added in v5)
 
 Composition result is *derived* state — recomputed whenever subgraphs change,
 never hand-set by the user.
-
-`tourDraft` holds the in-progress `Tour` object while authoring. It is persisted
-locally but **not synced to the cloud** — tours are shared via `#t=` URLs.
 
 ### Sync model
 
@@ -713,40 +704,6 @@ The Share button writes this fragment and copies the URL to the clipboard;
 navigating to such a URL restores the workspace and then clears the fragment.
 Old single-query URLs (without `queryTabs`) are decoded gracefully on the fly.
 
-**Tour share:**
-```
-#t=<base64url(gzip(JSON))>
-```
-A `Tour` object contains `base: WorkspacePayload` and `steps: TourStep[]`.
-Each `TourStep` has a `title`, optional `description`, an optional SDL cursor
-`anchor` (line + col), and optional `overrides: Partial<WorkspacePayload>` that
-are merged onto the base for that step. Navigating to a `#t=` URL launches the
-tour player automatically.
-
----
-
-## Tour system
-
-Tours are slide-deck-style walkthroughs of a GraphQL federation workspace.
-They are authored in-app and shared as `#t=` URLs — no backend required.
-
-**Authoring** (`TourAuthoringPanel.tsx`):
-- Accessible via a toolbar button when a workspace is open.
-- Each step has a title, description (markdown), and an optional schema anchor
-  (click-to-set in the Monaco editor via `node_at_position`).
-- Steps can override any `WorkspacePayload` field (subgraphs, query, seed, etc.)
-  to show progression across the tour.
-- The draft is saved to `tourDraft` in the workspace store; a "Share tour" button
-  encodes the finished tour as a `#t=` URL.
-
-**Playback** (`TourPlayback.tsx`):
-- Full-screen overlay driven by the `Tour` decoded from the `#t=` URL hash.
-- Prev/Next navigation; progress indicator.
-- Each step applies `resolveTourStep(tour, stepIndex)` (merges step overrides
-  onto the base payload) and renders the workspace in read-only mode.
-- If an anchor is set, `tourHighlight.ts` places a Monaco decoration on the
-  referenced schema node.
-
 ---
 
 ## UI layout
@@ -754,8 +711,7 @@ They are authored in-app and shared as `#t=` URLs — no backend required.
 `App.tsx` is the single root component. There is no routing.
 
 **Desktop** — three vertical panels via `react-resizable-panels`:
-1. **Left** — subgraph tab bar + Monaco editor (federation SDL); `node_at_position`
-   drives hover info and field-range decorations after a query runs.
+1. **Left** — subgraph tab bar + Monaco editor (federation SDL).
 2. **Middle** — query tab bar + Monaco query editor + variables editor + Run controls.
    Below the query editor: results tabs after execution.
 3. **Right** — two stacked sub-panels:

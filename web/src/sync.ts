@@ -50,7 +50,7 @@ function entryToPayload(ws: WorkspaceEntry): string {
   return JSON.stringify(p);
 }
 
-// Session-only state (activeSubgraph selection, tourDraft) is not part of the
+// Session-only state (activeSubgraph selection) is not part of the
 // synced WorkspacePayload, so a server row carries no value for it. Preserve it
 // from the existing local entry when we have one; otherwise fall back to
 // defaults. Without this, rebuilding an entry from a server row (on autosave
@@ -68,7 +68,6 @@ function rowToEntry(row: WorkspaceRow, local?: WorkspaceEntry): WorkspaceEntry {
     activeQueryTab: p.activeQueryTab ?? 0,
     seed: p.seed,
     mockConfig: p.mockConfig ?? "",
-    tourDraft: local?.tourDraft ?? null, // tours are URL-shareable (#t=); not synced to cloud
     saved: row.saved,
     open: row.open,
   };

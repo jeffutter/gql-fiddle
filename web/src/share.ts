@@ -33,7 +33,6 @@ export interface WorkspaceEntry {
   seed: number;
   /** Raw YAML string for mock field overrides. Empty string means no overrides. */
   mockConfig: string;
-  tourDraft: Tour | null;
   /** Marked to persist past tab close. Synced; undefined ≡ false (matches
    *  the server's default for pre-126.1 rows and brand-new local workspaces). */
   saved?: boolean;
@@ -43,29 +42,7 @@ export interface WorkspaceEntry {
   open?: boolean;
 }
 
-export type PaneId = "schema" | "plan";
-
-export interface PaneVisibility {
-  schema?: boolean;
-  plan?: boolean;
-}
-
-export interface TourStep {
-  label: string;
-  prose: string;
-  anchor?: { subgraphIndex: number; typeName: string; fieldName?: string };
-  overrides?: Partial<WorkspacePayload>;
-  paneVisibility?: PaneVisibility;
-}
-
-export interface Tour {
-  title: string;
-  base: WorkspacePayload;
-  steps: TourStep[];
-}
-
 const HASH_PREFIX = "#w=";
-const TOUR_HASH_PREFIX = "#t=";
 
 /** Convert a Uint8Array to URL-safe base64 (no padding). */
 function uint8ToBase64url(bytes: Uint8Array): string {
@@ -126,35 +103,6 @@ export function decode(hash: string): WorkspacePayload {
   return parsed as unknown as WorkspacePayload;
 }
 
-/** Encode a Tour into a URL hash fragment with the #t= prefix. */
-export function encodeTour(tour: Tour): string {
-  const json = JSON.stringify(tour);
-  const compressed = pako.gzip(json);
-  return TOUR_HASH_PREFIX + uint8ToBase64url(compressed);
-}
-
-/** Decode a #t= URL hash fragment back into a Tour. */
-export function decodeTour(hash: string): Tour {
-  if (!hash.startsWith(TOUR_HASH_PREFIX) || hash.length === TOUR_HASH_PREFIX.length) {
-    throw new Error("Invalid tour hash: must start with #t= and contain encoded data");
-  }
-  const encoded = hash.slice(TOUR_HASH_PREFIX.length);
-  const bytes = base64urlToUint8(encoded);
-  const json = pako.inflate(bytes, { toText: true });
-  return JSON.parse(json) as Tour;
-}
-
-/**
- * Merge tour.base with the step's overrides to produce the workspace payload
- * for a given step. Merges at the top-level key granularity (spread), so an
- * override of `seed` does not affect `subgraphs` or `queryTabs`.
- */
-export function resolveTourStep(tour: Tour, stepIndex: number): WorkspacePayload {
-  const step = tour.steps[stepIndex];
-  if (!step || !step.overrides) return tour.base;
-  return { ...tour.base, ...step.overrides };
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Multi-workspace export/import (TASK-116)
 // ──────────────────────────────────────────────────────────────────────────────
@@ -169,7 +117,6 @@ export interface ExportedWorkspace {
   activeQueryTab: number;
   seed: number;
   mockConfig: string;
-  tourDraft: Tour | null;
 }
 
 export interface ExportFormat {
@@ -209,7 +156,6 @@ export function encodeExport(workspaces: WorkspaceEntry[]): Uint8Array {
     activeQueryTab: ws.activeQueryTab,
     seed: ws.seed,
     mockConfig: ws.mockConfig,
-    tourDraft: ws.tourDraft ?? null,
   }));
   const format: ExportFormat = {
     exportVersion: 1,
@@ -272,7 +218,6 @@ export function decodeExport(bytes: Uint8Array): DecodedExport {
       activeQueryTab: typeof entry.activeQueryTab === "number" ? entry.activeQueryTab : 0,
       seed: typeof entry.seed === "number" ? entry.seed : 42,
       mockConfig: typeof entry.mockConfig === "string" ? entry.mockConfig : "",
-      tourDraft: (entry.tourDraft as Tour | null | undefined) ?? null,
     });
   }
 

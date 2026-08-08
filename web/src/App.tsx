@@ -15,23 +15,20 @@ import {
 import { useAuth, fetchCurrentUser, login, logout } from "./auth";
 import { initSync, closeSavedWorkspace } from "./sync";
 import { loadCore } from "./core";
-import { decode, encode, encodeTour, decodeTour } from "./share";
-import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
+import { decode, encode } from "./share";
+import type { WorkspacePayload, WorkspaceEntry } from "./share";
 import type { GqlCore } from "./core/types";
-import { TourAuthoringPanel } from "./TourAuthoringPanel";
 import { SavedWorkspacesMenu } from "./SavedWorkspacesMenu";
 import { AboutModal } from "./AboutModal";
 import { ExportImageDialog } from "./ExportImageDialog";
 import { ExportDialog, ImportDialog } from "./ExportImportDialog";
 import { exportPng, exportSvg } from "./imageExport";
-import { TourPlayback } from "./TourPlayback";
 import { PlanTree } from "./PlanTree";
 import { SequenceDiagram } from "./SequenceDiagram";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges";
 import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subgraphColors";
-import { useTourAuthoringDecorations } from "./useTourAuthoringDecorations";
 import { useMonacoGraphQL } from "./useMonacoGraphQL";
 import { useGraphQLPipeline } from "./useGraphQLPipeline";
 import { useCopyToClipboard } from "./useCopyToClipboard";
@@ -274,8 +271,6 @@ export default function App() {
     supergraphSdl,
     vimMode,
     setVimMode,
-    tourActiveStep,
-    setStepAnchor,
     addWorkspace,
     cloneWorkspace,
     removeWorkspace,
@@ -294,7 +289,6 @@ export default function App() {
     setSeed,
     resetToDefaults,
     renameSubgraph,
-    setTourDraft,
     setMockConfig,
     liveSession,
     setLiveSessionWsUrl: _setLiveSessionWsUrl, // used by TASK-119.3 (share link UI)
@@ -308,11 +302,6 @@ export default function App() {
   const activeQueryTab = activeWs.activeQueryTab;
   const seed = activeWs.seed;
   const mockConfig = activeWs.mockConfig;
-  const tourDraft = activeWs.tourDraft;
-  const [tourAuthoringOpen, setTourAuthoringOpen] = useState(false);
-  const [tourPreviewMode, setTourPreviewMode] = useState(false);
-  const [playbackTour, setPlaybackTour] = useState<Tour | null>(null);
-  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const currentQuery = queryTabs[activeQueryTab]?.query ?? "";
   // WASM core instance — loaded once and cached; available on first render cycle after load.
   const [coreInstance, setCoreInstance] = useState<GqlCore | null>(null);
@@ -343,7 +332,6 @@ export default function App() {
   // flipped the others' text).
   const [copiedLLM, copyLLM] = useCopyToClipboard();
   const [copiedShare, copyShare] = useCopyToClipboard();
-  const [copiedTourShare, copyTourShare] = useCopyToClipboard();
   const [copiedLiveLink, copyLiveLink] = useCopyToClipboard();
   // Live session share-link state (TASK-119.3)
   const [liveSessionError, setLiveSessionError] = useState<string | null>(null);
@@ -387,9 +375,7 @@ export default function App() {
   // Disposers for active vim mode instances — cleared on toggle-off or editor remount.
   const vimDisposersRef = useRef<(() => void)[]>([]);
   const isMobile = useMobile();
-  const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output" | "results" | "tour">(
-    "schema",
-  );
+  const [mobileTab, setMobileTab] = useState<"schema" | "query" | "output" | "results">("schema");
 
   // Auth state — resolved on mount by fetchCurrentUser()
   const { user, status: authStatus, syncStatus, decryptWarning } = useAuth();
@@ -491,20 +477,8 @@ export default function App() {
   }, [exportError]);
 
   // Restore workspace from URL hash on mount (once only).
-  // Also handles #t= tour playback hashes.
   useEffect(() => {
     const hash = location.hash;
-    if (hash.startsWith("#t=")) {
-      try {
-        const tour = decodeTour(hash);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setPlaybackTour(tour);
-        window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      } catch (err) {
-        setPlaybackError(err instanceof Error ? err.message : "Failed to decode tour");
-      }
-      return;
-    }
     if (!hash.startsWith("#w=")) return;
     try {
       const payload = decode(hash);
@@ -528,7 +502,6 @@ export default function App() {
           activeQueryTab: payload.activeQueryTab ?? 0,
           seed: payload.seed,
           mockConfig: payload.mockConfig ?? "",
-          tourDraft: null,
         };
         useWorkspace.setState({
           workspaces: [sharedEntry],
@@ -549,7 +522,6 @@ export default function App() {
           activeQueryTab: payload.activeQueryTab ?? 0,
           seed: payload.seed,
           mockConfig: payload.mockConfig ?? "",
-          tourDraft: null,
         };
         useWorkspace.setState({
           workspaces: [...currentWorkspaces, newEntry],
@@ -583,7 +555,6 @@ export default function App() {
       activeQueryTab: 0,
       seed: DEFAULT_SEED,
       mockConfig: "",
-      tourDraft: null,
     };
 
     useWorkspace.setState({
@@ -656,18 +627,6 @@ export default function App() {
       editor.focus();
     }
   }, [editor, activeSubgraph]);
-
-  useTourAuthoringDecorations({
-    editor,
-    monacoInstance,
-    tourDraft,
-    tourActiveStep,
-    activeSubgraph,
-    tourAuthoringOpen,
-    subgraphs,
-    setStepAnchor,
-    setActiveSubgraph,
-  });
 
   // When workspace switches, stale Monaco models may exist at the new index's
   // paths (e.g., workspace index is reused after removal). Sync them to the
@@ -783,32 +742,6 @@ export default function App() {
     copyShare(shareUrl);
   }
 
-  function createTour() {
-    const ws = activeWorkspace(useWorkspace.getState());
-    const base: WorkspacePayload = {
-      subgraphs: ws.subgraphs,
-      queryTabs: ws.queryTabs,
-      activeQueryTab: ws.activeQueryTab,
-      seed: ws.seed,
-      mockConfig: ws.mockConfig,
-    };
-    setTourDraft({ title: "Untitled Tour", base, steps: [] });
-    setTourAuthoringOpen(true);
-  }
-
-  function copyTourShareUrl() {
-    if (!tourDraft) return;
-    const hash = encodeTour(tourDraft);
-    const loc = window.location;
-    const hostname =
-      typeof loc.hostname === "string" && loc.hostname.length > 0 ? loc.hostname : "localhost";
-    const port = typeof loc.port === "string" && loc.port.length > 0 ? loc.port : "";
-    const origin = loc.origin || `http://${hostname}${port ? `:${port}` : ""}`;
-    const shareUrl = origin + window.location.pathname + hash;
-
-    copyTourShare(shareUrl);
-  }
-
   // ── Live session share-link actions (TASK-119.3) ─────────────────────────
 
   /** Start a live collaboration session for the current workspace. */
@@ -898,8 +831,8 @@ export default function App() {
           setEditor(ed);
           setMonacoInstance(m);
           // Bind to Yjs if this is already the shared workspace at mount
-          // time (e.g. a fresh tour/tab opened while a session is active) —
-          // the effect above handles the more common case of the session
+          // time (e.g. a fresh tab opened while a session is active) — the
+          // effect above handles the more common case of the session
           // starting after this editor already exists.
           const model = ed.getModel();
           if (isSharedWorkspaceActive && model) {
@@ -1442,81 +1375,48 @@ export default function App() {
           </HeaderMenu>
         )}
         <HeaderMenu
-          label={tourDraft !== null ? "Tour" : liveSession.wsUrl ? "Live" : "Share"}
-          triggerClassName={tourDraft === null && !liveSession.wsUrl ? "btn btn--primary" : "btn"}
+          label={liveSession.wsUrl ? "Live" : "Share"}
+          triggerClassName={!liveSession.wsUrl ? "btn btn--primary" : "btn"}
           testId="header-menu-share"
           open={openHeaderMenu === "share"}
           onToggle={() => setOpenHeaderMenu((m) => (m === "share" ? null : "share"))}
           onClose={() => setOpenHeaderMenu((m) => (m === "share" ? null : m))}
         >
-          {tourDraft !== null ? (
+          {/* Share (static snapshot) + Collaborate (live session) */}
+          {!liveSession.wsUrl ? (
             <>
-              <button
-                onClick={copyTourShareUrl}
-                className={copiedTourShare ? "btn is-success" : "btn"}
-              >
-                {copiedTourShare ? "Copied!" : "Share Tour"}
+              <button onClick={copyShareUrl} className={copiedShare ? "btn is-success" : "btn"}>
+                {copiedShare ? "Copied!" : "Share"}
               </button>
-              {!tourAuthoringOpen && (
-                <button
-                  onClick={() => {
-                    setTourAuthoringOpen(true);
-                    setOpenHeaderMenu(null);
-                  }}
-                  className="btn"
-                >
-                  Tour ›
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  void startCollaboration();
+                  setOpenHeaderMenu(null);
+                }}
+                className="btn"
+              >
+                Collaborate
+              </button>
             </>
           ) : (
-            <>
-              {/* Share (static snapshot) + Collaborate (live session) */}
-              {!liveSession.wsUrl ? (
-                <>
-                  <button onClick={copyShareUrl} className={copiedShare ? "btn is-success" : "btn"}>
-                    {copiedShare ? "Copied!" : "Share"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      void startCollaboration();
-                      setOpenHeaderMenu(null);
-                    }}
-                    className="btn"
-                  >
-                    Collaborate
-                  </button>
-                  <button
-                    onClick={() => {
-                      createTour();
-                      setOpenHeaderMenu(null);
-                    }}
-                    className="btn"
-                  >
-                    Create Tour
-                  </button>
-                </>
-              ) : (
-                <div className="live-session-controls">
-                  <span className="badge badge--success">Live</span>
-                  <button
-                    onClick={copyLiveSessionUrl}
-                    className={copiedLiveLink ? "btn is-success" : "btn"}
-                  >
-                    {copiedLiveLink ? "Copied!" : "Copy link"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      endLiveSession();
-                      setOpenHeaderMenu(null);
-                    }}
-                    className="btn"
-                  >
-                    End session
-                  </button>
-                </div>
-              )}
-            </>
+            <div className="live-session-controls">
+              <span className="badge badge--success">Live</span>
+              <button
+                onClick={copyLiveSessionUrl}
+                className={copiedLiveLink ? "btn is-success" : "btn"}
+              >
+                {copiedLiveLink ? "Copied!" : "Copy link"}
+              </button>
+              <button
+                onClick={() => {
+                  endLiveSession();
+                  setOpenHeaderMenu(null);
+                }}
+                className="btn"
+              >
+                End session
+              </button>
+            </div>
           )}
         </HeaderMenu>
         {authStatus === "authed" && (
@@ -1621,54 +1521,6 @@ export default function App() {
       {workspaceImportOpen && <ImportDialog onClose={() => setWorkspaceImportOpen(false)} />}
     </>
   );
-
-  // Creates a new workspace from the playback tour's base + tourDraft, exits playback.
-  function handleOpenInWorkspace() {
-    if (!playbackTour) return;
-    const currentWorkspaces = useWorkspace.getState().workspaces;
-    let n = 1;
-    while (currentWorkspaces.some((ws) => ws.name === `Workspace ${n}`)) n++;
-    const newWs: WorkspaceEntry = {
-      name: `Workspace ${n}`,
-      subgraphs: playbackTour.base.subgraphs,
-      activeSubgraph: 0,
-      queryTabs: playbackTour.base.queryTabs,
-      activeQueryTab: playbackTour.base.activeQueryTab,
-      seed: playbackTour.base.seed,
-      mockConfig: playbackTour.base.mockConfig ?? "",
-      tourDraft: playbackTour,
-    };
-    useWorkspace.setState({
-      workspaces: [...currentWorkspaces, newWs],
-      activeWorkspaceIndex: currentWorkspaces.length,
-      supergraphSdl: null,
-      composeErrors: null,
-      composeHints: 0,
-    });
-    setPlaybackTour(null);
-    setTourAuthoringOpen(true);
-  }
-
-  // Tour playback mode — render a completely separate layout.
-  if (playbackError !== null) {
-    return (
-      <div className="tour-playback__error">
-        <p>Could not load tour: {playbackError}</p>
-      </div>
-    );
-  }
-  if (playbackTour !== null) {
-    return <TourPlayback tour={playbackTour} onOpenInWorkspace={handleOpenInWorkspace} />;
-  }
-  if (tourPreviewMode && tourDraft !== null) {
-    return (
-      <TourPlayback
-        tour={tourDraft}
-        initialStepIndex={tourActiveStep ?? 0}
-        onExitPreview={() => setTourPreviewMode(false)}
-      />
-    );
-  }
 
   if (isMobile) {
     return (
@@ -1889,23 +1741,6 @@ export default function App() {
                 {resultsTab === "output" && resultsContent}
               </div>
             )}
-
-            {mobileTab === "tour" && tourDraft !== null && (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  minHeight: 0,
-                  overflow: "hidden",
-                }}
-              >
-                <TourAuthoringPanel
-                  onCollapse={() => setMobileTab("schema")}
-                  onPreview={() => setTourPreviewMode(true)}
-                />
-              </div>
-            )}
           </div>
 
           {/* Mobile tab bar */}
@@ -1926,15 +1761,6 @@ export default function App() {
                       : "Results"}
               </button>
             ))}
-            {tourDraft !== null && (
-              <button
-                onClick={() => setMobileTab("tour")}
-                aria-pressed={mobileTab === "tour"}
-                className={mobileTab === "tour" ? "mobile-tab is-active" : "mobile-tab"}
-              >
-                Tour
-              </button>
-            )}
           </nav>
         </div>
         {viewSource !== null && (
@@ -2190,14 +2016,6 @@ export default function App() {
               </Group>
             </Panel>
           </Group>
-          {tourDraft !== null && tourAuthoringOpen && (
-            <div style={{ width: 280, flexShrink: 0, minHeight: 0 }}>
-              <TourAuthoringPanel
-                onCollapse={() => setTourAuthoringOpen(false)}
-                onPreview={() => setTourPreviewMode(true)}
-              />
-            </div>
-          )}
         </div>
         <footer className="page-footer">
           <button onClick={runQuery} disabled={supergraphSdl === null} className="btn btn--primary">

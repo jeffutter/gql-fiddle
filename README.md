@@ -7,8 +7,8 @@ experience.
 
 The GraphQL brain is Rust compiled to WebAssembly (Apollo's `apollo-compiler`
 and `apollo-federation`); the UI is a TypeScript/React shell. An optional
-Cloudflare Pages Functions backend adds **cloud accounts**, **cross-device
-workspace sync** (encrypted), and **tour sharing**.
+Cloudflare Pages Functions backend adds **cloud accounts** and **cross-device
+workspace sync** (encrypted).
 
 ## Getting started
 
@@ -37,18 +37,15 @@ wasm-opt, Node, pnpm, lefthook). Git hooks install automatically on shell entry.
   same data, so shared URLs always show the same result.
 - **Schema exploration** — Type Graph, Entity Ownership Graph, and Supergraph /
   API SDL views.
-- **Tour authoring & playback** — build step-by-step interactive walkthroughs
-  of a workspace and share them as `#t=` URLs, no backend needed.
 - **Cloud sync** — optional GitHub OAuth login; workspaces are synced
   cross-device via Cloudflare D1 + KV, encrypted with AES-256-GCM
   (client-generated DEK, server-side KWK — server never sees plaintext).
-- **URL sharing** — share a workspace snapshot as a `#w=` URL; share a tour as
-  a `#t=` URL.
+- **URL sharing** — share a workspace snapshot as a `#w=` URL.
 
 ## Layout
 
 ```
-crates/gql-core/   Rust/WASM core (validate, compose, plan, mock-execute, node-at-position)
+crates/gql-core/   Rust/WASM core (validate, compose, plan, mock-execute)
 web/               Vite + React + TS shell
 functions/         Cloudflare Pages Functions (auth, workspace sync, encryption key exchange)
 migrations/        D1 SQL migrations
