@@ -645,7 +645,12 @@ across an account switch on a shared device.
 (or just focuses it if already open) and marks it `open: true`, shared to
 other devices on their next sync. `closeSavedWorkspace(id)` does the
 reverse: removes it from the tab bar and marks it `open: false`, without
-deleting it. Both are the sync-engine primitives that TASK-126.3/126.4's UI
+deleting it. `renameSavedWorkspace(id, name)` and `deleteSavedWorkspace(id)`
+(TASK-126.4) round out the set, each dispatching on whether `id` is
+currently open or closed the same way open/close do; the closed-only delete
+path shares `requestDelete`'s offline queue/retry (promoted from
+`initSync()`-private to module scope so callers outside `initSync` can reach
+it). All four are the sync-engine primitives that TASK-126.3/126.4's UI
 calls into — this layer has no UI of its own.
 
 Non-saved workspace behavior is unchanged: closing one still soft-deletes it

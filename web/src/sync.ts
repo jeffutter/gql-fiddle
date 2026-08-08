@@ -290,10 +290,12 @@ const THROTTLE_MS = 15_000; // at most one delta pull per 15 s (dampen focus/vis
 let isSyncing = false;
 
 // Module-level (not closure-local to initSync) so both autoSave and the
-// top-level openSavedWorkspace/closeSavedWorkspace functions below can queue
-// into the same queue via pushEntry. offlineDeleteQueue and debounceTimers
-// stay closure-local to initSync() — only the push path is shared.
+// top-level openSavedWorkspace/closeSavedWorkspace/renameSavedWorkspace/
+// deleteSavedWorkspace functions below can queue into the same queues via
+// pushEntry/requestDelete. debounceTimers stays closure-local to initSync()
+// — only the push/delete tails are shared.
 const offlineQueue = new Map<string, WorkspaceEntry>(); // keyed by id
+const offlineDeleteQueue = new Set<string>(); // ids pending soft-delete
 
 /**
  * Push one workspace entry to the server, handling the offline queue, sync
@@ -334,6 +336,29 @@ async function pushEntry(ws: WorkspaceEntry): Promise<void> {
   }
 }
 
+// Mirrors autoSave's offline/error handling (same navigator.onLine check,
+// same setSyncStatus calls, same catch-all) so a delete that can't reach
+// the server — whether offline or due to a transient failure — is queued
+// for retry instead of silently dropped. Module-level (not closure-local to
+// initSync) for the same reason pushEntry/offlineQueue are: renameSaved
+// Workspace/deleteSavedWorkspace's closed-library branch needs to issue a
+// queued/retried delete without initSync() in scope.
+async function requestDelete(id: string): Promise<void> {
+  if (!navigator.onLine) {
+    offlineDeleteQueue.add(id);
+    useAuth.getState().setSyncStatus("offline");
+    return;
+  }
+  try {
+    await deleteWorkspace(id);
+    useAuth.getState().setSyncStatus("synced");
+  } catch (err) {
+    console.error("Sync: delete failed", err);
+    offlineDeleteQueue.add(id);
+    useAuth.getState().setSyncStatus(navigator.onLine ? "error" : "offline");
+  }
+}
+
 export async function deltaRefresh(force = false): Promise<void> {
   if (useAuth.getState().status !== "authed") return;
   const now = Date.now();
@@ -369,7 +394,7 @@ export async function deltaRefresh(force = false): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Saved-workspace open/close actions (TASK-126.2)
+// Saved-workspace open/close/rename/delete actions (TASK-126.2, TASK-126.4)
 //
 // The mechanism 126.3/126.4's UI calls into to move a saved workspace
 // between the tab bar and the closed library. Both wrap only the *local*
@@ -440,6 +465,64 @@ export function closeSavedWorkspace(id: string): void {
   void pushEntry(closed);
 }
 
+/**
+ * Renames a saved workspace by id, whether it's currently open (in the tab
+ * bar) or closed (in the saved library) — the Saved Workspaces menu doesn't
+ * know or care which. An open workspace is renamed through the store's own
+ * renameWorkspace action so the edit flows through the same generic
+ * change-detection/autosave path every other tab-strip edit uses (no
+ * explicit push here — mirrors setWorkspaceSaved from TASK-126.3). A closed
+ * library entry isn't watched by that subscriber, so it's renamed in place
+ * and pushed explicitly, the same shape as openSavedWorkspace/
+ * closeSavedWorkspace above.
+ */
+export function renameSavedWorkspace(id: string, name: string): void {
+  const openIndex = useWorkspace.getState().workspaces.findIndex((w) => w.id === id);
+  if (openIndex !== -1) {
+    useWorkspace.getState().renameWorkspace(openIndex, name);
+    return;
+  }
+  const entry = useSavedWorkspaceLibrary.getState().entries.find((w) => w.id === id);
+  if (!entry) {
+    console.error(`Sync: renameSavedWorkspace(${id}) — not found`);
+    return;
+  }
+  const renamed: WorkspaceEntry = { ...entry, name, version: (entry.version ?? 0) + 1 };
+  useSavedWorkspaceLibrary.setState({
+    entries: useSavedWorkspaceLibrary.getState().entries.map((w) => (w.id === id ? renamed : w)),
+  });
+  void pushEntry(renamed);
+}
+
+/**
+ * Permanently deletes a saved workspace by id, whether open or closed —
+ * unlike closeSavedWorkspace, this removes it for good and issues a
+ * server-side delete. An open workspace reuses the store's plain
+ * removeWorkspace with NO isSyncing guard (unlike closeSavedWorkspace) so
+ * unsubStore's existing change-detection treats the missing id exactly like
+ * closing a non-saved workspace's tab — same DELETE request, same
+ * offline-queue/retry behavior, zero new delete logic. A closed library
+ * entry has no such subscriber watching it, so it's removed from the
+ * library here and the delete requested directly via the module-level
+ * requestDelete.
+ */
+export function deleteSavedWorkspace(id: string): void {
+  const openIndex = useWorkspace.getState().workspaces.findIndex((w) => w.id === id);
+  if (openIndex !== -1) {
+    useWorkspace.getState().removeWorkspace(openIndex);
+    return;
+  }
+  const entry = useSavedWorkspaceLibrary.getState().entries.find((w) => w.id === id);
+  if (!entry) {
+    console.error(`Sync: deleteSavedWorkspace(${id}) — not found`);
+    return;
+  }
+  useSavedWorkspaceLibrary.setState({
+    entries: useSavedWorkspaceLibrary.getState().entries.filter((w) => w.id !== id),
+  });
+  void requestDelete(id);
+}
+
 // ---------------------------------------------------------------------------
 // Sync engine initialization
 // ---------------------------------------------------------------------------
@@ -448,7 +531,6 @@ const AUTOSAVE_DEBOUNCE_MS = 2_000; // 2 s — balance responsiveness vs. push f
 
 export function initSync(): () => void {
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const offlineDeleteQueue = new Set<string>(); // ids pending soft-delete
 
   async function onLogin() {
     isSyncing = true;
@@ -541,26 +623,6 @@ export function initSync(): () => void {
     if (!bumped) return; // deleted concurrently between lookup and bump
 
     await pushEntry(bumped);
-  }
-
-  // Mirrors autoSave's offline/error handling (same navigator.onLine check,
-  // same setSyncStatus calls, same catch-all) so a delete that can't reach
-  // the server — whether offline or due to a transient failure — is queued
-  // for retry instead of silently dropped.
-  async function requestDelete(id: string) {
-    if (!navigator.onLine) {
-      offlineDeleteQueue.add(id);
-      useAuth.getState().setSyncStatus("offline");
-      return;
-    }
-    try {
-      await deleteWorkspace(id);
-      useAuth.getState().setSyncStatus("synced");
-    } catch (err) {
-      console.error("Sync: delete failed", err);
-      offlineDeleteQueue.add(id);
-      useAuth.getState().setSyncStatus(navigator.onLine ? "error" : "offline");
-    }
   }
 
   async function flushOfflineQueue() {

@@ -6,6 +6,8 @@ import {
   useSavedWorkspaceLibrary,
   openSavedWorkspace,
   closeSavedWorkspace,
+  renameSavedWorkspace,
+  deleteSavedWorkspace,
   deltaRefresh,
   initSync,
 } from "./sync";
@@ -1339,5 +1341,258 @@ describe("non-saved workspace close still soft-deletes", () => {
 
     expect(deleteCalls).toHaveLength(1);
     expect(deleteCalls[0]).toContain(`/api/workspaces/${id}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renameSavedWorkspace (TASK-126.4)
+// ---------------------------------------------------------------------------
+
+describe("renameSavedWorkspace", () => {
+  let cleanup: (() => void) | undefined;
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("renames an open+saved workspace via the store, and the debounced autosave PUT carries the new name", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    const id = "ws-open-rename";
+    useWorkspace.setState({
+      workspaces: [makeEntry({ id, name: "Old name", version: 1, saved: true, open: true })],
+      activeWorkspaceIndex: 0,
+    });
+
+    const putBodies: { name: string }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ workspace: makeRow({ id, version: 2, name: "New name" }) }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    cleanup = initSync();
+
+    renameSavedWorkspace(id, "New name");
+
+    // Renaming an open workspace goes through the store's own renameWorkspace
+    // action — no explicit push here, it flows through the generic
+    // change-detection/debounced-autosave path every other tab-strip edit
+    // uses, same as setWorkspaceSaved from TASK-126.3.
+    expect(useWorkspace.getState().workspaces[0].name).toBe("New name");
+    expect(putBodies).toHaveLength(0); // not pushed yet — still debouncing
+
+    await vi.advanceTimersByTimeAsync(2_100);
+    expect(putBodies).toHaveLength(1);
+    expect(putBodies[0].name).toBe("New name");
+  });
+
+  it("renames a closed library entry in place and pushes an immediate PUT", async () => {
+    const id = "ws-closed-rename";
+    useSavedWorkspaceLibrary.setState({
+      entries: [makeEntry({ id, name: "Old name", version: 3, saved: true, open: false })],
+    });
+
+    const putBodies: { name: string }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          putBodies.push(JSON.parse(opts.body as string));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ workspace: makeRow({ id, version: 4, name: "New name" }) }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    renameSavedWorkspace(id, "New name");
+
+    expect(useSavedWorkspaceLibrary.getState().entries[0].name).toBe("New name");
+
+    // Immediate push (no debounce), matching openSavedWorkspace/
+    // closeSavedWorkspace's synchronous pushEntry call.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(putBodies).toHaveLength(1);
+    expect(putBodies[0].name).toBe("New name");
+  });
+
+  it("no-ops (and logs) when id matches neither store", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    renameSavedWorkspace("missing-id", "New name");
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteSavedWorkspace (TASK-126.4)
+// ---------------------------------------------------------------------------
+
+describe("deleteSavedWorkspace", () => {
+  let cleanup: (() => void) | undefined;
+
+  function setOnline(value: boolean) {
+    vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(value);
+  }
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("deleting an open+saved workspace removes it from the tab bar and triggers DELETE via the store subscriber", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    const id = "ws-open-delete";
+    useWorkspace.setState({
+      workspaces: [makeEntry({ id, name: "Delete me", version: 1, saved: true, open: true })],
+      activeWorkspaceIndex: 0,
+    });
+
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    // The open branch depends on unsubStore's change-detection to fire the
+    // DELETE — mirrors the "non-saved workspace close still soft-deletes" test.
+    cleanup = initSync();
+
+    deleteSavedWorkspace(id);
+
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === id)).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]).toContain(`/api/workspaces/${id}`);
+  });
+
+  it("deleting a closed library entry removes it from the library and issues DELETE directly, without initSync", async () => {
+    const id = "ws-closed-delete";
+    useSavedWorkspaceLibrary.setState({
+      entries: [makeEntry({ id, name: "Delete me too", version: 2, saved: true, open: false })],
+    });
+
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    // Deliberately NOT calling initSync() — pins that the closed-library
+    // delete path doesn't depend on the store subscriber, only on the
+    // module-level requestDelete.
+    deleteSavedWorkspace(id);
+
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === id)).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]).toContain(`/api/workspaces/${id}`);
+  });
+
+  it("queues a closed-entry delete while offline and flushes it on reconnect", async () => {
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    const id = "ws-closed-delete-offline";
+    useSavedWorkspaceLibrary.setState({
+      entries: [makeEntry({ id, name: "Offline delete", version: 1, saved: true, open: false })],
+    });
+
+    const deleteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    // Needs initSync() mounted so the "online" event's flushOfflineQueue
+    // handler is registered.
+    cleanup = initSync();
+
+    setOnline(false);
+    deleteSavedWorkspace(id);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deleteCalls).toHaveLength(0); // still offline — nothing sent yet
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === id)).toBe(false);
+
+    setOnline(true);
+    window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]).toContain(`/api/workspaces/${id}`);
+  });
+
+  it("no-ops (and logs) when id matches neither store", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    deleteSavedWorkspace("missing-id");
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
   });
 });

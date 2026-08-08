@@ -754,6 +754,28 @@ body {
   background: var(--border);
 }
 
+/* Saved Workspaces menu (TASK-126.4): reuses .tab's rename/delete
+ * affordances (EditableTab) stacked full-width inside the dropdown instead
+ * of the horizontal tab strip; "x" is repurposed here to mean delete. */
+.saved-workspaces-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.saved-workspaces-menu .tab {
+  width: 100%;
+  justify-content: space-between;
+}
+.saved-workspaces-menu__empty {
+  margin: 4px 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-style: italic;
+}
+
 /* ========================================================================== *
  * Brand logo
  * ========================================================================== */

@@ -2147,3 +2147,228 @@ describe("saved workspace toggle & close (TASK-126.3)", () => {
     expect(useWorkspace.getState().workspaces.some((w) => w.id === "ws-1")).toBe(false);
   });
 });
+
+describe("Saved Workspaces menu (TASK-126.4)", () => {
+  function closedSavedEntry(id: string, name: string): WorkspaceEntry {
+    return {
+      name,
+      id,
+      version: 1,
+      subgraphs: [{ name: "products", sdl: "" }],
+      activeSubgraph: 0,
+      queryTabs: [{ name: "Query 1", query: "" }],
+      activeQueryTab: 0,
+      seed: 42,
+      mockConfig: "",
+      tourDraft: null,
+      saved: true,
+      open: false,
+    };
+  }
+
+  function mockFetchWithDelete(deleteCalls: string[]) {
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "DELETE") {
+          deleteCalls.push(String(url));
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      });
+  }
+
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "" },
+      writable: true,
+      configurable: true,
+    });
+    useWorkspace.setState({
+      workspaces: [
+        {
+          name: "Workspace 1",
+          id: "ws-1",
+          version: 1,
+          subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+          activeSubgraph: 0,
+          queryTabs: [{ name: "Query 1", query: "" }],
+          activeQueryTab: 0,
+          seed: 42,
+          mockConfig: "",
+          tourDraft: null,
+        },
+        {
+          name: "Workspace 2",
+          id: "ws-2",
+          version: 1,
+          subgraphs: [{ name: "products", sdl: "" }],
+          activeSubgraph: 0,
+          queryTabs: [{ name: "Query 1", query: "" }],
+          activeQueryTab: 0,
+          seed: 42,
+          mockConfig: "",
+          tourDraft: null,
+        },
+      ],
+      activeWorkspaceIndex: 0,
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+    });
+    useSavedWorkspaceLibrary.setState({ entries: [] });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("anonymous users don't see the Saved Workspaces menu (AC #6)", () => {
+    useAuth.setState({ status: "anonymous" });
+
+    render(<App />);
+
+    expect(screen.queryByTestId("header-menu-saved")).toBeNull();
+  });
+
+  it("lists open-saved and closed-saved workspaces, excluding a non-saved open workspace (AC #1)", () => {
+    useAuth.setState({ status: "authed" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+    );
+    useWorkspace.setState((s) => ({
+      workspaces: s.workspaces.map((w, i) => (i === 0 ? { ...w, saved: true } : w)),
+    }));
+    useSavedWorkspaceLibrary.setState({
+      entries: [closedSavedEntry("ws-closed", "Closed saved")],
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByTestId("header-menu-saved"));
+
+    expect(screen.getByTestId("saved-workspace-ws-1")).toBeTruthy();
+    expect(screen.getByTestId("saved-workspace-ws-closed")).toBeTruthy();
+    expect(screen.queryByTestId("saved-workspace-ws-2")).toBeNull();
+  });
+
+  it("opening a closed saved workspace adds it to the tab bar and closes the menu (AC #2)", () => {
+    useAuth.setState({ status: "authed" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+    );
+    useSavedWorkspaceLibrary.setState({
+      entries: [closedSavedEntry("ws-closed", "Closed saved")],
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByTestId("header-menu-saved"));
+    fireEvent.click(screen.getByTestId("saved-workspace-ws-closed"));
+
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === "ws-closed")).toBe(true);
+    // Menu closed via onOpened — its contents are gone.
+    expect(screen.queryByTestId("saved-workspace-ws-closed")).toBeNull();
+  });
+
+  it("clicking an already-open saved workspace switches to it without duplicating or fetching (AC #3)", () => {
+    useAuth.setState({ status: "authed" });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+      );
+    useWorkspace.setState((s) => ({
+      workspaces: s.workspaces.map((w) => ({ ...w, saved: true })),
+      activeWorkspaceIndex: 0,
+    }));
+
+    render(<App />);
+    fetchSpy.mockClear();
+    fireEvent.click(screen.getByTestId("header-menu-saved"));
+    fireEvent.click(screen.getByTestId("saved-workspace-ws-2"));
+
+    expect(useWorkspace.getState().activeWorkspaceIndex).toBe(1);
+    expect(useWorkspace.getState().workspaces).toHaveLength(2); // no duplicate tab
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("renames a saved workspace from the menu, both open and closed (AC #4)", () => {
+    useAuth.setState({ status: "authed" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+    );
+    useWorkspace.setState((s) => ({
+      workspaces: s.workspaces.map((w, i) => (i === 0 ? { ...w, saved: true } : w)),
+    }));
+    useSavedWorkspaceLibrary.setState({
+      entries: [closedSavedEntry("ws-closed", "Closed saved")],
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByTestId("header-menu-saved"));
+
+    const openRow = screen.getByTestId("saved-workspace-ws-1");
+    fireEvent.doubleClick(within(openRow).getByText("Workspace 1"));
+    const openInput = within(openRow).getByRole("textbox");
+    fireEvent.change(openInput, { target: { value: "Renamed open" } });
+    fireEvent.keyDown(openInput, { key: "Enter" });
+    expect(useWorkspace.getState().workspaces.find((w) => w.id === "ws-1")?.name).toBe(
+      "Renamed open",
+    );
+
+    const closedRow = screen.getByTestId("saved-workspace-ws-closed");
+    fireEvent.doubleClick(within(closedRow).getByText("Closed saved"));
+    const closedInput = within(closedRow).getByRole("textbox");
+    fireEvent.change(closedInput, { target: { value: "Renamed closed" } });
+    fireEvent.keyDown(closedInput, { key: "Enter" });
+    expect(
+      useSavedWorkspaceLibrary.getState().entries.find((w) => w.id === "ws-closed")?.name,
+    ).toBe("Renamed closed");
+  });
+
+  it("permanently deletes a saved workspace from the menu, gated behind confirmation, for both an open and closed entry (AC #5)", async () => {
+    useAuth.setState({ status: "authed" });
+    const deleteCalls: string[] = [];
+    mockFetchWithDelete(deleteCalls);
+    useWorkspace.setState((s) => ({
+      workspaces: s.workspaces.map((w, i) => (i === 0 ? { ...w, saved: true } : w)),
+    }));
+    useSavedWorkspaceLibrary.setState({
+      entries: [closedSavedEntry("ws-closed", "Closed saved")],
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByTestId("header-menu-saved"));
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+
+    // Open entry: cancel first, nothing happens.
+    confirmSpy.mockReturnValueOnce(false);
+    fireEvent.click(screen.getByTestId("saved-workspace-delete-ws-1"));
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === "ws-1")).toBe(true);
+
+    // Open entry: confirm — removed from the tab bar, DELETE fires.
+    confirmSpy.mockReturnValueOnce(true);
+    fireEvent.click(screen.getByTestId("saved-workspace-delete-ws-1"));
+    expect(useWorkspace.getState().workspaces.some((w) => w.id === "ws-1")).toBe(false);
+    await vi.waitFor(() => expect(deleteCalls.some((c) => c.includes("ws-1"))).toBe(true));
+
+    // Closed entry: cancel first, nothing happens.
+    confirmSpy.mockReturnValueOnce(false);
+    fireEvent.click(screen.getByTestId("saved-workspace-delete-ws-closed"));
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === "ws-closed")).toBe(
+      true,
+    );
+
+    // Closed entry: confirm — removed from the library, DELETE fires.
+    confirmSpy.mockReturnValueOnce(true);
+    fireEvent.click(screen.getByTestId("saved-workspace-delete-ws-closed"));
+    expect(useSavedWorkspaceLibrary.getState().entries.some((w) => w.id === "ws-closed")).toBe(
+      false,
+    );
+    await vi.waitFor(() => expect(deleteCalls.some((c) => c.includes("ws-closed"))).toBe(true));
+  });
+});

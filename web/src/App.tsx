@@ -19,6 +19,7 @@ import { decode, encode, encodeTour, decodeTour } from "./share";
 import type { WorkspacePayload, Tour, WorkspaceEntry } from "./share";
 import type { GqlCore } from "./core/types";
 import { TourAuthoringPanel } from "./TourAuthoringPanel";
+import { SavedWorkspacesMenu } from "./SavedWorkspacesMenu";
 import { AboutModal } from "./AboutModal";
 import { ExportImageDialog } from "./ExportImageDialog";
 import { ExportDialog, ImportDialog } from "./ExportImportDialog";
@@ -332,7 +333,9 @@ export default function App() {
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
   // Which page-header dropdown (if any) is open. A single field keeps the
   // menus mutually exclusive without each one needing to know about the other.
-  const [openHeaderMenu, setOpenHeaderMenu] = useState<"workspace" | "share" | null>(null);
+  const [openHeaderMenu, setOpenHeaderMenu] = useState<"workspace" | "share" | "saved" | null>(
+    null,
+  );
   // Lets the tab-strip export button reach the live sequence-diagram <svg>.
   const sequenceSvgContainerRef = useRef<HTMLDivElement>(null);
   // Each copy button tracks its own "Copied!" state independently (TASK-96.4:
@@ -1427,6 +1430,17 @@ export default function App() {
             Reset to defaults
           </button>
         </HeaderMenu>
+        {authStatus === "authed" && (
+          <HeaderMenu
+            label="Saved Workspaces"
+            testId="header-menu-saved"
+            open={openHeaderMenu === "saved"}
+            onToggle={() => setOpenHeaderMenu((m) => (m === "saved" ? null : "saved"))}
+            onClose={() => setOpenHeaderMenu((m) => (m === "saved" ? null : m))}
+          >
+            <SavedWorkspacesMenu onOpened={() => setOpenHeaderMenu(null)} />
+          </HeaderMenu>
+        )}
         <HeaderMenu
           label={tourDraft !== null ? "Tour" : liveSession.wsUrl ? "Live" : "Share"}
           triggerClassName={tourDraft === null && !liveSession.wsUrl ? "btn btn--primary" : "btn"}
