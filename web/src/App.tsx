@@ -388,7 +388,7 @@ export default function App() {
   );
 
   // Auth state — resolved on mount by fetchCurrentUser()
-  const { user, status: authStatus, syncStatus } = useAuth();
+  const { user, status: authStatus, syncStatus, decryptWarning } = useAuth();
 
   // Load WASM core once on mount; store it so components (e.g. QueryShape) can use it as a prop.
   useEffect(() => {
@@ -1532,6 +1532,15 @@ export default function App() {
           <div className="callout callout--error callout--inline">
             {liveSessionError}
             <button onClick={() => setLiveSessionError(null)} className="btn">
+              Dismiss
+            </button>
+          </div>
+        )}
+        {/* Workspace decryption warning (TASK-128.2) */}
+        {decryptWarning && (
+          <div className="callout callout--error callout--inline">
+            {decryptWarning}
+            <button onClick={() => useAuth.getState().setDecryptWarning(null)} className="btn">
               Dismiss
             </button>
           </div>

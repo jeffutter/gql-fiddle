@@ -7,6 +7,7 @@ import { initVimMode } from "monaco-vim";
 import type { Diagnostic } from "./core/types";
 import { encode, encodeTour } from "./share";
 import type { Tour, WorkspaceEntry } from "./share";
+import { useAuth } from "./auth";
 
 /** Update only workspace-level fields on the active workspace. */
 function setWs(patch: Partial<WorkspaceEntry>) {
@@ -1940,5 +1941,65 @@ describe("App — tour playback", () => {
     const exportBtn = screen.getByLabelText("Export image");
     expect(exportBtn).toBeInTheDocument();
     expect(exportBtn).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workspace decryption warning banner (TASK-128.2)
+// ---------------------------------------------------------------------------
+
+describe("App decryptWarning banner", () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    Object.defineProperty(globalThis, "location", {
+      value: { hash: "" },
+      writable: true,
+      configurable: true,
+    });
+    useWorkspace.setState({
+      workspaces: [
+        {
+          name: "Workspace 1",
+          subgraphs: [{ name: "products", sdl: "type Query { a: Int }" }],
+          activeSubgraph: 0,
+          queryTabs: [{ name: "Query 1", query: "" }],
+          activeQueryTab: 0,
+          seed: 42,
+          mockConfig: "",
+          tourDraft: null,
+        },
+      ],
+      activeWorkspaceIndex: 0,
+      supergraphSdl: null,
+      composeErrors: null,
+      composeHints: 0,
+    });
+    useAuth.setState({ status: "authed", decryptWarning: null });
+  });
+
+  it("renders the warning banner (with a Dismiss button) when decryptWarning is set", () => {
+    useAuth.setState({ decryptWarning: "1 workspace could not be loaded." });
+
+    render(<App />);
+
+    expect(screen.getByText("1 workspace could not be loaded.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+  });
+
+  it("renders no warning banner when decryptWarning is null", () => {
+    render(<App />);
+
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+  });
+
+  it("clicking Dismiss clears decryptWarning and unmounts the banner", () => {
+    useAuth.setState({ decryptWarning: "1 workspace could not be loaded." });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(useAuth.getState().decryptWarning).toBeNull();
+    expect(screen.queryByText("1 workspace could not be loaded.")).toBeNull();
   });
 });

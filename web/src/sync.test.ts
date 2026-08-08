@@ -9,7 +9,15 @@ vi.mock("./encryption", () => ({
   initEncryption: () => Promise.resolve(),
   getOrCreateKey: () => Promise.resolve({}),
   encrypt: (_key: unknown, text: string) => Promise.resolve(text),
-  decrypt: (_key: unknown, text: string) => Promise.resolve(text),
+  // Conditional stub: a sentinel payload ("UNDECRYPTABLE") simulates a row
+  // that fails to decrypt (wrong key / tampering) so individual tests can
+  // opt a specific row into that failure mode without touching real crypto.
+  decrypt: (_key: unknown, text: string) => {
+    if (text === "UNDECRYPTABLE") {
+      return Promise.reject(new Error("Failed to decrypt value"));
+    }
+    return Promise.resolve(text);
+  },
 }));
 import { useAuth } from "./auth";
 import { useWorkspace } from "./store";
@@ -58,8 +66,21 @@ function makeRow(overrides: {
   };
 }
 
+// A row whose name/payload both decrypt-fail via the mocked `decrypt` above
+// — simulates a KWK/wrapped_dek mismatch or tampering (TASK-128.2).
+function makeUndecryptableRow(id: string) {
+  return {
+    id,
+    name: "UNDECRYPTABLE",
+    payload: "UNDECRYPTABLE",
+    version: 1,
+    updated_at: Date.now(),
+    deleted_at: null,
+  };
+}
+
 function resetStores() {
-  useAuth.setState({ user: null, status: "loading", syncStatus: "synced" });
+  useAuth.setState({ user: null, status: "loading", syncStatus: "synced", decryptWarning: null });
   // Reset workspace store to a fresh default
   useWorkspace.setState({
     workspaces: [makeEntry({ id: crypto.randomUUID(), name: "Workspace 1" })],
@@ -588,6 +609,101 @@ describe("initSync onLogin", () => {
     // Index must have been clamped from 1 → 0 (only ws-a remains).
     expect(state.activeWorkspaceIndex).toBe(0);
     expect(state.activeWorkspaceIndex).toBeLessThan(state.workspaces.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decryptWarning — surfaced when pullWorkspaces reports skippedIds
+// (TASK-128.2)
+// ---------------------------------------------------------------------------
+
+describe("decryptWarning", () => {
+  let cleanup: (() => void) | undefined;
+
+  beforeEach(() => {
+    resetStores();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("onLogin sets decryptWarning when a pulled row fails to decrypt", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            workspaces: [makeRow({ id: "ws-good" }), makeUndecryptableRow("ws-bad")],
+            cursor: Date.now(),
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    cleanup = initSync();
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    const warning = useAuth.getState().decryptWarning;
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("1");
+  });
+
+  it("onLogin does not set decryptWarning when all rows decrypt successfully", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url: RequestInfo | URL) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ workspaces: [makeRow({ id: "ws-good" })], cursor: Date.now() }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    cleanup = initSync();
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(useAuth.getState().decryptWarning).toBeNull();
+  });
+
+  it("deltaRefresh sets decryptWarning when a delta row fails to decrypt, even when it pulls zero new rows", async () => {
+    useAuth.setState({ status: "authed" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ workspaces: [makeUndecryptableRow("ws-bad")], cursor: Date.now() }),
+        { status: 200 },
+      ),
+    );
+
+    // The undecryptable row is excluded from `rows` (only skippedIds counts
+    // it), so this pull returns zero *new* rows — the warning must still
+    // surface despite the deltaRefresh's rows.length === 0 early return.
+    await deltaRefresh(true);
+
+    const warning = useAuth.getState().decryptWarning;
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("1");
+  });
+
+  it("deltaRefresh clears a previous decryptWarning once the row decrypts successfully", async () => {
+    useAuth.setState({ status: "authed", decryptWarning: "stale warning" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+    );
+
+    await deltaRefresh(true);
+
+    expect(useAuth.getState().decryptWarning).toBeNull();
   });
 });
 

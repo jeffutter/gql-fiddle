@@ -195,6 +195,35 @@ async function deleteWorkspace(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Decryption failure warning (TASK-128.2)
+//
+// pullWorkspaces reports skippedIds for rows that failed to decrypt (wrong
+// key / tampering). Every caller must surface this via decryptWarning
+// instead of silently proceeding as if nothing happened — otherwise a fully
+// failed decrypt (e.g. every row on the account) leaves the user looking at
+// an empty/default workspace with no indication data was dropped.
+// ---------------------------------------------------------------------------
+
+function decryptWarningMessage(skippedCount: number): string {
+  return (
+    `${skippedCount} workspace${skippedCount === 1 ? "" : "s"} could not be ` +
+    `loaded because ${skippedCount === 1 ? "it" : "they"} failed to decrypt ` +
+    `on this device. This can happen when a workspace was saved with a ` +
+    `different encryption key (e.g. from another device). Your data has ` +
+    `not been deleted — it may still be recoverable from the device it was ` +
+    `saved on.`
+  );
+}
+
+// Always set (never conditionally skipped) so a resolved failure clears a
+// stale warning on the next pull that has no skipped rows.
+function applyDecryptWarning(skippedIds: Set<string>): void {
+  useAuth
+    .getState()
+    .setDecryptWarning(skippedIds.size > 0 ? decryptWarningMessage(skippedIds.size) : null);
+}
+
+// ---------------------------------------------------------------------------
 // Delta refresh (TASK-88.7) — exported so tests can trigger it directly
 // ---------------------------------------------------------------------------
 
@@ -218,10 +247,14 @@ export async function deltaRefresh(force = false): Promise<void> {
   if (!force && now - lastPullAttemptTs < THROTTLE_MS) return;
   lastPullAttemptTs = now;
   try {
-    const { rows, cursor } = await pullWorkspaces(syncCursor);
+    const { rows, cursor, skippedIds } = await pullWorkspaces(syncCursor);
     // Advance the cursor unconditionally — even when nothing changed — so a
     // later pull doesn't re-request rows already known not to exist.
     syncCursor = cursor;
+    // Set before the empty-rows early return below: a delta pull can skip a
+    // row (decryption failure) while pulling zero *new* rows, and the
+    // warning must still surface in that case.
+    applyDecryptWarning(skippedIds);
     if (rows.length === 0) return;
     const local = useWorkspace.getState().workspaces;
     const merged = mergeWorkspaces(local, rows);
@@ -264,6 +297,7 @@ export function initSync(): () => void {
       const { rows, cursor, skippedIds } = await pullWorkspaces(0);
       syncCursor = cursor;
       lastPullAttemptTs = Date.now();
+      applyDecryptWarning(skippedIds);
       const local = useWorkspace.getState().workspaces;
       const merged = mergeWorkspaces(local, rows);
 
