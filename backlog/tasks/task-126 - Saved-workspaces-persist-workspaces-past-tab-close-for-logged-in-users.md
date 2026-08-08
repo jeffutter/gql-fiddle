@@ -1,10 +1,10 @@
 ---
 id: TASK-126
 title: 'Saved workspaces: persist workspaces past tab close for logged-in users'
-status: Blocked
+status: Done
 assignee: []
 created_date: '2026-08-06 22:20'
-updated_date: '2026-08-08 00:47'
+updated_date: '2026-08-08 04:33'
 labels:
   - feature
   - workspaces

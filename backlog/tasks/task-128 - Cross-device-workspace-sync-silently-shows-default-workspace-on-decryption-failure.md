@@ -3,10 +3,10 @@ id: TASK-128
 title: >-
   Cross-device workspace sync silently shows default workspace on decryption
   failure
-status: Blocked
+status: Done
 assignee: []
 created_date: '2026-08-07 14:04'
-updated_date: '2026-08-08 00:33'
+updated_date: '2026-08-08 04:33'
 labels:
   - bug
   - sync
