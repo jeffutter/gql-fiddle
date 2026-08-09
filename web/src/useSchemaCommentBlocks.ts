@@ -141,6 +141,17 @@ export function useSchemaCommentBlocks(
             ),
             domNode: dom,
             showInHiddenAreas: true,
+            // Without this, a mousedown here — while the editor already has
+            // focus elsewhere in the document — blurs it first (mousedown on
+            // a non-focusable target is a browser default). That fires
+            // onDidBlurEditorText, whose rescan() tears down and rebuilds
+            // every zone, including this one, mid-gesture — so the click
+            // event this mousedown was starting never reaches this domNode
+            // and enterEditMode()/jumpToLink() never run.
+            // suppressMouseDown makes Monaco preventDefault() the mousedown,
+            // which suppresses that default focus-shift; our own click
+            // handler below then manages focus deliberately.
+            suppressMouseDown: true,
           });
           zoneIdsRef.current.push(id);
         });
