@@ -19,6 +19,14 @@ export const DEFAULT_SUBGRAPHS: SubgraphInput[] = [
   query: Query
 }
 
+# ## Fiddle notes
+#
+# A \`#\` line is a real GraphQL comment — the parser discards it, so it
+# never becomes part of the schema. The editor renders contiguous \`#\`
+# blocks like this one as markdown instead of raw text. Click anywhere
+# here (not on a link) to edit the source; click a link such as
+# [User.email](#User.email) to jump to what it names.
+
 type Query {
   me: User
   user(id: ID!): User

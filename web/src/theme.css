@@ -1388,3 +1388,82 @@ body {
   color: var(--text);
   font-weight: 600;
 }
+
+/* ========================================================================== *
+ * Schema comment blocks — rendered markdown in place of raw `#` comments
+ * ========================================================================== */
+.schema-comment-block {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 8px 12px;
+  margin: 2px 0;
+  cursor: text;
+  /* Monaco appends its view-zones layer *before* .view-lines in the DOM
+     (see view.js), so .view-lines paints — and hit-tests — on top by
+     default even where it has no visible content at this line range. Both
+     are position:absolute with z-index:auto, so lifting just this element
+     is enough to win hit-testing without touching Monaco's own layers. */
+  position: relative;
+  z-index: 10;
+}
+
+.schema-comment-block:hover {
+  border-left-color: var(--accent);
+}
+
+.schema-comment-block > *:first-child {
+  margin-top: 0;
+}
+
+.schema-comment-block > *:last-child {
+  margin-bottom: 0;
+}
+
+.schema-comment-block h1,
+.schema-comment-block h2,
+.schema-comment-block h3 {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.schema-comment-block p {
+  margin: 0 0 8px;
+}
+
+.schema-comment-block ul,
+.schema-comment-block ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.schema-comment-block code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-3);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.schema-comment-block a {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.schema-comment-block a:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+
+.schema-link-target-flash {
+  background: var(--accent-soft);
+  transition: background 0.6s ease-out;
+}

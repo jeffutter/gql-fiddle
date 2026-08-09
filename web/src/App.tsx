@@ -30,6 +30,7 @@ import { MONACO_THEME, defineMonacoTheme } from "./monacoTheme";
 import { planToFieldRanges, collectServiceNames } from "./planToFieldRanges";
 import { hashSubgraphName, injectSubgraphStyles, subgraphColorVar } from "./subgraphColors";
 import { useMonacoGraphQL } from "./useMonacoGraphQL";
+import { useSchemaCommentBlocks } from "./useSchemaCommentBlocks";
 import { useGraphQLPipeline } from "./useGraphQLPipeline";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { EditableTab } from "./EditableTab";
@@ -362,6 +363,9 @@ export default function App() {
   useEffect(() => {
     if (compose) registerSchema(compose.ok ? compose.api_schema_sdl : null);
   }, [compose, registerSchema]);
+  // Renders `#`-comment blocks in the schema editor as markdown, in place of
+  // their raw source — see useSchemaCommentBlocks.ts.
+  useSchemaCommentBlocks(editor, monacoInstance);
   // Query editor instance ref — used to apply field-attribution decorations.
   const queryEditorRef = useRef<_monaco.editor.IStandaloneCodeEditor | null>(null);
   // Monaco decoration collection for field-attribution highlights.
