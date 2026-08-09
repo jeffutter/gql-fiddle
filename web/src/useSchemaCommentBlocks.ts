@@ -2,7 +2,17 @@ import { useEffect, useRef } from "react";
 import type * as _monaco from "monaco-editor";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { findCommentBlocks, resolveSchemaLink, type CommentBlock } from "./schemaComments";
+import {
+  findCommentBlocks,
+  parseSchemaLink,
+  resolveSchemaLink,
+  type CommentBlock,
+} from "./schemaComments";
+
+export interface SchemaCommentSubgraph {
+  name: string;
+  sdl: string;
+}
 
 /**
  * `setHiddenAreas` collapses a line range to zero height in the editor's
@@ -62,23 +72,38 @@ function measureHeight(node: HTMLElement, widthPx: number): number {
 export function useSchemaCommentBlocks(
   editor: _monaco.editor.IStandaloneCodeEditor | null,
   monacoInstance: typeof _monaco | null,
+  subgraphs: SchemaCommentSubgraph[],
+  activeSubgraphIndex: number,
+  onNavigateToSubgraph: (index: number) => void,
 ) {
   const zoneIdsRef = useRef<string[]>([]);
   const flashDecorationsRef = useRef<ReturnType<
     _monaco.editor.IStandaloneCodeEditor["createDecorationsCollection"]
   > | null>(null);
+  // A `subgraph:Type.field` link switches tabs (see jumpToLink) before the
+  // target subgraph's model is even mounted on `editor`, so the reveal+flash
+  // has to wait for the model swap. Set by jumpToLink, consumed by the next
+  // rescan() once onDidChangeModel confirms that swap happened.
+  const pendingJumpRef = useRef<string | null>(null);
+  // Mirrors of props that change far more often than the Monaco wiring below
+  // should ever tear down and rebuild for — `subgraphs` is a fresh array on
+  // every keystroke anywhere in the workspace. Read via refs instead of
+  // depending on them directly.
+  const subgraphsRef = useRef(subgraphs);
+  const activeSubgraphIndexRef = useRef(activeSubgraphIndex);
+  const onNavigateToSubgraphRef = useRef(onNavigateToSubgraph);
+  useEffect(() => {
+    subgraphsRef.current = subgraphs;
+    activeSubgraphIndexRef.current = activeSubgraphIndex;
+    onNavigateToSubgraphRef.current = onNavigateToSubgraph;
+  });
 
   useEffect(() => {
     if (!editor || !monacoInstance) return;
     const hiddenEditor = editor as EditorWithHiddenAreas;
 
-    function jumpToLink(target: string) {
+    function revealAndFlash(name: string) {
       if (!editor || !monacoInstance) return;
-      if (/^https?:\/\//.test(target)) {
-        window.open(target, "_blank", "noopener,noreferrer");
-        return;
-      }
-      const name = target.startsWith("#") ? target.slice(1) : target;
       const model = editor.getModel();
       if (!model) return;
       const line = resolveSchemaLink(model.getValue(), name);
@@ -92,6 +117,24 @@ export function useSchemaCommentBlocks(
         },
       ]);
       setTimeout(() => flashDecorationsRef.current?.clear(), 1200);
+    }
+
+    function jumpToLink(target: string) {
+      if (/^https?:\/\//.test(target)) {
+        window.open(target, "_blank", "noopener,noreferrer");
+        return;
+      }
+      const { subgraph, name } = parseSchemaLink(target);
+      if (subgraph !== null) {
+        const targetIndex = subgraphsRef.current.findIndex((sg) => sg.name === subgraph);
+        if (targetIndex === -1) return; // link names a subgraph that doesn't exist (any more)
+        if (targetIndex !== activeSubgraphIndexRef.current) {
+          pendingJumpRef.current = name;
+          onNavigateToSubgraphRef.current(targetIndex);
+          return;
+        }
+      }
+      revealAndFlash(name);
     }
 
     function enterEditMode(block: CommentBlock) {
@@ -108,6 +151,12 @@ export function useSchemaCommentBlocks(
       const model = editor.getModel();
       if (!model) return;
 
+      if (pendingJumpRef.current !== null) {
+        const name = pendingJumpRef.current;
+        pendingJumpRef.current = null;
+        revealAndFlash(name);
+      }
+
       const blocks = findCommentBlocks(model.getValue());
       const cursorLine = editor.getPosition()?.lineNumber ?? -1;
       const activeIndex = editor.hasTextFocus()
@@ -123,6 +172,23 @@ export function useSchemaCommentBlocks(
         blocks.forEach((block, i) => {
           if (i === activeIndex) return;
           const dom = renderBlockDom(block);
+          // Without this, a mousedown here — while the editor already has
+          // focus elsewhere in the document — blurs it first (mousedown on
+          // a non-focusable target is a browser default). That fires
+          // onDidBlurEditorText, whose rescan() tears down and rebuilds every
+          // zone, including this one, mid-gesture — so the click event this
+          // mousedown was starting never reaches this domNode and
+          // enterEditMode()/jumpToLink() never run. preventDefault on our
+          // own mousedown listener suppresses that default focus-shift.
+          //
+          // Deliberately NOT using the zone's `suppressMouseDown` option for
+          // this: that routes the mousedown through Monaco's own view-zone
+          // handling, which calls its *own* focus() and starts a
+          // cursor-placement operation for the click — snapping the cursor
+          // to whatever line Monaco decides is nearest the zone, not
+          // necessarily inside this block, which fights our click handler
+          // below rather than deferring to it.
+          dom.addEventListener("mousedown", (e) => e.preventDefault());
           dom.addEventListener("click", (e) => {
             const anchor = (e.target as HTMLElement).closest("a");
             if (anchor) {
@@ -141,17 +207,6 @@ export function useSchemaCommentBlocks(
             ),
             domNode: dom,
             showInHiddenAreas: true,
-            // Without this, a mousedown here — while the editor already has
-            // focus elsewhere in the document — blurs it first (mousedown on
-            // a non-focusable target is a browser default). That fires
-            // onDidBlurEditorText, whose rescan() tears down and rebuilds
-            // every zone, including this one, mid-gesture — so the click
-            // event this mousedown was starting never reaches this domNode
-            // and enterEditMode()/jumpToLink() never run.
-            // suppressMouseDown makes Monaco preventDefault() the mousedown,
-            // which suppresses that default focus-shift; our own click
-            // handler below then manages focus deliberately.
-            suppressMouseDown: true,
           });
           zoneIdsRef.current.push(id);
         });

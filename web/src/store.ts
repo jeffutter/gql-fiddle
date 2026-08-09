@@ -26,6 +26,8 @@ export const DEFAULT_SUBGRAPHS: SubgraphInput[] = [
 # blocks like this one as markdown instead of raw text. Click anywhere
 # here (not on a link) to edit the source; click a link such as
 # [User.email](#User.email) to jump to what it names.
+#
+# Link into another subgraph by naming it: [products:Product.price](#products:Product.price).
 
 type Query {
   me: User

@@ -65,6 +65,27 @@ export function findCommentBlocks(sdl: string): CommentBlock[] {
   return blocks;
 }
 
+export interface SchemaLinkTarget {
+  /** Subgraph name from a `subgraph:Type.field` link, or `null` for "current subgraph". */
+  subgraph: string | null;
+  /** `Type` or `Type.field`. */
+  name: string;
+}
+
+/**
+ * Parses a comment-block link target. `[label](#Type.field)` stays within
+ * whatever subgraph the comment lives in; `[label](#subgraph:Type.field)`
+ * names which subgraph tab to jump to first — needed because `Type` alone
+ * is ambiguous the moment two subgraphs both define it (or one only
+ * `extend`s it), and a bare name can't say which one a reader should land on.
+ */
+export function parseSchemaLink(target: string): SchemaLinkTarget {
+  const stripped = target.startsWith("#") ? target.slice(1) : target;
+  const colon = stripped.indexOf(":");
+  if (colon === -1) return { subgraph: null, name: stripped };
+  return { subgraph: stripped.slice(0, colon), name: stripped.slice(colon + 1) };
+}
+
 const TYPE_DEF = /^\s*(type|interface|enum|input|union|scalar)\s+(\w+)/;
 // A field/value line: `name(...)?: Type` or a bare enum value `NAME`. Loose on
 // purpose — good enough to locate a line to jump to, not a full SDL parser.

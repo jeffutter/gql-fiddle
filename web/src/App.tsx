@@ -365,7 +365,7 @@ export default function App() {
   }, [compose, registerSchema]);
   // Renders `#`-comment blocks in the schema editor as markdown, in place of
   // their raw source — see useSchemaCommentBlocks.ts.
-  useSchemaCommentBlocks(editor, monacoInstance);
+  useSchemaCommentBlocks(editor, monacoInstance, subgraphs, activeSubgraph, setActiveSubgraph);
   // Query editor instance ref — used to apply field-attribution decorations.
   const queryEditorRef = useRef<_monaco.editor.IStandaloneCodeEditor | null>(null);
   // Monaco decoration collection for field-attribution highlights.
