@@ -317,6 +317,7 @@ export default function App() {
     "plan" | "sequence" | "timeline" | "entities" | "type-graph" | "schema-tree" | null
   >(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [workspaceExportOpen, setWorkspaceExportOpen] = useState(false);
@@ -1481,29 +1482,77 @@ export default function App() {
         )}
         {authStatus !== "loading" &&
           (authStatus === "anonymous" ? (
-            <button onClick={login} className="btn">
-              Sign in with GitHub
-            </button>
+            <>
+              <button onClick={login} className="btn">
+                Sign in with GitHub
+              </button>
+              <button onClick={() => setAboutOpen(true)} className="btn" aria-label="About">
+                ?
+              </button>
+            </>
           ) : (
-            <div className="auth-user">
-              {user?.avatar_url && (
-                <img
-                  src={user.avatar_url}
-                  alt={user.login}
-                  className="auth-user__avatar"
-                  width={24}
-                  height={24}
-                />
-              )}
-              <span className="auth-user__name">{user?.login}</span>
-              <button onClick={() => void logout()} className="btn">
+            <HeaderMenu
+              label={
+                <>
+                  {user?.avatar_url ? (
+                    <img
+                      src={user.avatar_url}
+                      alt={user.login}
+                      className="auth-user__avatar"
+                      width={24}
+                      height={24}
+                    />
+                  ) : (
+                    <span
+                      className="auth-user__avatar auth-user__avatar--placeholder"
+                      aria-hidden="true"
+                    >
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="8" r="4" />
+                        <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
+                      </svg>
+                    </span>
+                  )}
+                </>
+              }
+              triggerClassName="auth-user-trigger"
+              open={userMenuOpen}
+              onToggle={() => setUserMenuOpen(!userMenuOpen)}
+              onClose={() => setUserMenuOpen(false)}
+            >
+              <div className="auth-user__header">
+                <span className="auth-user__name">{user?.login}</span>
+              </div>
+              <div className="header-menu__divider" />
+              <button
+                onClick={() => {
+                  setAboutOpen(true);
+                  setUserMenuOpen(false);
+                }}
+                className="btn"
+              >
+                About
+              </button>
+              <button
+                onClick={() => {
+                  void logout();
+                  setUserMenuOpen(false);
+                }}
+                className="btn"
+              >
                 Sign out
               </button>
-            </div>
+            </HeaderMenu>
           ))}
-        <button onClick={() => setAboutOpen(true)} className="btn" aria-label="About">
-          ?
-        </button>
       </div>
     </header>
   );

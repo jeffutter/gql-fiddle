@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as _monaco from "monaco-editor";
 import * as jsYaml from "js-yaml";
 import { loadCore } from "./core";
@@ -96,6 +96,39 @@ export function useGraphQLPipeline(params: {
   // value to detect whether a newer compose has already superseded it.
   const composeGenerationRef = useRef(0);
 
+  /**
+   * Parse a YAML string into a JSON string suitable for passing to
+   * `core.executeMock`. Returns `"{}"` and sets `configError` on parse
+   * failure so the query still runs with default generation.
+   */
+  function parseYamlToJson(yaml: string): string {
+    if (!yaml.trim()) return "{}";
+    try {
+      const parsed = jsYaml.load(yaml);
+      if (parsed === null || parsed === undefined) return "{}";
+      setConfigError(null);
+      return JSON.stringify(parsed);
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Invalid YAML");
+      return "{}";
+    }
+  }
+
+  const doRun = useCallback(
+    async (query: string, sdl: string, s: number) => {
+      const core = await loadCore();
+      const mockConfigJson = parseYamlToJson(mockConfig);
+      const [execResult, plan] = await Promise.all([
+        Promise.resolve(core.executeMock(sdl, query, s, mockConfigJson)),
+        Promise.resolve(core.plan(sdl, query)),
+      ]);
+      setMockResult(execResult);
+      setPlanResult(plan);
+      setIsRunning(false);
+    },
+    [mockConfig],
+  );
+
   // Debounced composition effect.
   useEffect(() => {
     if (composeTimeoutRef.current) clearTimeout(composeTimeoutRef.current);
@@ -122,17 +155,16 @@ export function useGraphQLPipeline(params: {
   // Auto-run effect: re-executes the query whenever inputs change.
   useEffect(() => {
     if (supergraphSdl === null) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsRunning(true);
     if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
     const sdl = supergraphSdl;
     autoRunTimeoutRef.current = setTimeout(() => {
+      setIsRunning(true);
       void doRun(currentQuery, sdl, seed);
     }, AUTO_RUN_DEBOUNCE_MS);
     return () => {
       if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
     };
-  }, [currentQuery, supergraphSdl, seed, mockConfig]);
+  }, [currentQuery, supergraphSdl, seed, doRun]);
 
   // Debounced validation effect.
   useEffect(() => {
@@ -193,37 +225,7 @@ export function useGraphQLPipeline(params: {
     return () => {
       if (queryTimeoutRef.current) clearTimeout(queryTimeoutRef.current);
     };
-  }, [monacoInstance, supergraphSdl, currentQuery, activeQueryTab]);
-
-  /**
-   * Parse a YAML string into a JSON string suitable for passing to
-   * `core.executeMock`. Returns `"{}"` and sets `configError` on parse
-   * failure so the query still runs with default generation.
-   */
-  function parseYamlToJson(yaml: string): string {
-    if (!yaml.trim()) return "{}";
-    try {
-      const parsed = jsYaml.load(yaml);
-      if (parsed === null || parsed === undefined) return "{}";
-      setConfigError(null);
-      return JSON.stringify(parsed);
-    } catch (err) {
-      setConfigError(err instanceof Error ? err.message : "Invalid YAML");
-      return "{}";
-    }
-  }
-
-  async function doRun(query: string, sdl: string, s: number) {
-    const core = await loadCore();
-    const mockConfigJson = parseYamlToJson(mockConfig);
-    const [execResult, plan] = await Promise.all([
-      Promise.resolve(core.executeMock(sdl, query, s, mockConfigJson)),
-      Promise.resolve(core.plan(sdl, query)),
-    ]);
-    setMockResult(execResult);
-    setPlanResult(plan);
-    setIsRunning(false);
-  }
+  }, [monacoInstance, supergraphSdl, currentQuery, activeQueryTab, activeWorkspaceIndex]);
 
   function runQuery() {
     if (supergraphSdl === null) return;
