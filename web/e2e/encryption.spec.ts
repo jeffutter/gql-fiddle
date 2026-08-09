@@ -101,10 +101,13 @@ test("workspace sync sends CE1:-compressed-encrypted name and payload to the ser
 
   await page.goto("/");
 
-  // The app shows "Sign out" once it detects an authenticated session.
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 15_000,
-  });
+  // The app shows the avatar trigger once it detects an authenticated session.
+  const avatarTrigger = page.locator(".auth-user-trigger");
+  await expect(avatarTrigger).toBeVisible({ timeout: 15_000 });
+
+  // Open the user menu to verify Sign out is available.
+  await avatarTrigger.click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 
   // ── Assert encrypted payloads ──────────────────────────────────────────────
 
