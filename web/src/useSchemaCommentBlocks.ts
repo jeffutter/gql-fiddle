@@ -137,13 +137,40 @@ export function useSchemaCommentBlocks(
       revealAndFlash(name);
     }
 
-    function enterEditMode(block: CommentBlock) {
+    function enterEditMode(block: CommentBlock, lineNumber: number = block.startLine) {
       if (!editor) return;
       editor.focus();
-      editor.setPosition({ lineNumber: block.startLine, column: 1 });
-      editor.revealLineInCenter(block.startLine);
+      editor.setPosition({ lineNumber, column: 1 });
+      editor.revealLineInCenter(lineNumber);
       // setPosition triggers onDidChangeCursorPosition, which re-runs rescan()
       // and — now that the cursor sits inside this block — leaves it raw.
+    }
+
+    /**
+     * `setHiddenAreas` folds a block's lines to zero height, so Monaco's
+     * stock ArrowDown/ArrowUp step over the whole block like any other fold
+     * instead of moving the cursor into it. When the cursor sits on the line
+     * immediately adjacent to a (currently hidden) block, entering it
+     * ourselves — landing on its near edge, matching where the key would
+     * have naturally arrived — is the "one line at a time" behavior a user
+     * expects; otherwise we fall through to Monaco's own command so
+     * everything else about vertical movement (desired column, selection,
+     * etc.) still works.
+     */
+    function enterAdjacentBlock(direction: 1 | -1): boolean {
+      if (!editor) return false;
+      const model = editor.getModel();
+      if (!model) return false;
+      const pos = editor.getPosition();
+      if (!pos) return false;
+      const blocks = findCommentBlocks(model.getValue());
+      const block =
+        direction === 1
+          ? blocks.find((b) => b.startLine === pos.lineNumber + 1)
+          : blocks.find((b) => b.endLine === pos.lineNumber - 1);
+      if (!block) return false;
+      enterEditMode(block, direction === 1 ? block.startLine : block.endLine);
+      return true;
     }
 
     function rescan() {
@@ -227,6 +254,12 @@ export function useSchemaCommentBlocks(
     // the full editor surface.
     try {
       rescan();
+      editor.addCommand(monacoInstance.KeyCode.DownArrow, () => {
+        if (!enterAdjacentBlock(1)) editor.trigger("keyboard", "cursorDown", null);
+      });
+      editor.addCommand(monacoInstance.KeyCode.UpArrow, () => {
+        if (!enterAdjacentBlock(-1)) editor.trigger("keyboard", "cursorUp", null);
+      });
       const disposables = [
         editor.onDidChangeModelContent(rescan),
         editor.onDidChangeCursorPosition(rescan),
