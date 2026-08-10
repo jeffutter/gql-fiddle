@@ -557,6 +557,23 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
 }
+.plan-node__requires {
+  margin: 0 0 6px;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.plan-node__requires-label {
+  color: var(--text-faint);
+  font-weight: 600;
+}
 
 /* ========================================================================== *
  * Loading spinner

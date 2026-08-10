@@ -1,21 +1,11 @@
-import type { PlanNode, RequiresSelection } from "./core/types";
+import type { PlanNode } from "./core/types";
+import { formatRequiresSelections } from "./formatRequires";
 import { collectServiceNames, planChildren } from "./planWalk";
 
 /** Extract the first top-level field name from a GraphQL operation string. */
 function topLevelSelection(operation: string): string {
   const m = operation.match(/\{\s*([_A-Za-z][_0-9A-Za-z]*)/);
   return m ? m[1] : "…";
-}
-
-/** Flatten RequiresSelection recursively to a comma-separated list of field names. */
-function formatRequires(requires: RequiresSelection[]): string {
-  function fields(sel: RequiresSelection): string[] {
-    if (sel.kind === "Field") {
-      return [sel.alias ?? sel.name, ...(sel.selections ?? []).flatMap(fields)];
-    }
-    return (sel.selections ?? []).flatMap(fields);
-  }
-  return requires.flatMap(fields).join(", ");
 }
 
 /**
@@ -36,7 +26,9 @@ function emitLines(node: PlanNode, flattenPath?: string[]): string[] {
         lines.push(`  Note over Router,${node.service}: flatten @ ${flattenPath.join(".")}`);
       }
       if (node.requires && node.requires.length > 0) {
-        lines.push(`  Note right of ${node.service}: requires: ${formatRequires(node.requires)}`);
+        lines.push(
+          `  Note right of ${node.service}: requires: ${formatRequiresSelections(node.requires)}`,
+        );
       }
       lines.push(`  ${node.service}-->>Router: ${label}`);
       return lines;

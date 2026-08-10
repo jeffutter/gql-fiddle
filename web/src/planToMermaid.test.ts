@@ -120,7 +120,7 @@ describe("planToMermaid", () => {
       ],
     };
     const result = planToMermaid(node);
-    expect(result).toContain("Note right of reviews: requires: __typename, id");
+    expect(result).toContain("Note right of reviews: requires: __typename id");
   });
 
   it("Sequence containing Parallel — arrows and par/end nested correctly", () => {
@@ -149,7 +149,7 @@ describe("planToMermaid", () => {
     expect(matches).toHaveLength(1);
   });
 
-  it("requires with nested InlineFragment — flattens field names from selections", () => {
+  it("requires with nested InlineFragment — preserves the fragment and nesting", () => {
     const node: PlanNode = {
       kind: "Fetch",
       service: "products",
@@ -158,6 +158,7 @@ describe("planToMermaid", () => {
       requires: [
         {
           kind: "InlineFragment",
+          typeCondition: "Product",
           selections: [
             { kind: "Field", name: "__typename" },
             { kind: "Field", name: "upc" },
@@ -166,6 +167,6 @@ describe("planToMermaid", () => {
       ],
     };
     const result = planToMermaid(node);
-    expect(result).toContain("requires: __typename, upc");
+    expect(result).toContain("requires: ... on Product { __typename upc }");
   });
 });

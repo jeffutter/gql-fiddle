@@ -1,4 +1,5 @@
 import type { DeferredBranch, PlanNode } from "./core/types";
+import { formatRequiresSelections } from "./formatRequires";
 
 const INDENT = 16;
 
@@ -14,6 +15,12 @@ export function PlanTree({ node, depth = 0 }: { node: PlanNode; depth?: number }
             <span className="badge badge--neutral">{node.operation_kind}</span>
           </div>
           <pre className="plan-node__op">{node.operation}</pre>
+          {node.requires && node.requires.length > 0 && (
+            <div className="plan-node__requires">
+              <span className="plan-node__requires-label">requires</span>{" "}
+              {formatRequiresSelections(node.requires)}
+            </div>
+          )}
         </div>
       );
 
