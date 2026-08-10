@@ -96,7 +96,7 @@ fn map_inner_node(node: apollo_federation::query_plan::PlanNode) -> PlanNode {
 
 fn map_fetch(fetch: apollo_federation::query_plan::FetchNode) -> PlanNode {
     let service = fetch.subgraph_name.to_string();
-    let op_str = serde_json::to_string(&fetch.operation_document).unwrap_or_default();
+    let op_str = fetch.operation_document.as_serialized().to_string();
     let op_kind = format!("{}", fetch.operation_kind);
     let requires = map_requires(fetch.requires);
     let resolved_fields = extract_resolved_fields(&fetch.operation_document);
