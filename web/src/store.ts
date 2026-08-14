@@ -324,6 +324,14 @@ export const useWorkspace = create<WorkspaceState>()(
           const cloned: WorkspaceEntry = {
             ...(JSON.parse(JSON.stringify(src)) as WorkspaceEntry),
             name: `Workspace ${n}`,
+            // A clone is a brand-new synced entity, not a second copy of src's
+            // identity — reusing src's id/version made two tab-bar entries
+            // collide under the same sync id, so a push for one could stomp
+            // the other's edits with stale content a moment later.
+            id: generateUUID(),
+            version: 1,
+            saved: undefined,
+            open: undefined,
           };
           return {
             workspaces: [...state.workspaces, cloned],

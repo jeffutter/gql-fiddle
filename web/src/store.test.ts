@@ -121,6 +121,33 @@ describe("workspace store", () => {
     });
   });
 
+  describe("cloneWorkspace", () => {
+    it("gives the clone its own sync id, independent of the source", () => {
+      setWs({ id: "source-id", version: 3, saved: true, open: true });
+      useWorkspace.getState().cloneWorkspace();
+      const workspaces = useWorkspace.getState().workspaces;
+      expect(workspaces).toHaveLength(2);
+      const [source, clone] = workspaces;
+      expect(source.id).toBe("source-id");
+      // A shared id would make the sync engine treat the two tabs as one
+      // workspace — pushing/adopting a server row for either would stomp
+      // the other's independent edits a moment later.
+      expect(clone.id).toBeDefined();
+      expect(clone.id).not.toBe(source.id);
+      expect(clone.version).toBe(1);
+      expect(clone.saved).toBeUndefined();
+      expect(clone.open).toBeUndefined();
+    });
+
+    it("deep-copies content so editing the clone doesn't affect the source", () => {
+      useWorkspace.getState().cloneWorkspace();
+      useWorkspace.getState().setSubgraphSdl(0, "type Query { a: Int }");
+      const workspaces = useWorkspace.getState().workspaces;
+      expect(workspaces[1].subgraphs[0].sdl).toBe("type Query { a: Int }");
+      expect(workspaces[0].subgraphs[0].sdl).toBe("");
+    });
+  });
+
   describe("query tab management", () => {
     it("addQueryTab creates a new tab and makes it active", () => {
       useWorkspace.getState().addQueryTab();
