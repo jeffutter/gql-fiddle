@@ -214,11 +214,15 @@ async function pullWorkspaces(
 
 /**
  * Push one workspace to the server.
- * Returns the server row on both 200 (accepted) and 409 (stale — caller
- * should adopt the server row). Returns null only on auth errors (401/403),
- * which are expected when logged out mid-session.
+ * Returns `{ row, conflict: false }` on 200 (accepted) — `row` is just an
+ * echo of what was sent, not new information. Returns `{ row, conflict:
+ * true }` on 409 (stale — the server's row may hold content this client
+ * doesn't have and the caller must adopt it). Returns null only on auth
+ * errors (401/403), which are expected when logged out mid-session.
  */
-async function pushWorkspace(ws: WorkspaceEntry): Promise<WorkspaceRow | null> {
+async function pushWorkspace(
+  ws: WorkspaceEntry,
+): Promise<{ row: WorkspaceRow; conflict: boolean } | null> {
   if (!ws.id) return null;
   const key = await getOrCreateKey();
   const encName = await encrypt(key, ws.name);
@@ -238,11 +242,11 @@ async function pushWorkspace(ws: WorkspaceEntry): Promise<WorkspaceRow | null> {
   if (res.status === 401 || res.status === 403) return null;
   if (res.status === 409) {
     const data = (await res.json()) as { current: WorkspaceRow };
-    return decryptRow(key, data.current);
+    return { row: await decryptRow(key, data.current), conflict: true };
   }
   if (!res.ok) throw new Error(`Push failed: ${res.status}`);
   const data = (await res.json()) as { workspace: WorkspaceRow };
-  return decryptRow(key, data.workspace);
+  return { row: await decryptRow(key, data.workspace), conflict: false };
 }
 
 /**
@@ -331,8 +335,14 @@ async function pushEntry(ws: WorkspaceEntry): Promise<void> {
   }
   useAuth.getState().setSyncStatus("saving");
   try {
-    const serverRow = await pushWorkspace(ws);
-    if (serverRow) {
+    const result = await pushWorkspace(ws);
+    // A 200 is just an echo of what this call just sent — never adopt it.
+    // Doing so would race any edit made while the request was in flight:
+    // the local version doesn't bump again until the *next* debounced
+    // autoSave, so a same-version echo landing after further typing would
+    // silently overwrite that newer content with the stale payload just
+    // pushed. Only a 409 carries content this client doesn't already have.
+    if (result?.conflict) {
       isSyncing = true;
       try {
         const workspaces = useWorkspace.getState().workspaces.map((w) => {
@@ -340,8 +350,8 @@ async function pushEntry(ws: WorkspaceEntry): Promise<void> {
           // A late-arriving response for an older in-flight request must not
           // roll back a newer edit/version the store has already advanced
           // past (mirrors autoSave's stale-response guard).
-          if (serverRow.version < (w.version ?? 0)) return w;
-          return rowToEntry(serverRow, w);
+          if (result.row.version < (w.version ?? 0)) return w;
+          return rowToEntry(result.row, w);
         });
         useWorkspace.setState({ workspaces });
       } finally {
@@ -582,9 +592,9 @@ export function initSync(): () => void {
         const ws = finalMerged[i];
         if (ws.id && !remoteIds.has(ws.id)) {
           const bumped = { ...ws, version: ws.version ?? 1 };
-          const serverRow = await pushWorkspace(bumped);
-          if (serverRow) {
-            finalMerged[i] = rowToEntry(serverRow, ws);
+          const result = await pushWorkspace(bumped);
+          if (result) {
+            finalMerged[i] = rowToEntry(result.row, ws);
           }
         }
       }

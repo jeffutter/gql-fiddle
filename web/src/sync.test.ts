@@ -527,6 +527,68 @@ describe("initSync auto-save debounce", () => {
     expect(finalWs?.version).toBe(3);
     expect(finalWs?.name).toBe("Edit 2");
   });
+
+  it("does not clobber a newer local edit with the echo of its own in-flight autoSave", async () => {
+    // Distinct from the out-of-order-versions test above: here only ONE
+    // autoSave has fired (no second debounce has elapsed yet), so the
+    // in-flight request's response carries the SAME version as what's
+    // currently in the store. A version-only staleness check can't catch
+    // this — the response must never be adopted as content on a plain 200.
+    useAuth.setState({
+      user: { id: "u1", login: "alice", name: null, avatar_url: null },
+      status: "authed",
+    });
+
+    const wsId = "ws-echo";
+    let resolvePut: ((res: Response) => void) | undefined;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url: RequestInfo | URL, opts?: RequestInit) => {
+        if (opts?.method === "PUT") {
+          // Never resolves on its own — the test resolves it manually, after
+          // the user has typed further, simulating a response landing after
+          // the next keystroke but before the next debounced autoSave.
+          return new Promise<Response>((resolve) => {
+            resolvePut = resolve;
+          });
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ workspaces: [], cursor: Date.now() }), { status: 200 }),
+        );
+      },
+    );
+
+    cleanup = initSync();
+
+    const ws = makeEntry({ id: wsId, name: "Initial", version: 1 });
+    useWorkspace.setState({ workspaces: [ws] });
+
+    // First edit: advance past the debounce so autoSave fires (bumping the
+    // local version to 2) and sends its PUT, leaving the response pending.
+    useWorkspace.setState({ workspaces: [{ ...ws, name: "Edit 1" }] });
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    // User keeps typing before that response comes back — the debounce
+    // resets and hasn't fired again yet, so the local version is still 2.
+    const afterFirstBump = useWorkspace.getState().workspaces.find((w) => w.id === wsId);
+    expect(afterFirstBump?.version).toBe(2);
+    useWorkspace.setState({ workspaces: [{ ...afterFirstBump!, name: "Edit 2" }] });
+
+    // Now the first PUT's response arrives — same version (2) as what's
+    // currently in the store, since no second autoSave has fired yet.
+    resolvePut!(
+      new Response(
+        JSON.stringify({ workspace: makeRow({ id: wsId, version: 2, name: "Edit 1" }) }),
+        { status: 200 },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The same-version echo of the stale "Edit 1" payload must not overwrite
+    // the newer "Edit 2" content already sitting in the store.
+    const finalWs = useWorkspace.getState().workspaces.find((w) => w.id === wsId);
+    expect(finalWs?.name).toBe("Edit 2");
+  });
 });
 
 // ---------------------------------------------------------------------------
